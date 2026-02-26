@@ -1,0 +1,14 @@
+{
+  "name": "westland-skills",
+  "owner": {
+    "name": "Camron Walker"
+  },
+  "plugins": [
+    {
+      "name": "westland",
+      "source": "./",
+      "description": "Claude Code skills for Westland Construction workflows.",
+      "version": "0.1.0"
+    }
+  ]
+}
