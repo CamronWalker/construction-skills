@@ -5,18 +5,13 @@ Claude Code skills for Westland Construction workflows.
 ## Installation
 
 ```
-/plugin marketplace add CamronWalker/skills
+/plugin marketplace add CamronWalker/westland-skills
 /plugin install westland@westland-skills
 ```
 
 ## Skills
 
-*No skills yet — add new skills in the `skills/` directory.*
-
-Each skill is a folder containing a `SKILL.md` file:
-
-```
-skills/
-└── my-skill/
-    └── SKILL.md
-```
+- **schedule-best-practices** — Guide for building and maintaining construction schedules that score well on DCMA, GAO, and AACE best practice metrics.
+- **schedule-quality-score** — Score a Primavera P6 schedule against industry best practice metrics and output a quality report with a letter grade, scored metrics, and key findings.
+- **schedule-xer-generate** — Generate new Primavera P6 XER schedule files from scratch using similar project schedules and a proposal/scope document.
+- **schedule-xer-read-modify** — Read, parse, analyze, and modify existing Primavera P6 XER schedule files.
