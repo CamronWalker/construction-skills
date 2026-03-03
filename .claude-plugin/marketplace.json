@@ -8,7 +8,29 @@
       "name": "westland",
       "source": "./",
       "description": "Claude Code skills for Westland Construction workflows.",
-      "version": "0.1.0"
+      "version": "0.1.0",
+      "skills": [
+        {
+          "name": "schedule-best-practices",
+          "description": "Guide for building and maintaining construction schedules that score well on best practice metrics. Covers DCMA 14-point assessment, GAO schedule standards, and AACE recommended practices.",
+          "source": "./skills/schedule-best-practices"
+        },
+        {
+          "name": "schedule-quality-score",
+          "description": "Score a Primavera P6 schedule against industry best practice metrics and output a quality report as a Markdown file with a letter grade, scored metrics, and key findings.",
+          "source": "./skills/schedule-quality-score"
+        },
+        {
+          "name": "schedule-xer-generate",
+          "description": "Generate new Primavera P6 XER schedule files from scratch by analyzing similar project schedules and a proposal/scope document to create a proposal or baseline schedule.",
+          "source": "./skills/schedule-xer-generate"
+        },
+        {
+          "name": "schedule-xer-read-modify",
+          "description": "Read, parse, analyze, and modify Primavera P6 XER schedule files. Extract activities, logic, calendars, summarize or compare schedules, and modify existing schedule data.",
+          "source": "./skills/schedule-xer-read-modify"
+        }
+      ]
     }
   ]
 }
