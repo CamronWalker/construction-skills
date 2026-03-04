@@ -1,6 +1,6 @@
 {
   "name": "scheduling",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Claude Code skills for construction scheduling — build, score, and manage Primavera P6 schedules.",
   "author": {
     "name": "Camron Walker"

@@ -24,8 +24,8 @@ Browse available plugins and install the ones you need:
 - **schedule-quality-score** — Score a Primavera P6 schedule against industry best practice metrics and output a quality report with a letter grade, scored metrics, and key findings.
 - **schedule-xer-generate** — Generate new Primavera P6 XER schedule files from scratch using similar project schedules and a proposal/scope document.
 - **schedule-xer-read-modify** — Read, parse, analyze, and modify existing Primavera P6 XER schedule files.
-- **schedule-update** (TODO) — Import actual start/finish dates and revised durations into an XER file. Feed it a spreadsheet or list of updates and get back the updated schedule.
-- **schedule-narrative** (TODO) — Generate schedule narrative reports from XER data — monthly update narratives, critical path discussion, and milestone summaries.
+- **schedule-update** (TODO) — Import actual start/finish dates and revised durations into an XER file. Feed this skill a spreadsheet or list of updates and get back the updated schedule XER file.
+- **schedule-update-report** (TODO) — Generate schedule narrative reports from XER data — weekly update narratives, critical path discussion, and milestone summaries.
 - **schedule-delay-analysis** (TODO) — Analyze schedule versions to identify and document delays, compare baselines, and draft time impact analyses.
 
 ### Estimating
