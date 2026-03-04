@@ -19,8 +19,8 @@
     {
       "name": "project-management",
       "source": "./project-management",
-      "description": "Claude Code skills for construction project management — submittals, specs, meeting minutes, and change orders.",
-      "version": "0.1.0"
+      "description": "Claude Code skills for construction project management — submittals, specs, meeting minutes, change events, and change orders.",
+      "version": "0.2.0"
     },
     {
       "name": "site-operations",
