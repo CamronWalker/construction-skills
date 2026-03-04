@@ -1,6 +1,6 @@
 {
   "name": "site-operations",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Claude Code skills for construction site and field operations — RFIs, daily logs, and field workflows.",
   "author": {
     "name": "Camron Walker"

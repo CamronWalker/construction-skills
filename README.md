@@ -45,7 +45,7 @@ Browse available plugins and install the ones you need:
 
 ### Site Operations
 
-- **site-rfi-writing** (TODO) — Guide RFI writing with proper formatting, spec references, and suggested resolution language. Helps craft clear, actionable RFIs.
+- **site-rfi-writing** — Guide RFI writing through an interactive Q&A process — searches project documents first (no RFI is the best RFI), then builds clear, actionable RFIs with proper spec references, drawing references, suggested resolution, and impact assessment. Optional Procore MCP integration for direct posting.
 - **site-daily-log** (TODO) — Assist with daily log entries — manpower, equipment, work performed, delays, and a scheduled-vs-actual work analysis. Optional Procore MCP integration for direct posting.
 
 ### Safety
