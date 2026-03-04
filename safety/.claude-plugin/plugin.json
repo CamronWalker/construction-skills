@@ -1,0 +1,14 @@
+{
+  "name": "safety",
+  "version": "0.1.0",
+  "description": "Claude Code skills for construction safety — toolbox talks, JSAs, orientations, and incident reports.",
+  "author": {
+    "name": "Camron Walker"
+  },
+  "repository": "https://github.com/CamronWalker/construction-skills",
+  "license": "MIT",
+  "keywords": [
+    "construction",
+    "safety"
+  ]
+}

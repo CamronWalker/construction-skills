@@ -1,14 +1,38 @@
 {
-  "name": "westland-skills",
+  "name": "construction-skills",
   "owner": {
     "name": "Camron Walker"
   },
   "plugins": [
     {
-      "name": "westland",
-      "source": "./",
-      "description": "Claude Code skills for Westland Construction workflows.",
-      "version": "0.2.0"
+      "name": "scheduling",
+      "source": "./scheduling",
+      "description": "Claude Code skills for construction scheduling — build, score, and manage Primavera P6 schedules.",
+      "version": "0.3.0"
+    },
+    {
+      "name": "estimating",
+      "source": "./estimating",
+      "description": "Claude Code skills for construction estimating — bid reviews, scope gap analysis, and bid leveling.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "project-management",
+      "source": "./project-management",
+      "description": "Claude Code skills for construction project management — submittals, specs, meeting minutes, and change orders.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "site-operations",
+      "source": "./site-operations",
+      "description": "Claude Code skills for construction site and field operations — RFIs, daily logs, and field workflows.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "safety",
+      "source": "./safety",
+      "description": "Claude Code skills for construction safety — toolbox talks, JSAs, orientations, and incident reports.",
+      "version": "0.1.0"
     }
   ]
 }

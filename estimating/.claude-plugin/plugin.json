@@ -1,0 +1,14 @@
+{
+  "name": "estimating",
+  "version": "0.1.0",
+  "description": "Claude Code skills for construction estimating — bid reviews, scope gap analysis, and bid leveling.",
+  "author": {
+    "name": "Camron Walker"
+  },
+  "repository": "https://github.com/CamronWalker/construction-skills",
+  "license": "MIT",
+  "keywords": [
+    "construction",
+    "estimating"
+  ]
+}

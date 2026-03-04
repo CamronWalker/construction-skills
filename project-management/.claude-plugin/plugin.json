@@ -1,0 +1,14 @@
+{
+  "name": "project-management",
+  "version": "0.1.0",
+  "description": "Claude Code skills for construction project management — submittals, specs, meeting minutes, and change orders.",
+  "author": {
+    "name": "Camron Walker"
+  },
+  "repository": "https://github.com/CamronWalker/construction-skills",
+  "license": "MIT",
+  "keywords": [
+    "construction",
+    "project-management"
+  ]
+}

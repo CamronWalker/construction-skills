@@ -1,0 +1,14 @@
+{
+  "name": "scheduling",
+  "version": "0.3.0",
+  "description": "Claude Code skills for construction scheduling — build, score, and manage Primavera P6 schedules.",
+  "author": {
+    "name": "Camron Walker"
+  },
+  "repository": "https://github.com/CamronWalker/construction-skills",
+  "license": "MIT",
+  "keywords": [
+    "construction",
+    "scheduling"
+  ]
+}

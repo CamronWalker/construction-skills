@@ -1,12 +1,18 @@
-# Westland Construction Skills
+# Construction Skills
 
-Claude Code skills for Westland Construction workflows.
+Claude Code skills for construction workflows.
 
 ## Installation
 
+Browse available plugins and install the ones you need:
+
 ```
-/plugin marketplace add CamronWalker/westland-skills
-/plugin install westland@westland-skills
+/plugin marketplace add CamronWalker/construction-skills
+/plugin install scheduling@construction-skills
+/plugin install estimating@construction-skills
+/plugin install project-management@construction-skills
+/plugin install site-operations@construction-skills
+/plugin install safety@construction-skills
 ```
 
 ## Skills
@@ -37,7 +43,14 @@ Claude Code skills for Westland Construction workflows.
 - **pm-meeting-minutes** (TODO) — Generate structured OAC meeting minutes from rough notes — action items, decisions, open issues, attendees.
 - **pm-change-order-docs** (TODO) — Help document and justify change orders — draft cover letters, organize backup, reference contract provisions.
 
-### Site / Field
+### Site Operations
 
 - **site-rfi-writing** (TODO) — Guide RFI writing with proper formatting, spec references, and suggested resolution language. Helps craft clear, actionable RFIs.
 - **site-daily-log** (TODO) — Assist with daily log entries — manpower, equipment, work performed, delays, and a scheduled-vs-actual work analysis. Optional Procore MCP integration for direct posting.
+
+### Safety
+
+- **safety-toolbox-talk** (TODO) — Generate toolbox talk documents tailored to the current work activities — topic overview, key hazards, required PPE, and discussion points.
+- **safety-jsa-jha** (TODO) — Create Job Safety Analysis / Job Hazard Analysis documents — break tasks into steps, identify hazards, and define controls for each step.
+- **safety-orientation-checklist** (TODO) — Generate site-specific safety orientation checklists for new workers — covering site rules, emergency procedures, hazard areas, and required training.
+- **safety-incident-report** (TODO) — Assist with incident report writing — structured narrative, root cause analysis prompts, corrective actions, and follow-up tracking.
