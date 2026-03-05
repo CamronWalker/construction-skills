@@ -189,12 +189,40 @@ These metrics provide valuable context but don't affect the letter grade. Report
 The complete scoring and report generation code is in `references/score_schedule.py`. Read that file and use it directly — do NOT rewrite the scoring logic.
 
 The script provides two main functions:
-- `compute_quality_score(tasks, preds, data_date)` → returns `(score, grade, scored, info, deductions, scope_info)`
-- `generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope)` → returns Markdown string
+- `compute_quality_score(tasks, preds, data_date)` → returns `(score, grade, scored, info, deductions, scope_info, details)`
+- `generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope, details)` → returns Markdown string
+
+The 7th return value `details` is a dict of task-level detail keyed by metric name. Each entry contains the **complete, uncapped** list of `(task_code, task_name)` tuples identifying every activity that triggered each metric. The `details` dict always has all activities regardless of report display limits.
+
+**`details` keys:**
+- `missing_logic` — `{'missing_pred': [...], 'missing_succ': [...]}` — tasks missing predecessors/successors
+- `constraints` — `{'hard': [((code, name), ctype), ...], 'soft': [...]}` — constrained tasks with type
+- `ss_rels`, `ff_rels`, `sf_rels` — `[((pred_code, pred_name), (succ_code, succ_name)), ...]` — non-FS relationship pairs
+- `high_float` — `[(code, name), ...]` — activities with float > 44 days
+- `critical_path` — `[(code, name), ...]` — activities on the critical path
+- `high_duration` — `[(code, name), ...]` — activities > 44 working days
+- `negative_lag` — `[((pred_code, pred_name), (succ_code, succ_name), lag_days), ...]`
+- `convergence`, `divergence` — `[(code, name), ...]` — bottleneck activities
+- `dangling` — `[(code, name), ...]` — activities missing FS/SS pred or FS/FF succ
+
+### Recommended Improvements Section
+
+When `details` is passed to `generate_quality_report()`, the report includes a "Recommended Improvements" section between Key Findings and Informational Metrics. This section lists specific P6 Activity IDs (`task_code`) for each deduction, ordered by score impact. Each category shows up to 20 items with a "*(and N more)*" suffix when truncated.
+
+### Using details as a backcheck (schedule generation)
+
+When this skill is used as a backcheck during schedule generation (`schedule-xer-generate`), use the `details` dict directly instead of the formatted report. The `details` dict contains **every** flagged activity — not capped at 20 — so the generator can iterate on all issues. Use `task_code` values from `details` to look up and fix specific activities in the XER data.
 
 ---
 
 ## Workflow
+
+**Before starting, ask the user which report mode they want:**
+
+1. **Quick Report** (default) — Run the scoring engine and generate the Markdown report with up to 20 example activities per category. Fast and actionable.
+2. **Deep Analysis** — Generate the full report (pass `max_items=None` to the formatters to output ALL activities), then read the full Recommended Improvements section and add a 1-sentence pattern summary to each bullet describing what types of work dominate (e.g., "interior finishes repeated room-by-room", "procurement/submittal chains", "exterior enclosure sequences"). Trim back to 20 examples after summarizing. This takes longer but gives richer insight.
+
+**Steps:**
 
 1. **Parse the XER** using the `schedule-xer-read-modify` skill's parser
 2. **Extract data date** from the PROJECT table (`last_recalc_date` or `data_date`)
@@ -203,6 +231,7 @@ The script provides two main functions:
    - Imports the parsed XER data (tasks and predecessors)
    - Calls `compute_quality_score()` with all tasks and all predecessors
    - Calls `generate_quality_report()` to produce the Markdown output
+   - For **Deep Analysis**: pass `max_items=None` to the formatter calls (or monkey-patch `_MAX_ITEMS`) to get the full list, then read the output and add pattern summaries before trimming to 20
    - Saves the .md report
 5. **Execute the runner script** and save the .md file to the project folder
 6. **Present findings** to the user with a brief summary

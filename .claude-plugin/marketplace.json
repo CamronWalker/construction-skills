@@ -8,7 +8,7 @@
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — build, score, and manage Primavera P6 schedules.",
-      "version": "0.3.0"
+      "version": "0.4.0"
     },
     {
       "name": "estimating",

@@ -7,8 +7,8 @@ against best practice metrics and generate a Markdown quality report.
 Usage:
     from score_schedule import compute_quality_score, generate_quality_report
 
-    score, grade, scored, info, deductions, scope = compute_quality_score(tasks, preds, data_date)
-    report = generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope)
+    score, grade, scored, info, deductions, scope, details = compute_quality_score(tasks, preds, data_date)
+    report = generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope, details)
 """
 
 from collections import defaultdict, Counter
@@ -92,6 +92,13 @@ def get_grade(score):
     return 'D-'
 
 
+def _task_label(t):
+    """Return (task_code, task_name) for display."""
+    code = t.get('task_code', '') or str(t.get('task_id', ''))
+    name = t.get('task_name', '')
+    return (code, name)
+
+
 # ---------------------------------------------------------------------------
 # Main scoring function
 # ---------------------------------------------------------------------------
@@ -100,7 +107,7 @@ def compute_quality_score(tasks, preds, data_date=None):
     """
     Compute schedule quality score and all metrics.
     Pass ALL tasks and ALL predecessors — filtering is handled internally.
-    Returns: (score, grade, scored_metrics, info_metrics, deductions, scope)
+    Returns: (score, grade, scored_metrics, info_metrics, deductions, scope, details)
     """
     # --- SCOPE FILTERING ---
     exclude_types = {'TT_WBS', 'TT_LOE'}
@@ -124,6 +131,7 @@ def compute_quality_score(tasks, preds, data_date=None):
     activities = [t for t in incomplete if t.get('task_type', '') not in milestone_types]
     milestones = [t for t in incomplete if t.get('task_type', '') in milestone_types]
 
+    task_by_id = {t['task_id']: t for t in incomplete}
     n_inc = len(incomplete)
     n_act = len(activities)
     n_rels = len(inc_rels)
@@ -131,13 +139,37 @@ def compute_quality_score(tasks, preds, data_date=None):
     scored = {}
     info = {}
     deductions = {}
+    details = {}
     score = 100.0
 
     # --- 1. RELATIONSHIP TYPES ---
-    fs = sum(1 for p in inc_rels if p.get('pred_type', '') in ('FS', 'PR_FS'))
-    ss = sum(1 for p in inc_rels if p.get('pred_type', '') in ('SS', 'PR_SS'))
-    ff = sum(1 for p in inc_rels if p.get('pred_type', '') in ('FF', 'PR_FF'))
-    sf = sum(1 for p in inc_rels if p.get('pred_type', '') in ('SF', 'PR_SF'))
+    fs = ss = ff = sf = 0
+    ss_pairs = []; ff_pairs = []; sf_pairs = []
+    for p in inc_rels:
+        pt = p.get('pred_type', '')
+        if pt in ('FS', 'PR_FS'):
+            fs += 1
+        elif pt in ('SS', 'PR_SS'):
+            ss += 1
+            pred_t = task_by_id.get(p.get('pred_task_id', ''))
+            succ_t = task_by_id.get(p.get('task_id', ''))
+            if pred_t and succ_t:
+                ss_pairs.append((_task_label(pred_t), _task_label(succ_t)))
+        elif pt in ('FF', 'PR_FF'):
+            ff += 1
+            pred_t = task_by_id.get(p.get('pred_task_id', ''))
+            succ_t = task_by_id.get(p.get('task_id', ''))
+            if pred_t and succ_t:
+                ff_pairs.append((_task_label(pred_t), _task_label(succ_t)))
+        elif pt in ('SF', 'PR_SF'):
+            sf += 1
+            pred_t = task_by_id.get(p.get('pred_task_id', ''))
+            succ_t = task_by_id.get(p.get('task_id', ''))
+            if pred_t and succ_t:
+                sf_pairs.append((_task_label(pred_t), _task_label(succ_t)))
+    details['ss_rels'] = ss_pairs
+    details['ff_rels'] = ff_pairs
+    details['sf_rels'] = sf_pairs
 
     fs_pct = round(fs / max(n_rels, 1) * 100, 1)
     ss_pct = round(ss / max(n_rels, 1) * 100, 1)
@@ -182,6 +214,7 @@ def compute_quality_score(tasks, preds, data_date=None):
     cp_pct = round(len(critical) / max(n_inc, 1) * 100, 1)
     scored['critical_path'] = {'count': len(critical), 'total': n_inc, 'pct': cp_pct,
                                 'skipped': neg_float_schedule}
+    details['critical_path'] = [_task_label(t) for t in critical]
 
     if not neg_float_schedule:
         if cp_pct < 5 or cp_pct > 25:
@@ -193,6 +226,7 @@ def compute_quality_score(tasks, preds, data_date=None):
     high_float = [t for t in activities if safe_float(t.get('total_float_hr_cnt', 0)) > 352]
     hf_pct = round(len(high_float) / max(n_inc, 1) * 100, 1)
     scored['high_float'] = {'count': len(high_float), 'total': n_inc, 'pct': hf_pct}
+    details['high_float'] = [_task_label(t) for t in high_float]
     if hf_pct > 40:
         d = 2.5
         deductions['High Float'] = d; score -= d
@@ -206,10 +240,18 @@ def compute_quality_score(tasks, preds, data_date=None):
         all_preds_map[p.get('task_id', '')].add(p.get('pred_task_id', ''))
 
     open_ids = set()
+    ml_no_pred = []; ml_no_succ = []
     for t in activities:
         tid = t['task_id']
-        if not all_succs.get(tid) or not all_preds_map.get(tid):
+        has_pred = bool(all_preds_map.get(tid))
+        has_succ = bool(all_succs.get(tid))
+        if not has_pred or not has_succ:
             open_ids.add(tid)
+        if not has_pred:
+            ml_no_pred.append(_task_label(t))
+        if not has_succ:
+            ml_no_succ.append(_task_label(t))
+    details['missing_logic'] = {'missing_pred': ml_no_pred, 'missing_succ': ml_no_succ}
 
     ml_pct = round(len(open_ids) / max(n_inc, 1) * 100, 1)
     scored['missing_logic'] = {'count': len(open_ids), 'total': n_inc, 'pct': ml_pct}
@@ -239,6 +281,7 @@ def compute_quality_score(tasks, preds, data_date=None):
     hard_count = 0
     soft_count = 0
     alap_count = 0
+    hard_task_labels = []; soft_task_labels = []
     for t in incomplete:
         c1 = t.get('cstr_type', t.get('constraint_type', ''))
         c2 = t.get('cstr_type2', t.get('constraint_type2', ''))
@@ -246,10 +289,15 @@ def compute_quality_score(tasks, preds, data_date=None):
             constrained += 1
         if c1 in hard_codes or c2 in hard_codes:
             hard_count += 1
+            ctype = c1 if c1 in hard_codes else c2
+            hard_task_labels.append((_task_label(t), ctype))
         if c1 in soft_codes or c2 in soft_codes:
             soft_count += 1
+            ctype = c1 if c1 in soft_codes else c2
+            soft_task_labels.append((_task_label(t), ctype))
         if c1 == 'CS_ALAP' or c2 == 'CS_ALAP':
             alap_count += 1
+    details['constraints'] = {'hard': hard_task_labels, 'soft': soft_task_labels}
 
     cstr_pct = round(constrained / max(n_inc, 1) * 100, 1)
     scored['constraints'] = {'count': constrained, 'total': n_inc, 'pct': cstr_pct}
@@ -269,6 +317,7 @@ def compute_quality_score(tasks, preds, data_date=None):
                 if safe_float(t.get('target_drtn_hr_cnt', t.get('remain_drtn_hr_cnt', 0))) > 352]
     info['high_duration'] = {'count': len(high_dur),
                               'pct': round(len(high_dur) / max(n_act, 1) * 100, 1)}
+    details['high_duration'] = [_task_label(t) for t in high_dur]
 
     # Positive / Negative Lag (informational only)
     pos_lags = [p for p in inc_rels if safe_float(p.get('lag_hr_cnt', 0)) > 0]
@@ -277,6 +326,13 @@ def compute_quality_score(tasks, preds, data_date=None):
                              'pct': round(len(pos_lags) / max(n_rels, 1) * 100, 1)}
     info['negative_lag'] = {'count': len(neg_lags),
                              'pct': round(len(neg_lags) / max(n_rels, 1) * 100, 1)}
+    details['negative_lag'] = []
+    for p in neg_lags:
+        pred_t = task_by_id.get(p.get('pred_task_id', ''))
+        succ_t = task_by_id.get(p.get('task_id', ''))
+        if pred_t and succ_t:
+            lag_days = round(safe_float(p.get('lag_hr_cnt', 0)) / 8, 1)
+            details['negative_lag'].append((_task_label(pred_t), _task_label(succ_t), lag_days))
 
     # Convergence / Divergence
     pred_cnt = defaultdict(int)
@@ -286,6 +342,8 @@ def compute_quality_score(tasks, preds, data_date=None):
         succ_cnt[p.get('pred_task_id', '')] += 1
     info['convergence'] = sum(1 for v in pred_cnt.values() if v >= 5)
     info['divergence'] = sum(1 for v in succ_cnt.values() if v >= 5)
+    details['convergence'] = [_task_label(task_by_id[tid]) for tid, v in pred_cnt.items() if v >= 5 and tid in task_by_id]
+    details['divergence'] = [_task_label(task_by_id[tid]) for tid, v in succ_cnt.items() if v >= 5 and tid in task_by_id]
 
     # Duplicates
     pairs = Counter()
@@ -312,9 +370,11 @@ def compute_quality_score(tasks, preds, data_date=None):
             fs_ss_pred.add(p.get('task_id', ''))
         if pt in ('FS', 'PR_FS', 'FF', 'PR_FF'):
             fs_ff_succ.add(p.get('pred_task_id', ''))
-    info['dangling'] = len([t for t in activities
-                            if t['task_id'] not in fs_ss_pred
-                            or t['task_id'] not in fs_ff_succ])
+    dangling_tasks = [t for t in activities
+                      if t['task_id'] not in fs_ss_pred
+                      or t['task_id'] not in fs_ff_succ]
+    info['dangling'] = len(dangling_tasks)
+    details['dangling'] = [_task_label(t) for t in dangling_tasks]
 
     # Status metrics (need data_date)
     if data_date:
@@ -360,12 +420,56 @@ def compute_quality_score(tasks, preds, data_date=None):
         'neg_float_schedule': neg_float_schedule,
     }
 
-    return score, grade, scored, info, deductions, scope_info
+    return score, grade, scored, info, deductions, scope_info, details
 
 
 # ---------------------------------------------------------------------------
 # Report generation
 # ---------------------------------------------------------------------------
+
+def _fmt_task_list(labels, max_items=20):
+    """Format [(task_code, task_name), ...] as: `A1010` Name, `A1020` Name, ..."""
+    if not labels:
+        return ''
+    shown = labels[:max_items] if max_items else labels
+    result = ', '.join(f"`{code}` {name}" for code, name in shown)
+    if max_items and len(labels) > max_items:
+        result += f" *(and {len(labels) - max_items} more)*"
+    return result
+
+
+def _fmt_rel_list(pairs, max_items=20):
+    """Format relationship pairs as: `A1010` → `A1020`, ..."""
+    if not pairs:
+        return ''
+    shown = pairs[:max_items] if max_items else pairs
+    result = ', '.join(f"`{p[0]}` → `{s[0]}`" for p, s in shown)
+    if max_items and len(pairs) > max_items:
+        result += f" *(and {len(pairs) - max_items} more)*"
+    return result
+
+
+def _fmt_lag_list(triples, max_items=20):
+    """Format negative lag triples as: `A1010` → `A1020` (-5d), ..."""
+    if not triples:
+        return ''
+    shown = triples[:max_items] if max_items else triples
+    result = ', '.join(f"`{p[0]}` → `{s[0]}` ({lag}d)" for p, s, lag in shown)
+    if max_items and len(triples) > max_items:
+        result += f" *(and {len(triples) - max_items} more)*"
+    return result
+
+
+def _fmt_constraint_list(labels_with_type, max_items=20):
+    """Format [((task_code, task_name), ctype), ...] as: `A1010` Name (CS_MSO), ..."""
+    if not labels_with_type:
+        return ''
+    shown = labels_with_type[:max_items] if max_items else labels_with_type
+    result = ', '.join(f"`{label[0]}` {label[1]} ({ctype})" for label, ctype in shown)
+    if max_items and len(labels_with_type) > max_items:
+        result += f" *(and {len(labels_with_type) - max_items} more)*"
+    return result
+
 
 def end_finding(key, scored, info):
     """Generate a one-line finding description for a deduction."""
@@ -384,7 +488,7 @@ def end_finding(key, scored, info):
     return findings.get(key, "Review this metric for improvement opportunities.")
 
 
-def generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope):
+def generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope, details=None):
     """Generate a Markdown schedule quality report."""
     lines = []
     lines.append(f"# Schedule Quality Report — {project_name}")
@@ -457,6 +561,81 @@ def generate_quality_report(project_name, data_date, score, grade, scored, info,
                 d = deductions[key]
                 lines.append(f"- **{key}** (-{d} pts): {end_finding(key, scored, info)}")
         lines.append("")
+
+    # Recommended Improvements
+    if details:
+        # Scored deduction items — ordered by deduction size
+        scored_items = []
+        ded_sorted = sorted(deductions.items(), key=lambda x: x[1], reverse=True)
+        for key, pts in ded_sorted:
+            if key == 'Missing Logic':
+                mp = details.get('missing_logic', {}).get('missing_pred', [])
+                ms = details.get('missing_logic', {}).get('missing_succ', [])
+                if mp:
+                    scored_items.append(f"- **Missing Predecessors** (-{pts} pts): Add predecessor logic to: {_fmt_task_list(mp)}")
+                if ms:
+                    scored_items.append(f"- **Missing Successors** (-{pts} pts): Add successor logic to: {_fmt_task_list(ms)}")
+            elif key == 'Constraints':
+                hard = details.get('constraints', {}).get('hard', [])
+                soft = details.get('constraints', {}).get('soft', [])
+                if hard:
+                    scored_items.append(f"- **Hard Constraints** (-{pts} pts): Replace with logic ties where possible: {_fmt_constraint_list(hard)}")
+                if soft:
+                    scored_items.append(f"- **Soft Constraints** (-{pts} pts): Review necessity: {_fmt_constraint_list(soft)}")
+            elif key == 'SS %':
+                pairs = details.get('ss_rels', [])
+                if pairs:
+                    scored_items.append(f"- **SS Relationships** (-{pts} pts): Review for conversion to FS: {_fmt_rel_list(pairs)}")
+            elif key == 'FF %':
+                pairs = details.get('ff_rels', [])
+                if pairs:
+                    scored_items.append(f"- **FF Relationships** (-{pts} pts): Review for conversion to FS: {_fmt_rel_list(pairs)}")
+            elif key == 'SF %':
+                pairs = details.get('sf_rels', [])
+                if pairs:
+                    scored_items.append(f"- **SF Relationships** (-{pts} pts): Replace with standard FS/SS/FF: {_fmt_rel_list(pairs)}")
+            elif key == 'High Float':
+                tasks_list = details.get('high_float', [])
+                if tasks_list:
+                    scored_items.append(f"- **High Float** (-{pts} pts): Add logic ties to reduce float on: {_fmt_task_list(tasks_list)}")
+            elif key == 'Critical Path %':
+                tasks_list = details.get('critical_path', [])
+                if tasks_list:
+                    scored_items.append(f"- **Critical Path** (-{pts} pts): Review logic on: {_fmt_task_list(tasks_list)}")
+
+        # Additional informational items (capped at 20 per category)
+        additional_items = []
+        conv = details.get('convergence', [])
+        if conv:
+            additional_items.append(f"- **Convergence Bottlenecks**: >= 5 predecessors, cascading delay risk: {_fmt_task_list(conv, max_items=20)}")
+        div = details.get('divergence', [])
+        if div:
+            additional_items.append(f"- **Divergence Bottlenecks**: >= 5 successors, single points of failure: {_fmt_task_list(div, max_items=20)}")
+        dang = details.get('dangling', [])
+        if dang:
+            additional_items.append(f"- **Dangling Activities**: Missing FS/SS pred or FS/FF succ: {_fmt_task_list(dang, max_items=20)}")
+        neg_lag = details.get('negative_lag', [])
+        if neg_lag:
+            additional_items.append(f"- **Negative Lag**: Leads that can cause scheduling anomalies: {_fmt_lag_list(neg_lag, max_items=20)}")
+        hi_dur = details.get('high_duration', [])
+        if hi_dur:
+            additional_items.append(f"- **High Duration**: > 44 days, break into shorter tasks: {_fmt_task_list(hi_dur, max_items=20)}")
+
+        if scored_items or additional_items:
+            lines.append("## Recommended Improvements")
+            lines.append("")
+            lines.append("Specific activities to review in P6, ordered by score impact.")
+            lines.append("")
+            for item in scored_items:
+                lines.append(item)
+            if scored_items:
+                lines.append("")
+            if additional_items:
+                lines.append("### Additional Items to Review")
+                lines.append("")
+                for item in additional_items:
+                    lines.append(item)
+                lines.append("")
 
     # Informational Metrics
     lines.append("## Informational Metrics")

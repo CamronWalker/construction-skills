@@ -368,12 +368,31 @@ Follow patterns from the reference schedules when possible. If establishing new 
 - Avoid abbreviations in activity names unless they're industry-standard (MEP, HVAC, GC)
 - Milestones should clearly state what's being marked: "Substantial Completion", "Building Permit Received"
 
+## Quality Score Backcheck
+
+After generating the XER and passing structural validation, run the `schedule-quality-score` skill's scoring engine as a backcheck:
+
+```python
+from score_schedule import compute_quality_score
+score, grade, scored, info, deductions, scope, details = compute_quality_score(tasks, preds)
+```
+
+Use the `details` dict (NOT the formatted report) to iterate on issues. The `details` dict contains the **complete, uncapped** list of every flagged activity — use `task_code` values to look up and fix specific activities in the XER data. Key fields to check:
+
+- `details['missing_logic']` — `{'missing_pred': [...], 'missing_succ': [...]}` — add logic ties
+- `details['constraints']` — `{'hard': [...], 'soft': [...]}` — remove unnecessary constraints
+- `details['high_float']` — activities with float > 44 days — tighten logic
+- `details['dangling']` — missing FS/SS pred or FS/FF succ — add proper ties
+
+Target a grade of B+ or higher before delivering. Iterate: fix issues in the XER data, re-score, repeat until the grade is acceptable.
+
 ## Output Checklist
 
 Before delivering the generated XER to the user, confirm:
 
 - [ ] File parses without errors (re-read it with the parser)
 - [ ] All validation checks pass
+- [ ] Quality score backcheck passes (B+ or higher)
 - [ ] WBS structure makes sense for the project scope
 - [ ] Activity count is reasonable (not too granular, not too summary)
 - [ ] Logic network is complete — no dangling activities
