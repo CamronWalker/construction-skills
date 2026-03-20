@@ -53,7 +53,7 @@ Look across the reference schedules for:
 
 1. **WBS hierarchy** — Adapt the common patterns from reference schedules. Add nodes for scope items not in the references, remove nodes for work not in this project, maintain hierarchical logic (phases → areas → disciplines → work types).
 
-2. **Activities** — For each WBS node, create activities based on reference patterns. Use consistent naming (verb + object: "Install Roofing", "Pour Foundation Walls"). Assign durations scaled from reference statistics. Set activity types: `TT_Task` for work, `TT_Mile` for start milestones, `TT_FinMile` for finish milestones.
+2. **Activities** — For each WBS node, create activities based on reference patterns. Use consistent **Verb + Noun** naming with allowed industry acronyms (HVAC, MEP, CMU, GC, SWPPP, OAC, RFI, IFC, TAB) and **&** in place of "and" (e.g., "Rough In HVAC Ductwork", "Tape & Finish Drywall", "HVAC Controls & TAB"). Always spell out contract-defined terms: Notice to Proceed, Substantial Completion, Final Completion. Assign durations scaled from reference statistics. Set activity types: `TT_Task` for work, `TT_Mile` for start milestones, `TT_FinMile` for finish milestones.
 
 3. **Logic network** — Every activity needs at least one predecessor and one successor (except start/finish milestones). Default to FS relationships. In TASKPRED, `task_id` = **successor**, `pred_task_id` = predecessor. Use `PR_FS`, `PR_SS`, `PR_FF`, `PR_SF` for relationship types. Target a relationship ratio ≥ 1.5:1 (relationships ÷ activities).
 
