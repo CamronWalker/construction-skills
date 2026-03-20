@@ -13,385 +13,242 @@ description: >
 
 # Generating Primavera P6 XER Schedule Files
 
-This skill covers creating new, valid XER files that can be imported into Primavera P6. The primary use case: given similar project schedules (as XER files) and a proposal or scope document, produce a proposal schedule as a starting point.
+This skill produces new, P6-importable XER files. The typical use case: given similar project schedules (as XER files) and a scope description, produce a proposal or baseline schedule as a starting point.
 
-## The Workflow
+## Before You Start: Read the Reference Script
 
-### Step 1: Gather Inputs
+This skill folder contains `build_from_raw_template.py` — a proven, working script that generates a 96-task elementary school schedule and imports cleanly into P6. **Read it before writing any code.** It demonstrates every pattern in this doc and is the single best reference for how a successful generation script should look.
+
+The script scored A- (91.4) on quality backcheck, so it's also a good structural template for WBS hierarchy, activity naming, and relationship logic patterns.
+
+## How XER Generation Works
+
+P6 is extremely picky about XER file structure. Subtle differences — a missing trailing tab, wrong line endings, reordered fields — cause P6 to silently reject the file with no error message (just an empty import grid). Because of this, the only reliable approach is **template-based generation**: start from a real P6 export and surgically replace the data rows while preserving the file's structural skeleton.
+
+The workflow has two phases: **planning** (what to put in the schedule) and **implementation** (writing the XER file).
+
+---
+
+## Phase 1: Planning the Schedule
+
+### Gather Inputs
 
 You need two types of input:
 
-**Similar project XER files** — These are the templates. Parse them using the approach from the schedule-xer-read-modify skill to understand:
-- WBS structure patterns
-- Typical activity sequences and naming conventions
-- Relationship logic patterns
-- Duration ranges for similar work
-- Calendar configurations
-- Activity codes used
+**Reference XER files** — Real P6 exports from similar projects. Use the schedule-xer-read-modify skill to parse them and understand WBS patterns, activity sequences, duration ranges, relationship logic, and calendar configurations.
 
-**Scope document** — The proposal, SOW, or project description. Extract:
-- Project name and key dates
-- Major work phases or areas
-- Scope items that map to WBS nodes or activity groups
-- Known constraints (milestone dates, access dates, weather windows)
-- Project size/complexity indicators to calibrate durations
+**Scope definition** — A proposal, SOW, or project description. Extract the project name, key dates, major work phases, known constraints (milestone dates, access dates, weather windows), and size/complexity indicators.
 
-### Step 2: Analyze the Reference Schedules
+### Analyze Reference Schedules
 
-Parse all reference XER files and build a composite understanding:
+Look across the reference schedules for:
 
-```python
-def analyze_reference_schedules(xer_files):
-    """Extract patterns from multiple similar schedules."""
-    all_wbs = []
-    all_activities = []
-    all_relationships = []
+- **Common WBS structure** — most construction schedules share a similar top-level pattern (Preconstruction, Sitework, Foundation, Structure, Envelope, MEP, Finishes, Closeout)
+- **Recurring activity chains** — sequences like excavate → form → rebar → pour → strip
+- **Duration ratios** — how durations relate to each other and scale with project size
+- **Milestone patterns** — standard gates (NTP, Substantial Completion, Final Completion)
+- **Calendar usage** — which calendar types map to which activity types
 
-    for xer_path in xer_files:
-        tables = parse_xer(xer_path)
-        all_wbs.append(tables.get('PROJWBS', []))
-        all_activities.append(tables.get('TASK', []))
-        all_relationships.append(tables.get('TASKPRED', []))
+### Map Scope to Schedule Structure
 
-    # Identify common WBS patterns
-    # Look for recurring activity sequences
-    # Calculate duration statistics (mean, median, range)
-    # Map typical logic patterns (which activities usually follow which)
-    return {
-        'wbs_patterns': extract_wbs_patterns(all_wbs),
-        'activity_sequences': extract_sequences(all_activities, all_relationships),
-        'duration_stats': compute_duration_stats(all_activities),
-        'logic_patterns': extract_logic_patterns(all_relationships)
-    }
-```
+1. **WBS hierarchy** — Adapt the common patterns from reference schedules. Add nodes for scope items not in the references, remove nodes for work not in this project, maintain hierarchical logic (phases → areas → disciplines → work types).
 
-Things to look for across the reference schedules:
-- **Common WBS levels** — most construction schedules share a similar top-level structure (Preconstruction, Site Work, Foundation, Structure, Envelope, MEP, Finishes, Closeout)
-- **Recurring activity chains** — sequences that appear in every schedule (e.g., excavate → form → rebar → pour → strip)
-- **Duration ratios** — how durations relate to each other within a phase and how they scale with project size
-- **Milestone patterns** — standard milestone gates (NTP, Substantial Completion, Final Completion)
-- **Calendar usage** — which calendar types are assigned to which activity types
+2. **Activities** — For each WBS node, create activities based on reference patterns. Use consistent naming (verb + object: "Install Roofing", "Pour Foundation Walls"). Assign durations scaled from reference statistics. Set activity types: `TT_Task` for work, `TT_Mile` for start milestones, `TT_FinMile` for finish milestones.
 
-### Step 3: Map Scope to Schedule Structure
+3. **Logic network** — Every activity needs at least one predecessor and one successor (except start/finish milestones). Default to FS relationships. In TASKPRED, `task_id` = **successor**, `pred_task_id` = predecessor. Use `PR_FS`, `PR_SS`, `PR_FF`, `PR_SF` for relationship types. Target a relationship ratio ≥ 1.5:1 (relationships ÷ activities).
 
-This is the creative step. Take the proposal scope and map it to a WBS and activity structure:
+4. **Constraints** — Use SNET/FNET sparingly. Only the NTP milestone typically needs a start-no-earlier-than constraint (`CS_SNET`). Let logic drive dates for everything else.
 
-1. **Create WBS hierarchy** — Use the common patterns from reference schedules as a template. Adjust for the specific project scope:
-   - Add nodes for scope items not in the references
-   - Remove nodes for work not in this project's scope
-   - Maintain the hierarchical logic (phases → areas → disciplines → work types)
+### Duration Scaling
 
-2. **Populate activities** — For each WBS node, create activities based on the reference patterns:
-   - Use consistent naming conventions from the reference schedules
-   - Assign initial durations based on reference duration statistics, scaled for project scope
-   - Set activity types (Task, Milestone, LOE) appropriately
-   - Assign calendars matching the reference patterns
-
-3. **Build logic network** — Establish relationships:
-   - Use the reference logic patterns as a starting point
-   - Ensure every activity has at least one predecessor and one successor (except project start/finish milestones)
-   - Default to FS relationships unless the reference schedules show a specific pattern
-   - Use `PR_` prefix format for pred_type (`PR_FS`, `PR_SS`, `PR_FF`, `PR_SF`) — this matches real P6 exports
-   - In TASKPRED: `task_id` = **successor**, `pred_task_id` = predecessor
-   - Apply lag values from reference statistics
-   - Target relationship ratio ≥ 1.5:1 (relationships ÷ activities)
-
-4. **Set constraints and milestones** — From the proposal:
-   - Project start date
-   - Known milestone dates (owner-mandated, permit-driven, weather-dependent)
-   - Use SNET/FNET constraints sparingly — prefer logic-driven dates
-
-### Step 4: Generate the XER File
-
-Build the XER data structure in memory, then write it out.
-
-#### ID Generation Strategy
-
-P6 uses integer IDs internally. When generating a new XER, use a simple incrementing scheme:
+When adapting durations from reference schedules:
 
 ```python
-class IDGenerator:
-    def __init__(self, start=1000):
-        self._next = start
-
-    def next(self):
-        val = self._next
-        self._next += 1
-        return val
-
-ids = IDGenerator(start=10000)
+def scale_duration(ref_hours, ref_sqft, new_sqft, complexity=1.0):
+    """Square-root scaling — doubling size doesn't double duration."""
+    scaled = ref_hours * (new_sqft / ref_sqft) ** 0.5 * complexity
+    return round(scaled / 8) * 8  # round to nearest 8-hour day
 ```
 
-Start at 10000+ to avoid conflicts with low-numbered IDs that P6 might reserve or that exist in the target database.
+Construction activities don't scale linearly because crews work in parallel and setup costs are fixed.
 
-#### Building the Data Tables
+---
+
+## Phase 2: Writing the XER File
+
+### Why Template-Based Generation Is Required
+
+Building XER files from scratch with Python dicts **does not work**. Multiple approaches were tested:
+
+- Assembling dicts with correct table/field names and writing them out → P6 silently rejects
+- Parsing a template into dicts, modifying, writing back → the round-trip loses subtle formatting P6 depends on
+- Using `\r` (CR-only) instead of `\r\n` (CRLF) → file looks correct in editors but P6 shows empty import grid
+- Putting `%E` after each table → P6 expects a single `%E` at the very end of the file
+
+The root cause: P6 is sensitive to field ordering, exact whitespace, trailing tabs, and dozens of obscure default values in tables like PROJECT (71 fields) and SCHEDOPTIONS (25 fields). It gives no useful error messages when something is wrong.
+
+**What does work:** Start from a real P6 export, preserve all `%T` and `%F` lines byte-for-byte, only replace `%R` data rows. This was confirmed via a byte-for-byte copy test — the raw template imports fine, and surgical data replacement also imports fine.
+
+### Choose a Template
+
+Pick the **smallest working XER** from the reference schedules. It must be a real P6 export (not a previously generated file). Smaller files have fewer tables and fields to worry about.
+
+### The Generation Pattern
+
+The approach has six steps (all demonstrated in `build_from_raw_template.py`):
+
+**1. Read the template as raw bytes and decode as cp1252:**
 
 ```python
-def build_new_schedule(project_info, wbs_tree, activities, relationships, calendar):
-    """Assemble a complete XER data structure."""
-    tables = {}
-
-    # Header
-    tables['_header'] = ['21.00']
-
-    # Currency (usually needed)
-    tables['CURRTYPE'] = [{
-        'curr_id': '1',
-        'curr_type': 'US Dollar',
-        'curr_short_name': 'USD',
-        'decimal_digit_cnt': '2',
-        'base_exch_rate': '1'
-    }]
-
-    # Calendar
-    tables['CLNDR'] = [calendar]
-
-    # Project
-    tables['PROJECT'] = [{
-        'project_id': project_info['id'],
-        'proj_short_name': project_info['short_name'],
-        'project_name': project_info['name'],
-        'start_date': project_info['start_date'],
-        'end_date': '',  # Let P6 calculate
-        'data_date': project_info['start_date'],
-        'default_clndr_id': calendar['clndr_id'],
-        'sched_data': 'Y',
-        'def_complete_pct_type': 'CP_Phys',
-        'task_code_prefix': project_info.get('prefix', 'A'),
-        'task_code_base': '1000'
-    }]
-
-    # WBS
-    tables['PROJWBS'] = wbs_tree
-
-    # Activities
-    tables['TASK'] = activities
-
-    # Relationships
-    tables['TASKPRED'] = relationships
-
-    return tables
+with open(template_path, 'rb') as f:
+    content = f.read().decode('cp1252')
+template_lines = content.split('\r\n')
 ```
 
-#### Standard Calendar Template
-
-Most construction projects use a 5-day, 8-hour calendar. Here's a reusable template:
+**2. Parse into sections, preserving raw structural lines:**
 
 ```python
-def standard_5day_calendar(clndr_id='100', name='Standard 5-Day'):
-    """Generate a standard Mon-Fri 8hr calendar."""
-    # Calendar data encoding:
-    # Days 0=Sun through 6=Sat
-    # Non-working days have empty parens
-    # Working days: (s|08:00|f|17:00) = 8am to 5pm
-    clndr_data = (
-        '(0||DaysOfWeek()'
-        ' (0||0())'                           # Sunday - off
-        ' (0||1(s|08:00|f|17:00))'            # Monday
-        ' (0||2(s|08:00|f|17:00))'            # Tuesday
-        ' (0||3(s|08:00|f|17:00))'            # Wednesday
-        ' (0||4(s|08:00|f|17:00))'            # Thursday
-        ' (0||5(s|08:00|f|17:00))'            # Friday
-        ' (0||6())'                           # Saturday - off
-        ' ()'
-        ' (0||Exceptions())'
-        ')'
-    )
-    return {
-        'clndr_id': clndr_id,
-        'clndr_name': name,
-        'clndr_type': 'CA_Base',
-        'clndr_data': clndr_data,
-        'base_clndr_id': '',
-        'proj_id': '',
-        'last_chng_date': ''
-    }
+sections = []
+header_line = None
+current = None
+for line in template_lines:
+    if not line.strip():
+        continue
+    parts = line.split('\t')
+    marker = parts[0]
+    if marker == 'ERMHDR':
+        header_line = line
+    elif marker == '%T':
+        current = {'name': parts[1], 't_line': line, 'f_line': None,
+                   'fields': [], 'r_lines': []}
+        sections.append(current)
+    elif marker == '%F' and current:
+        current['f_line'] = line
+        current['fields'] = parts[1:]  # field names for make_r_line()
+    elif marker == '%R' and current:
+        current['r_lines'].append(line)
+    elif marker == '%E':
+        current = None  # only ONE %E at end of entire file
 ```
 
-You can also create 6-day and 7-day variants for accelerated schedules:
+**3. Clone template records for PROJECT and SCHEDOPTIONS.** Parse the template's `%R` into a dict, `.copy()`, then override only the fields you need. This preserves dozens of obscure defaults:
 
 ```python
-def six_day_calendar(clndr_id='101', name='6-Day Calendar'):
-    clndr_data = (
-        '(0||DaysOfWeek()'
-        ' (0||0())'
-        ' (0||1(s|07:00|f|17:30))'
-        ' (0||2(s|07:00|f|17:30))'
-        ' (0||3(s|07:00|f|17:30))'
-        ' (0||4(s|07:00|f|17:30))'
-        ' (0||5(s|07:00|f|17:30))'
-        ' (0||6(s|07:00|f|17:30))'
-        ' ()'
-        ' (0||Exceptions())'
-        ')'
-    )
-    return {
-        'clndr_id': clndr_id,
-        'clndr_name': name,
-        'clndr_type': 'CA_Base',
-        'clndr_data': clndr_data,
-        'base_clndr_id': '',
-        'proj_id': '',
-        'last_chng_date': ''
-    }
+tmpl_proj_parts = proj_sec['r_lines'][0].split('\t')[1:]
+tmpl_proj = dict(zip(proj_sec['fields'], tmpl_proj_parts))
+new_proj = tmpl_proj.copy()
+new_proj.update({'proj_id': PROJECT_ID, 'proj_short_name': PREFIX, ...})
+proj_sec['r_lines'] = [make_r_line(proj_sec['fields'], new_proj)]
 ```
 
-### Step 5: Write the XER File
+**4. Build new data rows using `make_r_line()`.** This is the key helper — it ensures every `%R` line has exactly the right number of tab-separated values to match the template's `%F`:
 
 ```python
-def write_xer(tables, output_path, encoding='cp1252'):
-    """Write complete XER file from data tables."""
-    # Table order matters for clean imports — put dependencies first
-    table_order = [
-        'CURRTYPE', 'OBS', 'CLNDR', 'PROJECT', 'PROJWBS',
-        'ACTVTYPE', 'ACTVCODE', 'RSRC', 'ACCOUNT',
-        'TASK', 'TASKPRED', 'TASKRSRC', 'TASKACTV',
-        'UDFTYPE', 'UDFVALUE', 'MEMOTYPE'
-    ]
-
-    with open(output_path, 'w', encoding=encoding, newline='') as f:
-        # Header
-        header = tables.get('_header', ['21.00'])
-        f.write('ERMHDR\t' + '\t'.join(header) + '\r')
-
-        # Tables in dependency order
-        for table_name in table_order:
-            records = tables.get(table_name, [])
-            if not records:
-                continue
-
-            fields = list(records[0].keys())
-            f.write(f'%T\t{table_name}\r')
-            f.write('%F\t' + '\t'.join(fields) + '\r')
-            for record in records:
-                values = [str(record.get(field, '')) for field in fields]
-                f.write('%R\t' + '\t'.join(values) + '\r')
-            f.write('%E\r')
+def make_r_line(fields, data_dict):
+    """Build a %R line with exactly len(fields) tab-separated values."""
+    vals = []
+    for f in fields:
+        vals.append(str(data_dict.get(f, '')))
+    return '%R\t' + '\t'.join(vals)
 ```
 
-### Step 6: Validate Before Delivery
+For each new record (WBS node, activity, relationship, calendar), start with `{f: '' for f in fields}`, update the fields you care about, and pass through `make_r_line()`.
 
-Run validation on the generated file before handing it to the user. The schedule-xer-read-modify skill's validation function covers this, but here are the critical checks for generated files specifically:
-
-1. **Every activity has a WBS assignment** — P6 requires it
-2. **Logic completeness** — no activity without at least one predecessor or successor (except start/finish milestones)
-3. **No circular logic** — check the relationship graph for cycles
-4. **Calendar exists** — the calendar referenced by PROJECT and all TASKs must be in the CLNDR table
-5. **Duration sanity** — no zero-duration tasks (except milestones), no absurdly large durations
-6. **ID uniqueness** — no duplicate IDs within their scope
-7. **Field alignment** — `%F` field count matches `%R` field count for every table
+**5. Reassemble, skipping tables you can't populate:**
 
 ```python
-def validate_generated_xer(tables):
-    """Validate a newly generated XER before export."""
-    issues = []
-
-    tasks = tables.get('TASK', [])
-    preds = tables.get('TASKPRED', [])
-    task_ids = {t['task_id'] for t in tasks}
-
-    # Check logic completeness
-    # In TASKPRED: task_id = successor, pred_task_id = predecessor
-    has_pred = {p['task_id'] for p in preds if p.get('task_id')}
-    has_succ = {p['pred_task_id'] for p in preds if p.get('pred_task_id')}
-
-    for task in tasks:
-        tid = task['task_id']
-        is_milestone = task.get('task_type', '') in ('TT_Mile', 'TT_FinMile')
-
-        if tid not in has_pred and tid not in has_succ:
-            issues.append(f"Activity {tid} '{task.get('task_name','')}' has no logic ties (open start AND open finish)")
-        elif tid not in has_pred and not is_milestone:
-            issues.append(f"Activity {tid} '{task.get('task_name','')}' has no predecessor (open start)")
-        elif tid not in has_succ and not is_milestone:
-            issues.append(f"Activity {tid} '{task.get('task_name','')}' has no successor (open finish)")
-
-    # Check for cycles
-    from collections import defaultdict, deque
-    graph = defaultdict(list)
-    in_degree = defaultdict(int)
-    for p in preds:
-        pred_id = p.get('pred_task_id')
-        succ_id = p.get('task_id')  # task_id = successor in TASKPRED
-        if pred_id and succ_id:
-            graph[pred_id].append(succ_id)
-            in_degree[succ_id] += 1
-            if pred_id not in in_degree:
-                in_degree[pred_id] = in_degree.get(pred_id, 0)
-
-    # Topological sort to detect cycles
-    queue = deque([n for n in task_ids if in_degree.get(n, 0) == 0])
-    visited = 0
-    while queue:
-        node = queue.popleft()
-        visited += 1
-        for neighbor in graph.get(node, []):
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
-
-    if visited < len(task_ids):
-        issues.append("Circular logic detected — schedule contains dependency loops")
-
-    return issues
+skip_tables = {'ACTVTYPE', 'ACTVCODE', 'TASKACTV'}
+output_lines = [updated_header]
+for sec in sections:
+    if sec['name'] in skip_tables:
+        continue
+    output_lines.append(sec['t_line'])   # byte-for-byte from template
+    output_lines.append(sec['f_line'])   # byte-for-byte from template
+    output_lines.extend(sec['r_lines'])  # new or cloned data
+output_lines.append('%E')  # single %E terminates the file
 ```
 
-## Duration Calibration
+ACTVTYPE, ACTVCODE, and TASKACTV reference project-specific activity code structures. Omit them entirely rather than generating incorrect data — P6 handles their absence gracefully.
 
-When scaling durations from reference schedules to a new project, consider:
-
-- **Building size** — square footage, number of floors, number of units
-- **Complexity** — renovation vs. new construction, occupied vs. vacant, phased vs. single-phase
-- **Location factors** — urban vs. rural, access constraints, permitting timelines
-- **Season** — winter concrete work takes longer, roofing has weather windows
-
-A simple scaling approach:
+**6. Write with CRLF line endings and cp1252 encoding:**
 
 ```python
-def scale_duration(reference_duration_hrs, reference_sqft, new_sqft, complexity_factor=1.0):
-    """Scale a reference duration based on relative project size."""
-    size_ratio = new_sqft / reference_sqft
-    # Use square root scaling — doubling size doesn't double duration
-    scaled = reference_duration_hrs * (size_ratio ** 0.5) * complexity_factor
-    # Round to nearest 8-hour day
-    return round(scaled / 8) * 8
+with open(output_path, 'wb') as f:
+    f.write('\r\n'.join(output_lines).encode('cp1252'))
+    f.write(b'\r\n')
 ```
 
-The square root scaling reflects that most construction activities don't scale linearly — a building twice the size doesn't take twice as long because crews can work in parallel and there are fixed setup/mobilization costs.
+### ID Strategy
 
-## Activity Naming Conventions
+Use high starting IDs to avoid collisions with existing P6 data:
 
-Follow patterns from the reference schedules when possible. If establishing new conventions:
+```python
+PROJECT_ID = '99501'    # project
+CLNDR_IDS = '99601'     # calendars
+wbs_counter = 30000     # WBS nodes
+task_counter = 40000    # activities
+pred_counter = 50000    # relationships
+```
 
-- Lead with the discipline or area when using activity codes
-- Activity name should describe the work: verb + object (e.g., "Install Roofing", "Pour Foundation Walls")
-- Avoid abbreviations in activity names unless they're industry-standard (MEP, HVAC, GC)
-- Milestones should clearly state what's being marked: "Substantial Completion", "Building Permit Received"
+### Calendar Data
 
-## Quality Score Backcheck
+Use `clndr_data` strings copied from real P6 exports. The nested parenthesis format is fragile — don't build it programmatically. Days are 1=Sun through 7=Sat. Two work periods per day (AM/PM with lunch break) is the standard pattern. See `build_from_raw_template.py` for proven 5-day, 6-day, and 7-day calendar strings.
 
-After generating the XER and passing structural validation, run the `schedule-quality-score` skill's scoring engine as a backcheck:
+---
+
+## Validation
+
+### File-Level Checks
+
+After writing the XER, re-read it and verify:
+
+```python
+with open(output_path, 'rb') as f:
+    check = f.read().decode('cp1252')
+
+current_f_count = None
+for line in check.split('\r\n'):
+    parts = line.split('\t')
+    if parts[0] == '%T':
+        current_table = parts[1]
+    elif parts[0] == '%F':
+        current_f_count = len(parts) - 1
+    elif parts[0] == '%R' and current_f_count is not None:
+        rcount = len(parts) - 1
+        if current_f_count != rcount:
+            print(f"MISMATCH in {current_table}: %F={current_f_count}, %R={rcount}")
+```
+
+Also verify CRLF count is reasonable and no `None` values snuck into the output.
+
+### Logic Checks
+
+Before writing, verify the schedule data makes sense:
+
+- Every activity has a WBS assignment
+- Every non-milestone activity has at least one predecessor and one successor
+- No circular logic (topological sort the relationship graph)
+- Calendar IDs referenced by activities exist in the CALENDAR table
+- No zero-duration tasks (except milestones), no absurdly large durations
+- No duplicate IDs
+
+### Quality Score Backcheck
+
+After validation, run the `schedule-quality-score` skill's scoring engine:
 
 ```python
 from score_schedule import compute_quality_score
 score, grade, scored, info, deductions, scope, details = compute_quality_score(tasks, preds)
 ```
 
-Use the `details` dict (NOT the formatted report) to iterate on issues. The `details` dict contains the **complete, uncapped** list of every flagged activity — use `task_code` values to look up and fix specific activities in the XER data. Key fields to check:
-
-- `details['missing_logic']` — `{'missing_pred': [...], 'missing_succ': [...]}` — add logic ties
-- `details['constraints']` — `{'hard': [...], 'soft': [...]}` — remove unnecessary constraints
-- `details['high_float']` — activities with float > 44 days — tighten logic
-- `details['dangling']` — missing FS/SS pred or FS/FF succ — add proper ties
-
-Target a grade of B+ or higher before delivering. Iterate: fix issues in the XER data, re-score, repeat until the grade is acceptable.
+Use `details` to iterate on issues — `details['missing_logic']`, `details['constraints']`, `details['high_float']`, `details['dangling']`. Target B+ or higher before delivering.
 
 ## Output Checklist
 
-Before delivering the generated XER to the user, confirm:
+Before delivering the generated XER:
 
-- [ ] File parses without errors (re-read it with the parser)
-- [ ] All validation checks pass
+- [ ] File re-reads without errors and all `%F`/`%R` field counts match
+- [ ] CRLF line endings confirmed
 - [ ] Quality score backcheck passes (B+ or higher)
 - [ ] WBS structure makes sense for the project scope
 - [ ] Activity count is reasonable (not too granular, not too summary)
@@ -399,11 +256,12 @@ Before delivering the generated XER to the user, confirm:
 - [ ] Durations are reasonable for the project type and size
 - [ ] Calendar is appropriate (5-day, 6-day, etc.)
 - [ ] Project start date matches the proposal
-- [ ] Known milestones are included with appropriate constraints
-- [ ] The file is ready to import into P6 without modification
+- [ ] Milestones are included with appropriate constraints
 
-Tell the user: this is a starting point. After importing to P6, they should run the scheduler (F9), review the critical path, and adjust durations and logic as needed. The generated schedule gives them the structure and logic framework — not a finished product.
+Tell the user: this is a starting point. After importing to P6, run the scheduler (F9), review the critical path, and adjust durations and logic as needed.
 
 ## Reference Files
 
-For XER format details and table schemas, the schedule-xer-read-modify skill's reference file covers the full specification. This skill focuses on the generation workflow; refer to that skill for parsing and format details.
+- `build_from_raw_template.py` — Complete working generation script (bundled in this skill folder). Study this before generating any new XER.
+- For XER format details and table schemas, see the schedule-xer-read-modify skill.
+- A working template XER file (a real P6 export) is required as input. Use the smallest available.

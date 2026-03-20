@@ -41,7 +41,6 @@ Browse available plugins and install the ones you need:
 - **pm-submittal-requirements** (TODO) — Read the specs and generate a trade-specific submittal requirements list with section references for subs to check off.
 - **pm-subcontractor-spec-reader** (TODO) — Parse contract specs for a specific subcontractor and produce their custom checklist — obligations, hold points, testing requirements, closeout docs.
 - **pm-change-event** — Analyze incoming change events (PRs, CCDs, ASIs, bulletins) and distribute scope to affected subcontractors — identifies who's affected, writes scope descriptions per trade, and outputs a formatted distribution summary. Optional Procore MCP integration for direct posting.
-- **pm-meeting-minutes** (TODO) — Generate structured OAC meeting minutes from rough notes — action items, decisions, open issues, attendees.
 - **pm-change-order-docs** (TODO) — Help document and justify change orders — draft cover letters, organize backup, reference contract provisions.
 
 ### Site Operations
