@@ -1,78 +1,138 @@
 ---
 name: schedule-create-proposal-schedule
 description: >
-  Create a construction proposal schedule plan through a structured interview process. Use this skill
-  whenever the user wants to "plan a proposal schedule", "create a schedule plan", "build a bid
-  schedule", "proposal schedule questionnaire", "schedule planning session", or wants to analyze
-  sample schedules and bid documents to develop a schedule basis before generating a XER file.
-  Also trigger when the user says "I have some similar schedules and a bid package" or "help me
-  plan out this schedule" or "schedule basis document" or "schedule plan from bid docs". This skill
-  produces a comprehensive schedule plan document — if the user wants to go straight to XER
-  generation without the planning interview, use schedule-xer-generate instead. This skill's
-  output feeds directly into schedule-xer-generate as the scope input.
+  Create a construction proposal schedule plan by analyzing bid documents and sample XER files,
+  then generate the XER file. Use this skill whenever the user wants to "plan a proposal schedule",
+  "create a schedule plan", "build a bid schedule", "proposal schedule", "I have some similar
+  schedules and a bid package", "help me plan out this schedule", "schedule plan from bid docs",
+  or wants to create a new schedule from bid documents and sample schedules. This skill reads the
+  documents first, makes smart recommendations using Westland standards, and only asks about things
+  the documents don't answer. Output feeds into the schedule-xer skill for XER generation.
 ---
 
-# Proposal Schedule Planning Session
+# Proposal Schedule Planning
 
-This skill orchestrates a multi-phase interview process that takes sample XER files and bid documents as inputs, walks the user through approximately 20 context-aware questions across four topic areas, collects free-form notes, and produces a comprehensive schedule plan document. The plan document serves as the scope input for the `schedule-xer-generate` skill. The entire process is guided by the `schedule-best-practices` skill — all schedule decisions (logic network, relationship types, constraint usage, float targets, etc.) must conform to DCMA 14-Point, GAO, and AACE best practice standards. After XER generation, the `schedule-quality-score` skill scores the schedule and the process iterates until the schedule achieves an A grade.
+This skill creates a proposal schedule by analyzing bid documents and sample XER files. It reads the documents, proposes a schedule structure using Westland standards, asks only what the documents don't answer, then generates the plan document and XER file.
 
-## Workflow Overview
+## Workflow
 
-1. **Gather Inputs** — Collect sample XER files and bid documents from the project folder
-2. **Auto-Parse & Analysis** — Parse all XER files using schedule-xer-read-modify patterns; read bid documents; extract key data
-3. **Structured Q&A** — Walk through ~20 questions across 4 topic areas, using parsed data to provide context and options. All recommendations follow `schedule-best-practices` standards.
-4. **Targeted Free-Write** — Collect detailed notes on 5 specific topics
-5. **Summary & Review** — Present all decisions for user confirmation and revision
-6. **Plan Document** — Generate the complete schedule plan document (built to `schedule-best-practices` standards)
-7. **XER Generation** — Generate the XER file via `schedule-xer-generate`
-8. **Quality Scoring & Iteration** — Score the generated XER using `schedule-quality-score`. If the schedule does not achieve an A grade, identify the failing metrics, ask the user targeted follow-up questions if needed, fix the issues, and regenerate. Repeat until the schedule scores an A.
+1. **Gather Inputs** — Collect project folder with bid docs and sample XERs
+2. **Auto-Parse & Analyze** — Parse XERs and read bid docs to extract all knowable information
+3. **Present Recommendations** — Propose complete schedule structure based on findings
+4. **Ask 2-3 Targeted Questions** — Only what the documents don't answer
+5. **Generate Plan Document** — Save to project folder
+6. **Generate XER** — Via `schedule-xer` skill
+7. **Score & Iterate** — Via `schedule-standards` skill until A grade achieved
 
 ---
 
 ## Phase 1: Gather Inputs
 
-### Expected Folder Structure
-
-The skill expects a **project folder path** with this structure:
+Ask the user for the project folder path. Expected structure:
 
 ```
 <project-folder>/
-├── Bid Documents/              ← bid proposal, specs, plans, contract docs
-└── Proposal Schedule/
-    ├── Sample Schedules/       ← sample XER files from similar projects
-    └── [outputs go here]
+  Bid Documents/              <- bid proposal, specs, plans, contract docs
+  Proposal Schedule/
+    Sample Schedules/         <- 1-5 XER files from similar completed projects
+    [outputs go here]
 ```
 
-### How to Prompt the User
+List all files found and confirm before proceeding.
 
-Ask the user for the project folder path:
+## Phase 2: Auto-Parse & Analyze
 
-```
-To start the proposal schedule planning session, I need the path to your project folder.
+### Parse Sample XER Files
+For each XER, parse using the `schedule-xer` skill and extract a profile. Read `references/xer-analysis-code.md` for the extraction functions. Extract: WBS structure, activity counts, duration stats, relationship types, milestones, naming patterns, calendars.
 
-The folder should contain:
+### Read Bid Documents
+Extract into structured categories:
+- Project name, location, type
+- Contract duration / substantial completion date
+- Required milestones and interim deadlines
+- Phasing requirements
+- Liquidated damages amounts and triggers
+- Schedule specification requirements (update frequency, format, detail level)
+- Scope summary by major division or area
+- Special conditions (occupied building, phased turnover, seasonal restrictions)
 
-1. **Bid Documents/** — The bid package materials: bid proposal, plans/specifications,
-   contract documents, schedule requirements, and any other bid docs.
+### Present Analysis Summary
+Show the user: sample schedule profiles side by side + bid document findings.
 
-2. **Proposal Schedule/Sample Schedules/** — 1-5 XER files from similar completed projects.
-   These will be analyzed to extract WBS patterns, activity sequences, durations, and logic
-   that can inform the new schedule.
+## Phase 3: Smart Recommendations
 
-   What makes a good sample: same building type, similar size/complexity, similar delivery method.
+Based on the analysis, propose a **complete schedule structure** using Westland standards as the default for all style/format decisions. The skill determines from the documents:
 
-What is the project folder path?
-```
+- **WBS structure** — Westland standard from `schedule-standards`, adapted to project scope (e.g., add Demo phase above Construction if demolition is required before construction starts)
+- **Activity list and durations** — From sample XER analysis, scaled to project scope
+- **Milestone strategy** — Contract milestones + Westland 30-day rule
+- **Construction sequence/flow** — From sample schedule patterns and bid doc scope
+- **Procurement items** — From specs + sample schedule procurement activities
+- **Calendar** — From contract requirements (5-day/6-day/7-day)
+- **Logic network** — Based on sample schedule patterns
 
-### After Receiving the Path
+**Do NOT ask about:** WBS format, naming conventions, milestone frequency, formatting, branding, responsibility codes, relationship type targets, SmartPM integration. These are all answered by Westland standards.
 
-1. List all files found in `Bid Documents/` and `Proposal Schedule/Sample Schedules/`
-2. Confirm with the user before proceeding: "I found X XER files and Y bid documents. Ready to proceed?"
+Present the proposed structure to the user as a concise summary before asking questions.
+
+## Phase 4: Targeted Questions (2-3 max)
+
+Ask ONLY about things genuinely unclear from the bid documents and sample schedules. Use AskUserQuestion format with a recommended answer at the top of each.
+
+### Question 1: Construction Sequence Confirmation
+Present the proposed construction sequence derived from sample schedules and bid docs. Ask:
+> "Here's the proposed construction sequence based on the bid docs and sample schedules. Does this match your planned approach, or do you want to change the flow?"
+
+Recommended answer: Accept the proposed sequence. Provide the proposed sequence as the first option.
+
+### Question 2: Known Risks & Special Conditions
+> "Are there risks, site conditions, or constraints not captured in the bid docs that should affect the schedule?"
+
+This catches team knowledge that doesn't appear in written documents — site access issues, known trade availability problems, weather concerns specific to timing, etc.
+
+### Question 3 (optional — only if docs are unclear)
+> "The bid docs leave these items unclear: [list]. What are your assumptions for [specific items]?"
+
+Only ask if there are genuine unknowns about crew sizing, work hours, owner-furnished items, or phasing that can't be inferred from the sample schedules.
+
+### Free-Write (1-2 prompts at end)
+> "Is there anything else from the project team discussions or your experience that should be captured in this schedule plan?"
+
+Optional second prompt if the project has unusual site conditions or logistics.
+
+## Phase 5: Generate Plan Document
+
+Read `references/plan-document-template.md` for the full template. Generate the plan document incorporating all analysis results and user responses. Save to:
+
+`<project-folder>/Proposal Schedule/Schedule Plan - [Project Name].md`
+
+## Phase 6: Generate XER
+
+After the user reviews the plan document:
+1. Use the `schedule-xer` skill to generate the XER file from the plan
+2. Pass the plan document as scope input + sample XERs as reference schedules
+3. Apply all Westland standards during generation (from `schedule-standards`)
+4. Convert all durations from working days (plan) to hours (days x 8 for XER)
+5. Save to `<project-folder>/Proposal Schedule/[Project Name].xer`
+
+## Phase 7: Score & Iterate
+
+Score the generated XER using the `schedule-standards` skill. Target: **A grade (90+)**.
+
+If below A:
+1. Identify failing metrics from the `details` dict (contains every flagged activity with `task_code`)
+2. Apply automatic fixes where possible (add missing logic, convert relationship types, tighten network)
+3. Ask user follow-up only for fixes that require judgment (e.g., "Is this high float intentional buffer?")
+4. Regenerate and re-score. Maximum 3 iterations.
+5. Never sacrifice schedule accuracy for score — document accepted deviations.
+
+Present the final quality report and XER file location when complete.
 
 ---
 
-## Phase 2: Auto-Parse & Analysis
+## Reference Files
 
+<<<<<<< Updated upstream
 ### Parsing Sample XER Files
 
 For each XER file, parse using the approach from the `schedule-xer-read-modify` skill and extract a schedule profile:
@@ -1201,3 +1261,9 @@ When the schedule achieves an A grade (or the user accepts the current grade aft
 2. **Schedule Plan document** saved to `<project-folder>/Proposal Schedule/Schedule Plan - [Project Name].md`
 3. **Quality Report** presented to the user showing the final grade, all metric scores, and any accepted deviations
 4. Summary of what was borrowed from each sample schedule and how the bid docs shaped the plan
+=======
+| File | When to Load |
+|------|-------------|
+| `references/xer-analysis-code.md` | Python functions for extracting schedule profiles from sample XERs |
+| `references/plan-document-template.md` | Full 14-section plan document template — load when generating the plan |
+>>>>>>> Stashed changes

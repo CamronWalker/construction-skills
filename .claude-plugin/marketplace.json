@@ -7,8 +7,8 @@
     {
       "name": "scheduling",
       "source": "./scheduling",
-      "description": "Claude Code skills for construction scheduling — build, score, and manage Primavera P6 schedules.",
-      "version": "0.4.2"
+      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules, quality scoring, and schedule update emails.",
+      "version": "0.5.0"
     },
     {
       "name": "estimating",
@@ -20,13 +20,13 @@
       "name": "project-management",
       "source": "./project-management",
       "description": "Claude Code skills for construction project management — submittals, specs, meeting minutes, change events, and change orders.",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "name": "site-operations",
       "source": "./site-operations",
       "description": "Claude Code skills for construction site and field operations — RFIs, daily logs, and field workflows.",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "name": "safety",

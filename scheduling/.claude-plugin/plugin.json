@@ -1,7 +1,7 @@
 {
   "name": "scheduling",
-  "version": "0.4.2",
-  "description": "Claude Code skills for construction scheduling — build, score, and manage Primavera P6 schedules.",
+  "version": "0.5.0",
+  "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules, quality scoring, and schedule update emails.",
   "author": {
     "name": "Camron Walker"
   },
