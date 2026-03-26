@@ -1,0 +1,371 @@
+{
+  "project_name": "Orem Community Recreation Center",
+  "project_type": "New Construction — Municipal Recreation Facility",
+  "location": "Orem, Utah",
+  "contract_duration": "18 months",
+  "ntp_date": "April 14, 2026",
+  "sc_date": "October 14, 2027",
+  "fc_date": "December 14, 2027",
+  "ld_info": "$2,500/calendar day after Substantial Completion",
+  "delivery_method": "CM/GC",
+  "prepared_by": "Camron Walker / Westland Construction",
+  "prepared_date": "March 26, 2026",
+  "status": "Draft",
+  "logo_path": "/sessions/pensive-modest-franklin/westland_logo.png",
+  "reference_schedules": [
+    {
+      "name": "Provo Rock Canyon Pavilion",
+      "file": "PRC.xer",
+      "activities": 87,
+      "ratio": "1.72:1",
+      "takeaway": "Site work sequencing & MEP coordination"
+    },
+    {
+      "name": "Springville Community Center",
+      "file": "SCC.xer",
+      "activities": 112,
+      "ratio": "1.65:1",
+      "takeaway": "Aquatics facility phasing & envelope sequence"
+    },
+    {
+      "name": "AF Fitness Center Renovation",
+      "file": "AFFC.xer",
+      "activities": 64,
+      "ratio": "1.58:1",
+      "takeaway": "Interior finish sequencing in occupied facility"
+    }
+  ],
+  "bid_documents": [
+    "Project Manual (Divisions 00-33) — contract requirements, schedule spec (Section 01 32 16)",
+    "Architectural Plans (A1.0 through A9.3) — building layout, area takeoffs",
+    "Structural Plans (S1.0 through S5.2) — steel & concrete scope",
+    "MEP Plans (M1.0-M4.2, E1.0-E6.1, P1.0-P3.4) — mechanical, electrical, plumbing scope",
+    "Civil Plans (C1.0 through C4.1) — site grading, utilities, parking"
+  ],
+  "question_responses": [
+    {
+      "question": "What is the anticipated work week?",
+      "response": "5-day standard. 6-day available for recovery but not in the baseline."
+    },
+    {
+      "question": "Are there any phasing or occupied building constraints?",
+      "response": "No — single-phase new construction, full site access from NTP."
+    },
+    {
+      "question": "Any known long-lead equipment the owner is furnishing?",
+      "response": "Yes — aquatics mechanical equipment (pumps, filters, heaters, chemical systems). Owner expects delivery by Month 10."
+    },
+    {
+      "question": "What is the expected structural system?",
+      "response": "Structural steel frame with composite metal deck at Level 2. Spread footings with CMU/CIP foundation walls."
+    },
+    {
+      "question": "Any geotechnical concerns from the report?",
+      "response": "Standard soil conditions per January 2026 geotech report. No rock, no dewatering required."
+    },
+    {
+      "question": "Will the building permit be in hand at NTP?",
+      "response": "No — expect 4 weeks from NTP to permit issuance. Schedule needs to account for this."
+    },
+    {
+      "question": "How do you want interior finishes organized?",
+      "response": "By functional area — Lobby/Admin, Gymnasium, Aquatics, and Level 2 Fitness. Aquatics has specialized waterproofing and tile that takes significantly longer."
+    },
+    {
+      "question": "What calendar and holidays should we use?",
+      "response": "Standard Westland 5-day calendar with 7 observed holidays. Work hours 7:00 AM to 3:30 PM."
+    }
+  ],
+  "assumptions": [
+    "NTP assumed April 14, 2026 per owner verbal communication.",
+    "5-day work week standard; 6-day weeks available for critical path recovery.",
+    "Steel fabrication lead time of 12 weeks from approval of shop drawings.",
+    "Owner-furnished aquatics equipment delivered by Month 10.",
+    "Geotechnical report indicates standard soil conditions — no rock excavation.",
+    "Building permit expected within 4 weeks of application.",
+    "One concrete subcontractor for foundations and slab-on-grade.",
+    "No winter concrete protection required for April start (foundations complete by Sept)."
+  ],
+  "wbs_tree_text": "OREM COMMUNITY RECREATION CENTER (OCRC)\n    SUMMARY & MILESTONES\n    PROCUREMENT\n        SUBMITTALS - APPROVALS - FABRICATION - DELIVERY\n            STRUCTURAL STEEL\n            AQUATICS MECHANICAL EQUIPMENT\n            ROOFTOP HVAC UNITS\n            ELECTRICAL SWITCHGEAR\n            ELEVATOR\n            GYM FLOORING SYSTEM\n            WINDOWS & STOREFRONT\n    CONSTRUCTION\n        SITEWORK\n            INITIAL SITEWORK\n            SITEWORK COMPLETION\n        FOUNDATIONS\n        STRUCTURAL STEEL & DECK\n        BUILDING ENVELOPE\n            ROOFING\n            EXTERIOR WALLS & GLAZING\n        MEP ROUGH-IN\n            MECHANICAL\n            ELECTRICAL\n            PLUMBING\n            FIRE PROTECTION\n        INTERIOR FINISHES\n            LEVEL 1 - LOBBY & ADMIN\n            LEVEL 1 - GYMNASIUM\n            LEVEL 1 - AQUATICS\n            LEVEL 2 - FITNESS & MULTI-PURPOSE\n        COMMISSIONING & CLOSEOUT",
+  "wbs_rationale": "Phase-based at the top level, matching the Provo Rock Canyon and Springville reference patterns. Procurement broken out by major trade for submittal chain tracking. Interior finishes split by functional area because the aquatics area has 40% longer finish duration due to specialized waterproofing and tile work.",
+  "phase_timeline": [
+    {
+      "phase": "Preconstruction & Permitting",
+      "duration": "30 days",
+      "activities": 6,
+      "key_driver": "Building permit lead time (4 weeks)"
+    },
+    {
+      "phase": "Sitework",
+      "duration": "35 days",
+      "activities": 9,
+      "key_driver": "Underground utility installation (12 days)"
+    },
+    {
+      "phase": "Foundations",
+      "duration": "40 days",
+      "activities": 8,
+      "key_driver": "CMU/CIP wall pours & aquatics waterproofing"
+    },
+    {
+      "phase": "Structural Steel & Deck",
+      "duration": "30 days",
+      "activities": 5,
+      "key_driver": "Steel erection (15 days) + elevated slab"
+    },
+    {
+      "phase": "Building Envelope",
+      "duration": "45 days",
+      "activities": 7,
+      "key_driver": "Roofing + exterior wall framing (east to west)"
+    },
+    {
+      "phase": "MEP Rough-In",
+      "duration": "50 days",
+      "activities": 14,
+      "key_driver": "Aquatics mechanical room (long-lead equipment)"
+    },
+    {
+      "phase": "Interior Finishes",
+      "duration": "60 days",
+      "activities": 20,
+      "key_driver": "Aquatics waterproofing & tile (longest area)"
+    },
+    {
+      "phase": "Commissioning & Closeout",
+      "duration": "35 days",
+      "activities": 8,
+      "key_driver": "TAB, controls commissioning, owner training"
+    },
+    {
+      "phase": "Procurement (parallel)",
+      "duration": "120 days",
+      "activities": 19,
+      "key_driver": "Aquatics equipment (16 weeks) & steel (12 weeks)"
+    }
+  ],
+  "phase_sequencing": [
+    "Preconstruction → Site Work: FS (permit gates NTP)",
+    "Site Work → Foundations: FS with 5-day lag (allow grading cure)",
+    "Foundations → Structural Steel: FS (steel erect after foundation walls complete)",
+    "Structural Steel → Building Envelope: SS with 10-day lag (envelope follows steel by area)",
+    "Building Envelope → MEP Rough-In: SS with 5-day lag (MEP starts in dried-in areas)",
+    "MEP Rough-In → Interior Finishes: FS by area (drywall after rough-in inspection)",
+    "Interior Finishes → Commissioning & Closeout: FS"
+  ],
+  "logic_chains": {
+    "Site Work": "Mobilize → Erosion Control → Clear & Grub → Excavate → Utilities → Backfill → Grade",
+    "Foundations": "Excavate Footings → Form → Rebar → Pour → Strip → Walls → Waterproof → Backfill",
+    "MEP": "Underground → Rough-In (by discipline, SS ties) → Overhead → Trim → Test & Balance",
+    "Finishes": "Frame → Rough MEP → Inspect → Insulate → Drywall → Tape & Finish → Paint → Flooring → Trim"
+  },
+  "cross_phase_ties": [
+    "Steel delivery milestone tied to shop drawing approval (Preconstruction → Structure)",
+    "Aquatics plumbing rough-in tied to pool shell pour (Foundations → MEP)",
+    "Roofing completion gates interior finish start (Envelope → Finishes)"
+  ],
+  "relationship_standards": [
+    "Default relationship type: FS",
+    "SS used for: MEP rough-in by discipline (parallel trades), envelope/structure overlap",
+    "FF used for: punchlist/closeout activities only",
+    "Target relationship ratio: 1.8:1",
+    "Lag usage: minimized; only where physical cure time or delivery wait is required"
+  ],
+  "overall_approach": "Linear construction sequence starting from the east side of the building and progressing west. The aquatics wing (west) has the longest interior finish duration due to specialized waterproofing, tile, and mechanical work, so it begins MEP rough-in first. The gymnasium and lobby areas follow. Level 2 fitness areas are on the critical path due to the elevated slab pour dependency.",
+  "phase_narratives": {
+    "Mobilization & Site Work": "Mobilize in Week 1, establish SWPPP controls, begin mass excavation. Underground utilities run concurrent with building pad preparation. 3 weeks of site work before foundation excavation begins.",
+    "Foundation & Structure": "Spread footings and CMU/CIP foundation walls. Steel erection begins immediately after foundation walls are complete. Metal deck and elevated slab follow steel by area.",
+    "Building Envelope": "Roof deck and roofing begin as soon as steel is topped out. Exterior wall framing and sheathing follow from east to west. Window installation follows wall completion by area.",
+    "MEP Rough-In": "Aquatics mechanical room starts first (long-lead equipment). Rough-in by discipline with SS ties. Fire protection follows ductwork by 5 days. Electrical follows mechanical by area. Above-ceiling inspection gates drywall.",
+    "Interior Finishes": "Area-by-area: Lobby/Admin first, then Gymnasium, then Aquatics (longest duration), then Level 2 Fitness. Each area follows the standard finish chain: frame, rough, insulate, drywall, tape & finish, paint, flooring, trim.",
+    "Commissioning & Closeout": "TAB and controls commissioning begin 6 weeks before Substantial Completion. Punchlist and final inspections run parallel. Owner training scheduled 2 weeks before turnover."
+  },
+  "milestones": [
+    {
+      "name": "Notice to Proceed",
+      "date": "April 14, 2026",
+      "type": "Start Milestone",
+      "constraint": "SNET",
+      "source": "Contract"
+    },
+    {
+      "name": "Building Permit Received",
+      "date": "May 12, 2026",
+      "type": "Finish Milestone",
+      "constraint": "None",
+      "source": "Assumption"
+    },
+    {
+      "name": "Steel Erection Complete",
+      "date": "October 2026",
+      "type": "Finish Milestone",
+      "constraint": "None",
+      "source": "Logic-driven"
+    },
+    {
+      "name": "Building Dried In",
+      "date": "January 2027",
+      "type": "Finish Milestone",
+      "constraint": "None",
+      "source": "Logic-driven"
+    },
+    {
+      "name": "Substantial Completion",
+      "date": "October 14, 2027",
+      "type": "Finish Milestone",
+      "constraint": "FNET",
+      "source": "Contract"
+    },
+    {
+      "name": "Final Completion",
+      "date": "December 14, 2027",
+      "type": "Finish Milestone",
+      "constraint": "FNET",
+      "source": "Contract"
+    }
+  ],
+  "procurement_items": [
+    {
+      "item": "Structural Steel",
+      "lead_time": "12 weeks",
+      "submittal_by": "Month 1",
+      "need_on_site": "Month 4",
+      "notes": "Critical path — early submittal required"
+    },
+    {
+      "item": "Aquatics Mechanical Equipment",
+      "lead_time": "16 weeks",
+      "submittal_by": "Month 1",
+      "need_on_site": "Month 8",
+      "notes": "Pool pumps, filters, heaters — owner spec"
+    },
+    {
+      "item": "Rooftop HVAC Units",
+      "lead_time": "10 weeks",
+      "submittal_by": "Month 2",
+      "need_on_site": "Month 6",
+      "notes": "3 units per mechanical plans"
+    },
+    {
+      "item": "Gym Flooring System",
+      "lead_time": "8 weeks",
+      "submittal_by": "Month 6",
+      "need_on_site": "Month 12",
+      "notes": "Maple hardwood — requires acclimation period"
+    },
+    {
+      "item": "Elevator",
+      "lead_time": "14 weeks",
+      "submittal_by": "Month 2",
+      "need_on_site": "Month 10",
+      "notes": "Hydraulic passenger elevator"
+    }
+  ],
+  "procurement_qualifications": [
+    "Lead times are based on manufacturer quotes and industry norms as of bid date. Actual lead times will be confirmed at time of order.",
+    "Submittal review periods assume 14 calendar days for architect/engineer review per specification requirements.",
+    "Any owner-directed substitution that increases lead time beyond the baseline estimate is an excusable delay.",
+    "Westland will provide procurement status in the monthly schedule update and will formally document any item exceeding baseline lead time."
+  ],
+  "risks": [
+    {
+      "risk": "Steel fabrication delay",
+      "impact": "High",
+      "likelihood": "Medium",
+      "mitigation": "Early submittal, weekly fabricator check-ins",
+      "schedule_impact": "2-4 weeks"
+    },
+    {
+      "risk": "Aquatics waterproofing rework",
+      "impact": "High",
+      "likelihood": "Low",
+      "mitigation": "Pre-qualified applicator, third-party inspection",
+      "schedule_impact": "2-3 weeks"
+    },
+    {
+      "risk": "Winter weather delays",
+      "impact": "Medium",
+      "likelihood": "Medium",
+      "mitigation": "April NTP allows foundations before winter; envelope by Jan",
+      "schedule_impact": "1-2 weeks"
+    },
+    {
+      "risk": "Owner-furnished equipment late",
+      "impact": "Medium",
+      "likelihood": "Medium",
+      "mitigation": "Monthly procurement tracking with owner",
+      "schedule_impact": "1-3 weeks"
+    },
+    {
+      "risk": "Unforeseen subsurface conditions",
+      "impact": "High",
+      "likelihood": "Low",
+      "mitigation": "Geotech report reviewed — low risk per borings",
+      "schedule_impact": "1-2 weeks"
+    }
+  ],
+  "calendar_type": "5-Day Work Week (Monday-Friday)",
+  "work_hours": "7:00 AM - 3:30 PM (8 hours with 30-min lunch)",
+  "weather": "No winter concrete protection required for April start schedule",
+  "holidays": "Per Westland standard calendar — 7 observed holidays",
+  "overtime": "6-day weeks available for critical path recovery at PM discretion",
+  "bid_assumptions": [
+    {
+      "category": "Schedule Start",
+      "text": "NTP of April 14, 2026 per owner verbal communication. If NTP is delayed, the Substantial Completion date shifts day-for-day."
+    },
+    {
+      "category": "Work Week",
+      "text": "Standard 5-day work week (40 hrs). Overtime/Saturday work available for critical path recovery but not included in baseline durations."
+    },
+    {
+      "category": "Subcontractor Availability",
+      "text": "All major subcontractors (steel, mechanical, electrical, plumbing) are available for the proposed schedule. No trade stacking beyond standard coordination."
+    },
+    {
+      "category": "Permit Timeline",
+      "text": "Building permit issued within 4 weeks of NTP. Any delay in permit issuance shifts the schedule by the same duration."
+    },
+    {
+      "category": "Structural Steel",
+      "text": "12-week fabrication lead time from shop drawing approval. Steel erection crew of 4 ironworkers + crane for 3-week erection duration."
+    },
+    {
+      "category": "Owner-Furnished Equipment",
+      "text": "Aquatics mechanical equipment (pumps, filters, heaters, chemical systems) delivered to site by Month 10. Westland not responsible for procurement delays on owner-furnished items."
+    },
+    {
+      "category": "Soil Conditions",
+      "text": "Standard soil conditions per geotechnical report dated January 2026. No rock excavation, dewatering, or soil remediation included."
+    },
+    {
+      "category": "Phasing",
+      "text": "Single-phase construction with no occupied building constraints. Full site access from NTP through Final Completion."
+    },
+    {
+      "category": "Weather",
+      "text": "April start allows all foundation and structural work to be completed before winter. No winter concrete protection costs or schedule impacts are included in this baseline."
+    },
+    {
+      "category": "Inspections",
+      "text": "Building inspections scheduled within 48 hours of request per city standard. No schedule impact from inspection wait times unless city backlog exceeds 5 business days."
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Use 5-day calendar as baseline",
+      "rationale": "Contract does not require 6-day; keeps overtime as float recovery option",
+      "date": "March 26, 2026"
+    },
+    {
+      "decision": "Split interior finishes by functional area",
+      "rationale": "Aquatics has 40% longer finish duration; enables earlier turnover of non-aquatics spaces",
+      "date": "March 26, 2026"
+    },
+    {
+      "decision": "Start aquatics MEP rough-in first",
+      "rationale": "Longest interior duration on critical path; early start reduces overall schedule risk",
+      "date": "March 26, 2026"
+    }
+  ]
+}
