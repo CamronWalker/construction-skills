@@ -1,0 +1,1077 @@
+"""
+CPM Engine — Forward/backward pass, float calculation for P6 XER schedules.
+
+Pure function library. Pass parsed XER data in, get calculated schedule out.
+
+Usage:
+    from calendar_engine import build_calendar_lookup
+    from cpm_engine import schedule_forward_backward, render_schedule_html
+
+    cal_lookup = build_calendar_lookup(calendars)
+    results, metadata = schedule_forward_backward(tasks, preds, calendars, data_date)
+    render_schedule_html(results, 'Project Name', data_date, metadata, 'schedule.html')
+"""
+
+from datetime import datetime, timedelta
+from collections import defaultdict, deque
+import json
+import os
+
+# Import calendar_engine from same directory
+import importlib.util
+_dir = os.path.dirname(os.path.abspath(__file__))
+_spec = importlib.util.spec_from_file_location('calendar_engine', os.path.join(_dir, 'calendar_engine.py'))
+_cal_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_cal_mod)
+
+build_calendar_lookup = _cal_mod.build_calendar_lookup
+add_work_hours = _cal_mod.add_work_hours
+subtract_work_hours = _cal_mod.subtract_work_hours
+work_hours_between = _cal_mod.work_hours_between
+next_work_start = _cal_mod.next_work_start
+_default_calendar = _cal_mod._default_calendar
+
+
+# ---------------------------------------------------------------------------
+# Date helpers
+# ---------------------------------------------------------------------------
+
+def _parse_date(date_str):
+    """Parse 'YYYY-MM-DD HH:MM' or 'YYYY-MM-DD' to datetime, None if empty."""
+    if not date_str or not date_str.strip():
+        return None
+    s = date_str.strip()
+    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _format_date(dt):
+    """Format datetime to 'YYYY-MM-DD HH:MM' string."""
+    if dt is None:
+        return ''
+    return dt.strftime('%Y-%m-%d %H:%M')
+
+
+def _safe_float(val, default=0.0):
+    try:
+        return float(val) if val else default
+    except (ValueError, TypeError):
+        return default
+
+
+# ---------------------------------------------------------------------------
+# SC milestone finder (copied from score_schedule.py)
+# ---------------------------------------------------------------------------
+
+def _find_sc_milestone(tasks):
+    """Find the Substantial Completion milestone (incomplete, non-WBS/LOE)."""
+    exc = {'TT_WBS', 'TT_LOE'}
+
+    # Priority 1: "Substantial Completion & Turnover to Owner"
+    for t in tasks:
+        if t.get('task_type', '') in exc:
+            continue
+        name = t.get('task_name', '')
+        if 'Substantial Completion' in name and 'Turnover to Owner' in name:
+            if t.get('status_code', '') != 'TK_Complete':
+                return t
+
+    # Priority 2: Exact "Substantial Completion" milestone
+    for t in tasks:
+        if t.get('task_type', '') in exc:
+            continue
+        if t.get('task_name', '').strip() == 'Substantial Completion':
+            if t.get('task_type', '') in ('TT_FinMile', 'TT_Mile'):
+                if t.get('status_code', '') != 'TK_Complete':
+                    return t
+
+    # Priority 3: Any milestone containing "Substantial Completion"
+    for t in tasks:
+        if t.get('task_type', '') in exc:
+            continue
+        if t.get('task_type', '') not in ('TT_FinMile', 'TT_Mile'):
+            continue
+        if 'Substantial Completion' in t.get('task_name', ''):
+            if t.get('status_code', '') != 'TK_Complete':
+                return t
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Graph construction
+# ---------------------------------------------------------------------------
+
+def _build_graph(tasks, preds):
+    """
+    Build network graph from task and relationship lists.
+
+    Returns:
+        tasks_by_id: {task_id: task_dict}
+        succ_map: {pred_task_id: [(succ_task_id, rel_dict), ...]}
+        pred_map: {task_id: [(pred_task_id, rel_dict), ...]}
+        cpm_tasks: list of task_ids to schedule (excludes WBS, LOE)
+    """
+    skip_types = {'TT_WBS', 'TT_LOE'}
+    tasks_by_id = {}
+    cpm_task_ids = set()
+
+    for t in tasks:
+        tid = t.get('task_id', '')
+        tasks_by_id[tid] = t
+        if t.get('task_type', '') not in skip_types:
+            cpm_task_ids.add(tid)
+
+    succ_map = defaultdict(list)  # pred -> [(succ, rel)]
+    pred_map = defaultdict(list)  # succ -> [(pred, rel)]
+
+    for r in preds:
+        succ_id = r.get('task_id', '')       # task_id = SUCCESSOR
+        pred_id = r.get('pred_task_id', '')   # pred_task_id = PREDECESSOR
+        if succ_id in cpm_task_ids and pred_id in cpm_task_ids:
+            succ_map[pred_id].append((succ_id, r))
+            pred_map[succ_id].append((pred_id, r))
+
+    return tasks_by_id, succ_map, pred_map, cpm_task_ids
+
+
+def _topological_sort(task_ids, pred_map):
+    """
+    Kahn's algorithm for topological ordering.
+    Returns list of task_ids in forward-pass order.
+    Raises ValueError on circular dependencies.
+    """
+    # Count incoming edges (within our CPM scope)
+    in_degree = {tid: 0 for tid in task_ids}
+    adj = defaultdict(list)
+
+    for succ_id in task_ids:
+        for pred_id, _ in pred_map.get(succ_id, []):
+            if pred_id in task_ids:
+                in_degree[succ_id] += 1
+                adj[pred_id].append(succ_id)
+
+    queue = deque(tid for tid, deg in in_degree.items() if deg == 0)
+    order = []
+
+    while queue:
+        tid = queue.popleft()
+        order.append(tid)
+        for succ_id in adj[tid]:
+            in_degree[succ_id] -= 1
+            if in_degree[succ_id] == 0:
+                queue.append(succ_id)
+
+    if len(order) != len(task_ids):
+        raise ValueError(
+            f"Circular dependency detected: scheduled {len(order)} of {len(task_ids)} tasks"
+        )
+    return order
+
+
+# ---------------------------------------------------------------------------
+# Duration helpers
+# ---------------------------------------------------------------------------
+
+def _get_duration_hours(task):
+    """Get effective duration in hours for CPM calculation."""
+    task_type = task.get('task_type', '')
+    status = task.get('status_code', '')
+
+    # Milestones have zero duration
+    if task_type in ('TT_Mile', 'TT_FinMile'):
+        return 0.0
+
+    # Complete tasks — use actual dates, no duration calculation needed
+    if status == 'TK_Complete':
+        return 0.0
+
+    # Active tasks — use remaining duration
+    if status == 'TK_Active':
+        return _safe_float(task.get('remain_drtn_hr_cnt', 0))
+
+    # Not started — use target duration
+    return _safe_float(task.get('target_drtn_hr_cnt',
+                        task.get('remain_drtn_hr_cnt', 0)))
+
+
+def _get_calendar(task, cal_lookup):
+    """Get the parsed calendar for a task."""
+    cid = task.get('clndr_id', '')
+    if cid in cal_lookup:
+        return cal_lookup[cid]
+    # Try first calendar in lookup as fallback
+    for k, v in cal_lookup.items():
+        if k:
+            return v
+    return _default_calendar()
+
+
+def _get_lag_calendar(pred_task, succ_task, cal_lookup, lag_cal_option, default_cal_id):
+    """
+    Get the calendar to use for relationship lag computation.
+    Based on P6's sched_calendar_on_relationship_lag option.
+    """
+    opt = (lag_cal_option or '').lower()
+    if 'predecessor' in opt:
+        return _get_calendar(pred_task, cal_lookup)
+    elif '24' in opt:
+        # 24-hour calendar: all days working, all hours working
+        return {
+            'work_week': {i: [(0, 1440)] for i in range(7)},
+            'exceptions': {},
+            'hours_per_day': 24.0,
+        }
+    elif 'default' in opt:
+        if default_cal_id and default_cal_id in cal_lookup:
+            return cal_lookup[default_cal_id]
+        return _get_calendar(succ_task, cal_lookup)
+    else:
+        # Default: successor calendar (rcal_Successor)
+        return _get_calendar(succ_task, cal_lookup)
+
+
+# ---------------------------------------------------------------------------
+# Relationship math
+# ---------------------------------------------------------------------------
+
+def _is_fs(pred_type):
+    return pred_type in ('FS', 'PR_FS')
+
+def _is_ss(pred_type):
+    return pred_type in ('SS', 'PR_SS')
+
+def _is_ff(pred_type):
+    return pred_type in ('FF', 'PR_FF')
+
+def _is_sf(pred_type):
+    return pred_type in ('SF', 'PR_SF')
+
+
+def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
+    """
+    Compute what a predecessor relationship pushes on the successor.
+
+    Args:
+        pred_task: predecessor task dict (with _es, _ef set)
+        rel: relationship dict
+        succ_cal: successor's parsed calendar
+        lag_cal: calendar to use for lag computation (from scheduling option).
+                 If None, uses succ_cal.
+
+    Returns: (target, dt) where target is 'es' or 'ef'
+    """
+    pred_type = rel.get('pred_type', 'PR_FS')
+    lag_hours = _safe_float(rel.get('lag_hr_cnt', 0))
+    cal = lag_cal or succ_cal
+
+    # Completed predecessors have _es=_ef=data_date. P6 still applies lag
+    # from those dates, so the contribution becomes data_date + lag.
+
+    pred_es = pred_task.get('_es')
+    pred_ef = pred_task.get('_ef')
+
+    if pred_es is None or pred_ef is None:
+        return None
+
+    if _is_fs(pred_type):
+        # Succ ES >= Pred EF + lag
+        dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
+        return ('es', dt)
+    elif _is_ss(pred_type):
+        # Succ ES >= Pred ES + lag
+        dt = add_work_hours(pred_es, lag_hours, cal) if lag_hours else pred_es
+        return ('es', dt)
+    elif _is_ff(pred_type):
+        # Succ EF >= Pred EF + lag
+        dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
+        return ('ef', dt)
+    elif _is_sf(pred_type):
+        # Succ EF >= Pred ES + lag
+        dt = add_work_hours(pred_es, lag_hours, cal) if lag_hours else pred_es
+        return ('ef', dt)
+    return None
+
+
+def _relationship_constraint_backward(succ_task, rel, succ_cal, lag_cal=None):
+    """
+    Compute what a successor relationship constrains on the predecessor.
+
+    Returns: (target, dt) where target is 'ls' or 'lf'
+    """
+    pred_type = rel.get('pred_type', 'PR_FS')
+    lag_hours = _safe_float(rel.get('lag_hr_cnt', 0))
+    cal = lag_cal or succ_cal
+
+    succ_ls = succ_task.get('_ls')
+    succ_lf = succ_task.get('_lf')
+
+    if succ_ls is None or succ_lf is None:
+        return None
+
+    if _is_fs(pred_type):
+        # Pred LF <= Succ LS - lag
+        dt = subtract_work_hours(succ_ls, lag_hours, cal) if lag_hours else succ_ls
+        return ('lf', dt)
+    elif _is_ss(pred_type):
+        # Pred LS <= Succ LS - lag
+        dt = subtract_work_hours(succ_ls, lag_hours, cal) if lag_hours else succ_ls
+        return ('ls', dt)
+    elif _is_ff(pred_type):
+        # Pred LF <= Succ LF - lag
+        dt = subtract_work_hours(succ_lf, lag_hours, cal) if lag_hours else succ_lf
+        return ('lf', dt)
+    elif _is_sf(pred_type):
+        # Pred LS <= Succ LF - lag
+        dt = subtract_work_hours(succ_lf, lag_hours, cal) if lag_hours else succ_lf
+        return ('ls', dt)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Constraint handling
+# ---------------------------------------------------------------------------
+
+_HARD_START = {'CS_MSO', 'CS_MANDSTART'}
+_HARD_FINISH = {'CS_MFO', 'CS_MEO', 'CS_MANDEND', 'CS_MANDFIN'}
+_FWD_START = {'CS_SNET', 'CS_MSOA'}   # Start No Earlier Than
+_FWD_FINISH = {'CS_FNET', 'CS_MEOA'}  # Finish No Earlier Than
+_BWD_START = {'CS_SNLT', 'CS_MSOB'}   # Start No Later Than
+_BWD_FINISH = {'CS_FNLT', 'CS_MEOB'}  # Finish No Later Than
+
+
+def _apply_constraint_forward(task, es, ef, cal):
+    """Apply constraints during forward pass. Returns (es, ef)."""
+    duration = _get_duration_hours(task)
+
+    for cstr_field, date_field in [('cstr_type', 'cstr_date'),
+                                    ('cstr_type2', 'cstr_date2'),
+                                    ('constraint_type', 'constraint_date')]:
+        ctype = task.get(cstr_field, '')
+        cdate = _parse_date(task.get(date_field, ''))
+        if not ctype or not cdate:
+            continue
+
+        if ctype in _HARD_START:
+            es = cdate
+            ef = add_work_hours(es, duration, cal) if duration else es
+        elif ctype in _HARD_FINISH:
+            ef = cdate
+            es = subtract_work_hours(ef, duration, cal) if duration else ef
+        elif ctype in _FWD_START:
+            if cdate > es:
+                es = cdate
+                ef = add_work_hours(es, duration, cal) if duration else es
+        elif ctype in _FWD_FINISH:
+            if cdate > ef:
+                ef = cdate
+                es = subtract_work_hours(ef, duration, cal) if duration else ef
+
+    return es, ef
+
+
+def _apply_constraint_backward(task, ls, lf, cal):
+    """Apply constraints during backward pass. Returns (ls, lf)."""
+    duration = _get_duration_hours(task)
+
+    for cstr_field, date_field in [('cstr_type', 'cstr_date'),
+                                    ('cstr_type2', 'cstr_date2'),
+                                    ('constraint_type', 'constraint_date')]:
+        ctype = task.get(cstr_field, '')
+        cdate = _parse_date(task.get(date_field, ''))
+        if not ctype or not cdate:
+            continue
+
+        if ctype in _HARD_START:
+            ls = cdate
+            lf = add_work_hours(ls, duration, cal) if duration else ls
+        elif ctype in _HARD_FINISH:
+            lf = cdate
+            ls = subtract_work_hours(lf, duration, cal) if duration else lf
+        elif ctype in _BWD_START:
+            if cdate < ls:
+                ls = cdate
+                lf = add_work_hours(ls, duration, cal) if duration else ls
+        elif ctype in _BWD_FINISH:
+            if cdate < lf:
+                lf = cdate
+                ls = subtract_work_hours(lf, duration, cal) if duration else lf
+
+    return ls, lf
+
+
+# ---------------------------------------------------------------------------
+# Forward pass
+# ---------------------------------------------------------------------------
+
+def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_date,
+                   lag_cal_option='', default_cal_id=''):
+    """
+    Forward pass: compute Early Start (ES) and Early Finish (EF) for all tasks.
+    Results stored as _es and _ef on each task dict.
+    """
+    for tid in topo_order:
+        task = tasks_by_id[tid]
+        cal = _get_calendar(task, cal_lookup)
+        status = task.get('status_code', '')
+        task_type = task.get('task_type', '')
+        duration = _get_duration_hours(task)
+
+        # Completed tasks: P6 treats them as effectively done at data_date
+        # for scheduling purposes. Successors cannot start before data_date.
+        if status == 'TK_Complete':
+            task['_es'] = data_date
+            task['_ef'] = data_date
+            continue
+
+        # Active tasks: trust P6's stored early dates as the baseline, then
+        # check if incomplete predecessors push later (retained logic).
+        # P6's stored dates reflect internal scheduling factors that are
+        # impractical to replicate exactly (resource leveling, etc.)
+        if status == 'TK_Active':
+            stored_es = _parse_date(task.get('early_start_date', ''))
+            stored_ef = _parse_date(task.get('early_end_date', ''))
+            base_es = stored_es or data_date
+            base_ef = stored_ef or add_work_hours(data_date, duration, cal)
+
+            # Ensure not before data_date
+            if base_es < data_date:
+                base_es = data_date
+            if base_ef < data_date:
+                base_ef = add_work_hours(data_date, duration, cal)
+
+            # Retained logic: incomplete predecessors can push ES/EF later
+            for pred_id, rel in pred_map.get(tid, []):
+                pred_task = tasks_by_id.get(pred_id)
+                if not pred_task or pred_task.get('_es') is None:
+                    continue
+                if pred_task.get('status_code', '') == 'TK_Complete':
+                    continue
+                lag_c = _get_lag_calendar(pred_task, task, cal_lookup, lag_cal_option, default_cal_id)
+                contrib = _relationship_contribution_forward(pred_task, rel, cal, lag_c)
+                if contrib and contrib[0] == 'es' and contrib[1] > base_es:
+                    base_es = contrib[1]
+                    base_ef = add_work_hours(base_es, duration, cal)
+                elif contrib and contrib[0] == 'ef' and contrib[1] > base_ef:
+                    base_ef = contrib[1]
+                    if duration:
+                        new_es = subtract_work_hours(base_ef, duration, cal)
+                        if new_es > base_es:
+                            base_es = new_es
+                    else:
+                        base_es = base_ef
+
+            task['_es'] = base_es
+            task['_ef'] = base_ef
+            continue
+
+        # Not-started tasks: compute from predecessor relationships
+        es_candidates = []
+        ef_candidates = []
+
+        for pred_id, rel in pred_map.get(tid, []):
+            pred_task = tasks_by_id.get(pred_id)
+            if not pred_task or pred_task.get('_es') is None:
+                continue
+            lag_c = _get_lag_calendar(pred_task, task, cal_lookup, lag_cal_option, default_cal_id)
+            contrib = _relationship_contribution_forward(pred_task, rel, cal, lag_c)
+            if contrib is None:
+                continue
+            if contrib[0] == 'es':
+                es_candidates.append(contrib[1])
+            elif contrib[0] == 'ef':
+                ef_candidates.append(contrib[1])
+
+        # --- Compute ES from FS/SS relationships ---
+        if es_candidates:
+            es = max(es_candidates)
+        else:
+            es = data_date  # No FS/SS predecessors — start at data date
+
+        # Not-started tasks cannot start before data_date
+        if es < data_date:
+            es = data_date
+
+        # Snap ES to next work period start — but NOT for finish milestones,
+        # which in P6 align to the predecessor's end-of-day time
+        is_finish_mile = task_type == 'TT_FinMile'
+        if not is_finish_mile:
+            es = next_work_start(es, cal)
+
+        # Compute EF from ES + duration
+        ef = add_work_hours(es, duration, cal) if duration else es
+
+        # --- Check EF-driving relationships (FF, SF) ---
+        if ef_candidates:
+            ef_from_rels = max(ef_candidates)
+            if ef_from_rels > ef:
+                # FF/SF relationship pushes EF later
+                ef = ef_from_rels
+                # Derive ES from this later EF (don't snap — EF-derived ES
+                # can land at end-of-day, which is valid for milestones and
+                # FF-driven tasks in P6)
+                if duration:
+                    es_from_ef = subtract_work_hours(ef, duration, cal)
+                    if es_from_ef > es:
+                        es = es_from_ef
+                        # Recompute EF to be consistent
+                        ef = add_work_hours(es, duration, cal)
+                else:
+                    # Zero-duration milestone: ES = EF
+                    es = ef
+
+        # Apply forward constraints
+        es, ef = _apply_constraint_forward(task, es, ef, cal)
+
+        task['_es'] = es
+        task['_ef'] = ef
+
+
+# ---------------------------------------------------------------------------
+# Backward pass
+# ---------------------------------------------------------------------------
+
+def _backward_pass(tasks_by_id, reverse_topo, succ_map, pred_map, cal_lookup, project_end,
+                    lag_cal_option='', default_cal_id=''):
+    """
+    Backward pass: compute Late Start (LS) and Late Finish (LF) for all tasks.
+    Results stored as _ls and _lf on each task dict.
+    """
+    for tid in reverse_topo:
+        task = tasks_by_id[tid]
+        cal = _get_calendar(task, cal_lookup)
+        status = task.get('status_code', '')
+        duration = _get_duration_hours(task)
+
+        # Completed tasks: late = early
+        if status == 'TK_Complete':
+            task['_ls'] = task['_es']
+            task['_lf'] = task['_ef']
+            continue
+
+        # Compute from successor relationships
+        ls_candidates = []
+        lf_candidates = []
+
+        for succ_id, rel in succ_map.get(tid, []):
+            succ_task = tasks_by_id.get(succ_id)
+            if not succ_task or succ_task.get('_ls') is None:
+                continue
+            lag_c = _get_lag_calendar(task, succ_task, cal_lookup, lag_cal_option, default_cal_id)
+            constraint = _relationship_constraint_backward(succ_task, rel, cal, lag_c)
+            if constraint is None:
+                continue
+            if constraint[0] == 'lf':
+                lf_candidates.append(constraint[1])
+            elif constraint[0] == 'ls':
+                ls_candidates.append(constraint[1])
+
+        # Determine LF
+        if lf_candidates:
+            lf = min(lf_candidates)
+        else:
+            lf = project_end  # No successors — use project end
+
+        # Determine LS from LF
+        lf_derived_ls = subtract_work_hours(lf, duration, cal) if duration else lf
+
+        # Check LS-driving relationships (SS, SF backward)
+        if ls_candidates:
+            ls_from_rels = min(ls_candidates)
+            if ls_from_rels < lf_derived_ls:
+                ls = ls_from_rels
+                # Check if LS + duration < LF — if so, LF stays
+                ls_derived_lf = add_work_hours(ls, duration, cal) if duration else ls
+                if ls_derived_lf < lf:
+                    lf = lf  # Keep the more constraining LF
+            else:
+                ls = lf_derived_ls
+        else:
+            ls = lf_derived_ls
+
+        # Apply backward constraints
+        ls, lf = _apply_constraint_backward(task, ls, lf, cal)
+
+        task['_ls'] = ls
+        task['_lf'] = lf
+
+
+# ---------------------------------------------------------------------------
+# Float calculation
+# ---------------------------------------------------------------------------
+
+def _apply_alap_and_propagate(tasks_by_id, succ_map, pred_map, cal_lookup,
+                               topo_order, data_date,
+                               lag_cal_option='', default_cal_id=''):
+    """
+    ALAP post-processing with successor propagation.
+
+    1. Set ES=LS, EF=LF for ALAP-constrained tasks
+    2. Propagate changes to downstream successors only (targeted, not full re-run)
+    """
+    _ALAP_CODES = {'CS_ALAP'}
+
+    # Step 1: identify ALAP tasks and adjust them
+    alap_ids = set()
+    for tid, task in tasks_by_id.items():
+        if task.get('status_code', '') in ('TK_Complete', 'TK_Active'):
+            continue
+        is_alap = False
+        for cfield in ('cstr_type', 'cstr_type2', 'constraint_type'):
+            if task.get(cfield, '') in _ALAP_CODES:
+                is_alap = True
+                break
+        if not is_alap:
+            continue
+
+        ls = task.get('_ls')
+        lf = task.get('_lf')
+        if ls is not None and lf is not None:
+            task['_es'] = ls
+            task['_ef'] = lf
+            alap_ids.add(tid)
+
+    if not alap_ids:
+        return
+
+    # Step 2: find all tasks downstream of ALAP tasks that need recomputation
+    affected = set()
+    queue = []
+    for alap_id in alap_ids:
+        for succ_id, rel in succ_map.get(alap_id, []):
+            if succ_id not in alap_ids:
+                affected.add(succ_id)
+                queue.append(succ_id)
+
+    # BFS to find all downstream tasks
+    while queue:
+        current = queue.pop(0)
+        for succ_id, rel in succ_map.get(current, []):
+            if succ_id not in affected and succ_id not in alap_ids:
+                affected.add(succ_id)
+                queue.append(succ_id)
+
+    # Step 3: recompute affected tasks in topological order
+    topo_set = {tid: i for i, tid in enumerate(topo_order)}
+    affected_ordered = sorted(affected, key=lambda t: topo_set.get(t, 0))
+
+    for tid in affected_ordered:
+        task = tasks_by_id[tid]
+        if task.get('status_code', '') in ('TK_Complete', 'TK_Active'):
+            continue
+
+        cal = _get_calendar(task, cal_lookup)
+        duration = _get_duration_hours(task)
+        task_type = task.get('task_type', '')
+        is_finish_mile = task_type == 'TT_FinMile'
+
+        # Recompute ES/EF from predecessors (same logic as forward pass)
+        es_candidates = []
+        ef_candidates = []
+        for pred_id, rel in pred_map.get(tid, []):
+            pred_task = tasks_by_id.get(pred_id)
+            if not pred_task or pred_task.get('_es') is None:
+                continue
+            lag_c = _get_lag_calendar(pred_task, task, cal_lookup, lag_cal_option, default_cal_id)
+            contrib = _relationship_contribution_forward(pred_task, rel, cal, lag_c)
+            if contrib is None:
+                continue
+            if contrib[0] == 'es':
+                es_candidates.append(contrib[1])
+            elif contrib[0] == 'ef':
+                ef_candidates.append(contrib[1])
+
+        if es_candidates:
+            es = max(es_candidates)
+        else:
+            es = data_date
+
+        if es < data_date:
+            es = data_date
+        if not is_finish_mile:
+            es = next_work_start(es, cal)
+
+        ef = add_work_hours(es, duration, cal) if duration else es
+
+        if ef_candidates:
+            ef_from_rels = max(ef_candidates)
+            if ef_from_rels > ef:
+                ef = ef_from_rels
+                if duration:
+                    es_from_ef = subtract_work_hours(ef, duration, cal)
+                    if es_from_ef > es:
+                        es = es_from_ef
+                        ef = add_work_hours(es, duration, cal)
+                else:
+                    es = ef
+
+        es, ef = _apply_constraint_forward(task, es, ef, cal)
+
+        task['_es'] = es
+        task['_ef'] = ef
+
+
+def _compute_float(tasks_by_id, succ_map, cal_lookup):
+    """Compute total float and free float for all tasks."""
+    for tid, task in tasks_by_id.items():
+        if '_es' not in task or '_ls' not in task:
+            continue
+        if task.get('_es') is None or task.get('_ls') is None:
+            continue
+
+        cal = _get_calendar(task, cal_lookup)
+
+        # Total Float = LS - ES in work hours
+        tf = work_hours_between(task['_es'], task['_ls'], cal)
+        task['_tf'] = tf
+
+        # Free Float: min slack across all successor relationships
+        ff = float('inf')
+        has_succ = False
+
+        for succ_id, rel in succ_map.get(tid, []):
+            succ_task = tasks_by_id.get(succ_id)
+            if not succ_task or succ_task.get('_es') is None:
+                continue
+            has_succ = True
+
+            pred_type = rel.get('pred_type', 'PR_FS')
+            lag_hours = _safe_float(rel.get('lag_hr_cnt', 0))
+
+            # Free float depends on relationship type
+            if _is_fs(pred_type):
+                # FF = Succ.ES - Pred.EF - lag (in work hours)
+                gap = work_hours_between(task['_ef'], succ_task['_es'], cal) - lag_hours
+            elif _is_ss(pred_type):
+                gap = work_hours_between(task['_es'], succ_task['_es'], cal) - lag_hours
+            elif _is_ff(pred_type):
+                gap = work_hours_between(task['_ef'], succ_task['_ef'], cal) - lag_hours
+            elif _is_sf(pred_type):
+                gap = work_hours_between(task['_es'], succ_task['_ef'], cal) - lag_hours
+            else:
+                continue
+
+            ff = min(ff, gap)
+
+        if not has_succ:
+            ff = tf  # Tasks with no successors: free float = total float
+
+        task['_ff'] = max(0, ff) if ff != float('inf') else max(0, tf)
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def schedule_forward_backward(tasks, preds, calendars, data_date,
+                               schedoptions=None, project=None):
+    """
+    Run CPM forward and backward passes on parsed XER data.
+
+    Args:
+        tasks: List of task dicts from parsed XER TASK table
+        preds: List of relationship dicts from parsed XER TASKPRED table
+        calendars: List of calendar dicts from parsed XER CALENDAR/CLNDR table
+        data_date: "YYYY-MM-DD HH:MM" string or datetime
+        schedoptions: Optional list of SCHEDOPTIONS row dicts (for lag calendar option)
+        project: Optional list of PROJECT row dicts (for default calendar ID)
+
+    Returns:
+        (results, metadata) where:
+        - results: list of task dicts with updated fields:
+            early_start_date, early_end_date, late_start_date, late_end_date,
+            total_float_hr_cnt, free_float_hr_cnt, driving_path_flag
+        - metadata: dict with:
+            sc_milestone_id, sc_milestone_name, sc_milestone_code,
+            sc_milestone_date, project_end_source
+    """
+    # Parse data date
+    if isinstance(data_date, str):
+        dd = _parse_date(data_date)
+    else:
+        dd = data_date
+    if dd is None:
+        dd = datetime.now()
+
+    # Read scheduling options
+    sched_opts = (schedoptions or [{}])[0] if schedoptions else {}
+    lag_cal_option = sched_opts.get('sched_calendar_on_relationship_lag', '')
+    proj_row = (project or [{}])[0] if project else {}
+    default_cal_id = proj_row.get('default_clndr_id', '') or proj_row.get('clndr_id', '')
+
+    # Build calendar lookup
+    cal_lookup = build_calendar_lookup(calendars)
+
+    # Build graph
+    tasks_by_id, succ_map, pred_map, cpm_task_ids = _build_graph(tasks, preds)
+
+    # Topological sort
+    topo_order = _topological_sort(cpm_task_ids, pred_map)
+
+    # Forward pass
+    _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, dd,
+                  lag_cal_option, default_cal_id)
+
+    # Determine project end for backward pass (SC-focused)
+    sc_task = _find_sc_milestone(tasks)
+    metadata = {}
+
+    if sc_task and sc_task.get('task_id') in tasks_by_id:
+        sc_tid = sc_task['task_id']
+        sc_in_graph = tasks_by_id[sc_tid]
+        project_end = sc_in_graph.get('_ef', dd)
+        metadata = {
+            'sc_milestone_id': sc_tid,
+            'sc_milestone_name': sc_task.get('task_name', ''),
+            'sc_milestone_code': sc_task.get('task_code', ''),
+            'sc_milestone_date': _format_date(project_end),
+            'project_end_source': 'SC milestone',
+        }
+    else:
+        # Fall back to latest EF across all tasks
+        max_ef = dd
+        for tid in cpm_task_ids:
+            t = tasks_by_id[tid]
+            if t.get('_ef') and t['_ef'] > max_ef:
+                max_ef = t['_ef']
+        project_end = max_ef
+        metadata = {
+            'sc_milestone_id': None,
+            'sc_milestone_name': None,
+            'sc_milestone_code': None,
+            'sc_milestone_date': _format_date(project_end),
+            'project_end_source': 'latest activity finish',
+        }
+
+    # Backward pass
+    reverse_topo = list(reversed(topo_order))
+    _backward_pass(tasks_by_id, reverse_topo, succ_map, pred_map, cal_lookup, project_end,
+                    lag_cal_option, default_cal_id)
+
+    # ALAP post-processing: set ES=LS, EF=LF for ALAP-constrained tasks.
+    # In P6, ALAP consumes the task's own float. Successor dates use the
+    # original (pre-ALAP) early dates from the forward pass, so we don't
+    # propagate changes downstream.
+    _ALAP_CODES = {'CS_ALAP'}
+    for tid in cpm_task_ids:
+        task = tasks_by_id[tid]
+        if task.get('status_code', '') in ('TK_Complete', 'TK_Active'):
+            continue
+        is_alap = any(task.get(f, '') in _ALAP_CODES
+                      for f in ('cstr_type', 'cstr_type2', 'constraint_type'))
+        if is_alap and task.get('_ls') is not None:
+            task['_es'] = task['_ls']
+            task['_ef'] = task['_lf']
+
+    # Float calculation
+    _compute_float(tasks_by_id, succ_map, cal_lookup)
+
+    # Write results back to task dicts
+    results = []
+    for t in tasks:
+        tid = t.get('task_id', '')
+        if tid in tasks_by_id and '_es' in tasks_by_id[tid]:
+            src = tasks_by_id[tid]
+            t['early_start_date'] = _format_date(src.get('_es'))
+            t['early_end_date'] = _format_date(src.get('_ef'))
+            t['late_start_date'] = _format_date(src.get('_ls'))
+            t['late_end_date'] = _format_date(src.get('_lf'))
+            t['total_float_hr_cnt'] = str(round(src.get('_tf', 0), 2))
+            t['free_float_hr_cnt'] = str(round(src.get('_ff', 0), 2))
+            t['driving_path_flag'] = 'Y' if src.get('_tf', 999) <= 0 else 'N'
+        results.append(t)
+
+    return results, metadata
+
+
+# ---------------------------------------------------------------------------
+# HTML Report
+# ---------------------------------------------------------------------------
+
+_WESTLAND_CSS = """
+body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+.header { background: #1a3a4a; color: white; padding: 24px 32px; }
+.header h1 { margin: 0 0 8px 0; font-size: 22px; font-weight: 600; }
+.header .tracking { color: #8cc; font-size: 14px; margin-top: 4px; }
+.header .meta { color: #acd; font-size: 13px; margin-top: 2px; }
+.summary { display: flex; gap: 24px; padding: 16px 32px; background: white; border-bottom: 1px solid #ddd; }
+.stat-box { text-align: center; padding: 12px 24px; }
+.stat-box .num { font-size: 28px; font-weight: 700; }
+.stat-box .label { font-size: 12px; color: #666; text-transform: uppercase; }
+.critical .num { color: #c0392b; }
+.near-crit .num { color: #e67e22; }
+.healthy .num { color: #27ae60; }
+table { width: 100%; border-collapse: collapse; margin: 0; font-size: 13px; }
+th { background: #2c3e50; color: white; padding: 8px 10px; text-align: left; cursor: pointer;
+     position: sticky; top: 0; user-select: none; }
+th:hover { background: #34495e; }
+td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+tr:hover { background: #f0f7ff; }
+tr.critical { background: #fde8e8; }
+tr.critical:hover { background: #fbd4d4; }
+tr.near-critical { background: #fef3e2; }
+tr.near-critical:hover { background: #fde8c8; }
+.container { margin: 0 auto; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.float-val { font-weight: 600; }
+.neg-float { color: #c0392b; }
+.zero-float { color: #c0392b; }
+.low-float { color: #e67e22; }
+.ok-float { color: #27ae60; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+.tag-critical { background: #c0392b; color: white; }
+.tag-active { background: #2980b9; color: white; }
+.tag-complete { background: #27ae60; color: white; }
+.tag-notstart { background: #95a5a6; color: white; }
+"""
+
+_SORT_JS = """
+function sortTable(n) {
+  var table = document.getElementById('schedule');
+  var rows = Array.from(table.tBodies[0].rows);
+  var asc = table.getAttribute('data-sort-col') == n && table.getAttribute('data-sort-dir') == 'asc';
+  rows.sort(function(a, b) {
+    var va = a.cells[n].getAttribute('data-val') || a.cells[n].textContent;
+    var vb = b.cells[n].getAttribute('data-val') || b.cells[n].textContent;
+    var na = parseFloat(va), nb = parseFloat(vb);
+    if (!isNaN(na) && !isNaN(nb)) return asc ? nb - na : na - nb;
+    return asc ? vb.localeCompare(va) : va.localeCompare(vb);
+  });
+  var tbody = table.tBodies[0];
+  rows.forEach(function(r) { tbody.appendChild(r); });
+  table.setAttribute('data-sort-col', n);
+  table.setAttribute('data-sort-dir', asc ? 'desc' : 'asc');
+}
+"""
+
+
+def render_schedule_html(tasks, project_name, data_date, metadata, output_path):
+    """
+    Write standalone HTML schedule report.
+
+    Args:
+        tasks: List of task dicts (after schedule_forward_backward)
+        project_name: Project name for header
+        data_date: Data date string
+        metadata: cpm_metadata dict from schedule_forward_backward
+        output_path: Path to write HTML file
+    """
+    skip_types = {'TT_WBS', 'TT_LOE'}
+    sched_tasks = [t for t in tasks if t.get('task_type', '') not in skip_types
+                   and t.get('early_start_date', '')]
+
+    # Stats
+    total = len(sched_tasks)
+    critical = sum(1 for t in sched_tasks if _safe_float(t.get('total_float_hr_cnt', 999)) <= 0)
+    near_crit = sum(1 for t in sched_tasks if 0 < _safe_float(t.get('total_float_hr_cnt', 999)) <= 80)
+    float_vals = [_safe_float(t.get('total_float_hr_cnt', 0)) / 8 for t in sched_tasks]
+    avg_float = round(sum(float_vals) / max(len(float_vals), 1), 1)
+
+    # Tracking info
+    if metadata.get('sc_milestone_name'):
+        tracking = (f"Tracking to: {metadata['sc_milestone_name']} "
+                    f"[{metadata.get('sc_milestone_code', '')}] — {metadata.get('sc_milestone_date', '')}")
+    else:
+        tracking = f"No SC milestone found — tracking to latest activity finish ({metadata.get('sc_milestone_date', '')})"
+
+    # Build rows
+    rows_html = []
+    for t in sched_tasks:
+        tf_hrs = _safe_float(t.get('total_float_hr_cnt', 0))
+        ff_hrs = _safe_float(t.get('free_float_hr_cnt', 0))
+        tf_days = round(tf_hrs / 8, 1)
+        ff_days = round(ff_hrs / 8, 1)
+
+        # Row class
+        if tf_hrs <= 0:
+            row_class = 'critical'
+        elif tf_hrs <= 80:
+            row_class = 'near-critical'
+        else:
+            row_class = ''
+
+        # Float styling
+        if tf_hrs < 0:
+            float_class = 'neg-float'
+        elif tf_hrs == 0:
+            float_class = 'zero-float'
+        elif tf_hrs <= 80:
+            float_class = 'low-float'
+        else:
+            float_class = 'ok-float'
+
+        # Status tag
+        status = t.get('status_code', '')
+        if status == 'TK_Complete':
+            status_tag = '<span class="tag tag-complete">Complete</span>'
+        elif status == 'TK_Active':
+            status_tag = '<span class="tag tag-active">Active</span>'
+        else:
+            status_tag = '<span class="tag tag-notstart">Not Started</span>'
+
+        # Critical tag
+        crit_tag = '<span class="tag tag-critical">CRITICAL</span>' if tf_hrs <= 0 else ''
+
+        code = t.get('task_code', '') or t.get('task_id', '')
+        name = t.get('task_name', '')
+        es = t.get('early_start_date', '')[:10]
+        ef = t.get('early_end_date', '')[:10]
+        ls = t.get('late_start_date', '')[:10]
+        lf = t.get('late_end_date', '')[:10]
+
+        rows_html.append(
+            f'<tr class="{row_class}">'
+            f'<td>{code}</td>'
+            f'<td>{name}</td>'
+            f'<td>{es}</td><td>{ef}</td>'
+            f'<td>{ls}</td><td>{lf}</td>'
+            f'<td class="float-val {float_class}" data-val="{tf_days}">{tf_days}</td>'
+            f'<td class="float-val" data-val="{ff_days}">{ff_days}</td>'
+            f'<td>{status_tag}</td>'
+            f'<td>{crit_tag}</td>'
+            f'</tr>'
+        )
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Schedule Report — {project_name}</title>
+<style>{_WESTLAND_CSS}</style></head><body>
+<div class="container">
+<div class="header">
+  <h1>Schedule Report — {project_name}</h1>
+  <div class="tracking">{tracking}</div>
+  <div class="meta">Data Date: {data_date} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+</div>
+<div class="summary">
+  <div class="stat-box"><div class="num">{total}</div><div class="label">Activities</div></div>
+  <div class="stat-box critical"><div class="num">{critical}</div><div class="label">Critical</div></div>
+  <div class="stat-box near-crit"><div class="num">{near_crit}</div><div class="label">Near-Critical</div></div>
+  <div class="stat-box healthy"><div class="num">{avg_float}d</div><div class="label">Avg Float</div></div>
+</div>
+<table id="schedule">
+<thead><tr>
+  <th onclick="sortTable(0)">Activity ID</th>
+  <th onclick="sortTable(1)">Name</th>
+  <th onclick="sortTable(2)">Early Start</th>
+  <th onclick="sortTable(3)">Early Finish</th>
+  <th onclick="sortTable(4)">Late Start</th>
+  <th onclick="sortTable(5)">Late Finish</th>
+  <th onclick="sortTable(6)">TF (days)</th>
+  <th onclick="sortTable(7)">FF (days)</th>
+  <th onclick="sortTable(8)">Status</th>
+  <th onclick="sortTable(9)">Critical</th>
+</tr></thead>
+<tbody>
+{''.join(rows_html)}
+</tbody>
+</table>
+</div>
+<script>{_SORT_JS}</script>
+</body></html>"""
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+
+    return output_path

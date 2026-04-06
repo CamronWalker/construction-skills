@@ -142,8 +142,8 @@ Convergence/Divergence Bottlenecks, Duplicate Relationships, Dangling Activities
 1. Parse the XER using the `schedule-xer` skill
 2. Extract data date from PROJECT table (`last_recalc_date` or `data_date`)
 3. Read `references/score_schedule.py` from this skill's directory
-4. Write a runner script that calls `compute_quality_score(tasks, preds, data_date)` and `generate_quality_report(...)` to produce the Markdown report
-5. Save the .md report to the project folder
+4. Write a runner script that calls `compute_quality_score(tasks, preds, data_date)` then `render_quality_html(...)` to produce an HTML report (or `generate_quality_report(...)` for Markdown)
+5. Save the report to the project folder
 6. Present findings with grade, key deductions, and recommended fixes
 
 When used as a backcheck during schedule generation, use the `details` dict from `compute_quality_score()` directly — it contains every flagged activity with `task_code` for targeted fixes.
@@ -165,5 +165,5 @@ Calibrated against 9 real construction schedules vs SmartPM grades:
 | `references/westland-standards.md` | Full Westland SOP — development lifecycle, deliverables, impact docs, formatting, SmartPM integration |
 | `references/dcma-14-point-detail.md` | Detailed DCMA metrics with edge cases, constraint codes, and remediation playbook |
 | `references/gao-aace-reference.md` | GAO four characteristics and AACE recommended practices — load when public project or spec requires |
-| `references/score_schedule.py` | Python scoring implementation — load to run quality score. Functions: `compute_quality_score()`, `generate_quality_report()` |
+| `references/score_schedule.py` | Python scoring implementation — load to run quality score. Functions: `compute_quality_score()`, `generate_quality_report()`, `render_quality_html()`. Use `render_quality_html()` for user-facing HTML reports. |
 | `references/reporting-template.md` | Quality report markdown template — load when generating report manually |

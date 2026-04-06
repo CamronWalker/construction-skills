@@ -187,3 +187,25 @@ After generation, score using the `schedule-standards` skill. Target: B+ or high
 |------|-------------|
 | `references/xer-tables.md` | Complete field definitions for all 17+ XER tables — load for detailed field lookups, constraint codes, task types |
 | `references/build_from_raw_template.py` | Working 96-task example script (elementary school schedule, scores A-). Load when generating a new XER — use as the pattern and adapt for the project. |
+| `references/calendar_engine.py` | Calendar parsing & workday arithmetic — load with cpm_engine.py |
+| `references/cpm_engine.py` | CPM forward/backward pass — load when calculating dates/float |
+| `references/path_analysis.py` | SC path coverage & delay impact — load for path/delay work |
+| `references/xer_compare.py` | Multi-schedule comparison — load when comparing schedule updates |
+
+---
+
+## Advanced Analysis (load only when needed)
+
+These reference scripts are pure-function libraries. Parse the XER first, then pass data in and get results out. No editing needed — just call the functions. All produce standalone HTML reports.
+
+**CPM Calculation (dates, float):** Load `calendar_engine.py` + `cpm_engine.py`. Call `schedule_forward_backward(tasks, preds, calendars, data_date)` → returns updated tasks with ES/EF/LS/LF, total/free float, driving path flag. Also returns `cpm_metadata` with SC milestone info. Call `render_schedule_html(tasks, project_name, data_date, metadata, output_path)` for HTML report.
+
+**SC Path Coverage:** Load `path_analysis.py`. Call `analyze_sc_path_coverage(tasks, preds, wbs_rows)` → returns connected/disconnected activity counts by WBS, coverage %, recommendations. Call `render_coverage_html(data, output_path)` for HTML report.
+
+**Delay Impact / TIA:** Load all three: `calendar_engine.py` + `cpm_engine.py` + `path_analysis.py`. Call `compute_delay_impacts(tasks, preds, calendars, data_date)` → auto-detects IMPACT activities, traces driving paths to SC, computes variance. Call `render_delay_html(data, output_path)` for HTML report.
+
+**Per-Activity Path Insight:** Load same three. Call `analyze_activity_paths(tasks, preds, calendars, data_date)` → for every activity: driving path to SC, float, critical status, path length. Call `render_paths_html(data, output_path)` for HTML report.
+
+**Schedule Comparison:** Load `xer_compare.py`. Call `compare_schedules(current_tables, baseline_tables=None, previous_tables=None)` → flexible comparison: current vs baseline, vs previous update, or both. Always reports missed starts/finishes. SC tracking across all provided schedules. Call `render_comparison_html(data, output_path)` for HTML report.
+
+All reports identify which milestone they're tracking to (Substantial Completion by default).

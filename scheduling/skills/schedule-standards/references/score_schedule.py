@@ -665,3 +665,199 @@ def generate_quality_report(project_name, data_date, score, grade, scored, info,
     lines.append("")
 
     return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# HTML Report
+# ---------------------------------------------------------------------------
+
+_WESTLAND_CSS = """
+body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+.header { background: #1a3a4a; color: white; padding: 24px 32px; }
+.header h1 { margin: 0 0 8px 0; font-size: 22px; font-weight: 600; }
+.header .tracking { color: #8cc; font-size: 14px; margin-top: 4px; }
+.header .meta { color: #acd; font-size: 13px; margin-top: 2px; }
+.container { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.grade-box { text-align: center; padding: 32px; border-bottom: 1px solid #ddd; }
+.grade-badge { display: inline-block; width: 100px; height: 100px; line-height: 100px;
+    border-radius: 50%; font-size: 36px; font-weight: 700; color: white; }
+.grade-green { background: #27ae60; }
+.grade-yellow { background: #f1c40f; color: #333; }
+.grade-orange { background: #e67e22; }
+.grade-red { background: #c0392b; }
+.score-text { font-size: 18px; color: #333; margin-top: 12px; }
+.ded-text { font-size: 14px; color: #666; margin-top: 4px; }
+.section { padding: 20px 32px; }
+.section h2 { color: #1a3a4a; font-size: 18px; margin: 0 0 16px 0; border-bottom: 2px solid #1a3a4a; padding-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: #2c3e50; color: white; padding: 8px 10px; text-align: left; }
+td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+tr:hover { background: #f0f7ff; }
+.pass { color: #27ae60; font-weight: 600; }
+.fail { color: #c0392b; font-weight: 600; }
+.skip { color: #95a5a6; }
+.finding { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.finding strong { color: #c0392b; }
+.info-table td:first-child { font-weight: 500; }
+details { margin: 4px 0; }
+summary { cursor: pointer; color: #2980b9; font-size: 12px; }
+.task-list { font-size: 12px; color: #555; padding: 4px 0 4px 16px; }
+"""
+
+
+def _grade_color(grade):
+    """CSS class for grade badge."""
+    if grade.startswith('A'):
+        return 'grade-green'
+    elif grade.startswith('B'):
+        return 'grade-yellow'
+    elif grade.startswith('C'):
+        return 'grade-orange'
+    return 'grade-red'
+
+
+def _task_list_html(labels, max_items=20):
+    """Format task list as HTML."""
+    if not labels:
+        return ''
+    shown = labels[:max_items] if max_items else labels
+    parts = [f'<code>{code}</code> {name}' for code, name in shown]
+    result = ', '.join(parts)
+    if max_items and len(labels) > max_items:
+        result += f' <em>(and {len(labels) - max_items} more)</em>'
+    return result
+
+
+def render_quality_html(project_name, data_date, score, grade, scored, info,
+                        deductions, scope, details, output_path):
+    """
+    Write standalone HTML quality report.
+
+    Same data as generate_quality_report(), rendered as styled HTML.
+    """
+    from datetime import datetime as _dt
+
+    color = _grade_color(grade)
+    total_ded = sum(deductions.values()) if deductions else 0
+
+    # Tracking info
+    tracking = ''
+    if scope.get('sc_filtered'):
+        tracking = 'SC-filtered scope'
+
+    # Scored metrics rows
+    def metric_row(num, name, value_str, threshold, ded_key, skipped=False):
+        if skipped:
+            return (f'<tr><td>{num}</td><td>{name}</td><td>{value_str}</td>'
+                    f'<td>{threshold}</td><td class="skip">—</td><td class="skip">SKIP</td></tr>')
+        ded = deductions.get(ded_key, 0)
+        status_cls = 'pass' if ded == 0 else 'fail'
+        status_txt = 'PASS' if ded == 0 else 'FAIL'
+        ded_str = f'-{ded} pts' if ded > 0 else '—'
+        return (f'<tr><td>{num}</td><td>{name}</td><td>{value_str}</td>'
+                f'<td>{threshold}</td><td>{ded_str}</td><td class="{status_cls}">{status_txt}</td></tr>')
+
+    s = scored
+    metrics_rows = [
+        metric_row(1, "Finish to Start", f"{s['fs']['count']}/{s['fs']['total']} ({s['fs']['pct']}%)", "≥ 90%", "FS %"),
+        metric_row(2, "Start to Start", f"{s['ss']['count']} ({s['ss']['pct']}%)", "≤ 5%", "SS %"),
+        metric_row(3, "Finish to Finish", f"{s['ff']['count']} ({s['ff']['pct']}%)", "≤ 5%", "FF %"),
+        metric_row(4, "Start to Finish", f"{s['sf']['count']} ({s['sf']['pct']}%)", "0%", "SF %"),
+        metric_row(5, "Avg Total Float", f"{s['avg_float']['value']} days", "15-44 days", "Avg Float"),
+        metric_row(6, "Critical Path %",
+                   f"{s['critical_path']['count']}/{s['critical_path']['total']} ({s['critical_path']['pct']}%)",
+                   "10-20%", "Critical Path %", s['critical_path'].get('skipped', False)),
+        metric_row(7, "High Float", f"{s['high_float']['count']}/{s['high_float']['total']} ({s['high_float']['pct']}%)",
+                   "≤ 40%", "High Float"),
+        metric_row(8, "Missing Logic", f"{s['missing_logic']['count']}/{s['missing_logic']['total']} ({s['missing_logic']['pct']}%)",
+                   "< 3%", "Missing Logic"),
+        metric_row(9, "Total Relationships", f"{s['rel_ratio']['count']} ({s['rel_ratio']['ratio']}:1)",
+                   "≥ 1.5:1", "Rel Ratio", s['rel_ratio'].get('skipped', False)),
+        metric_row(10, "Constraints", f"{s['constraints']['count']}/{s['constraints']['total']} ({s['constraints']['pct']}%)",
+                   "≤ 1%", "Constraints"),
+    ]
+
+    # Key findings
+    findings_html = ''
+    if deductions:
+        priority = ['Missing Logic', 'Constraints', 'Critical Path %', 'High Float',
+                     'FS %', 'FF %', 'SS %', 'SF %', 'Avg Float', 'Rel Ratio']
+        findings = []
+        for key in priority:
+            if key in deductions:
+                d = deductions[key]
+                desc = end_finding(key, scored, info)
+                findings.append(f'<div class="finding"><strong>{key}</strong> (-{d} pts): {desc}</div>')
+        if findings:
+            findings_html = f'<div class="section"><h2>Key Findings</h2>{"".join(findings)}</div>'
+
+    # Improvements
+    improvements_html = ''
+    if details:
+        items = []
+        ded_sorted = sorted(deductions.items(), key=lambda x: x[1], reverse=True)
+        for key, pts in ded_sorted:
+            if key == 'Missing Logic':
+                mp = details.get('missing_logic', {}).get('missing_pred', [])
+                ms = details.get('missing_logic', {}).get('missing_succ', [])
+                if mp:
+                    items.append(f'<div class="finding"><strong>Missing Predecessors</strong> (-{pts} pts): {_task_list_html(mp)}</div>')
+                if ms:
+                    items.append(f'<div class="finding"><strong>Missing Successors</strong> (-{pts} pts): {_task_list_html(ms)}</div>')
+            elif key == 'High Float':
+                hl = details.get('high_float', [])
+                if hl:
+                    items.append(f'<div class="finding"><strong>High Float</strong> (-{pts} pts): {_task_list_html(hl)}</div>')
+        if items:
+            improvements_html = f'<div class="section"><h2>Recommended Improvements</h2>{"".join(items)}</div>'
+
+    # Informational metrics
+    info_rows = [
+        f'<tr><td>Low Float Activities</td><td>{info.get("low_float", 0)}</td><td>Float 0-10 days</td></tr>',
+        f'<tr><td>Negative Float</td><td>{info.get("negative_float", 0)}</td><td>Schedule behind</td></tr>',
+        f'<tr><td>Hard Constraints</td><td>{info.get("hard_constraints", {}).get("count", 0)} ({info.get("hard_constraints", {}).get("pct", 0)}%)</td><td>Mandatory locks</td></tr>',
+        f'<tr><td>Soft Constraints</td><td>{info.get("soft_constraints", {}).get("count", 0)} ({info.get("soft_constraints", {}).get("pct", 0)}%)</td><td>Boundaries</td></tr>',
+        f'<tr><td>High Duration</td><td>{info.get("high_duration", {}).get("count", 0)} ({info.get("high_duration", {}).get("pct", 0)}%)</td><td>> 44 working days</td></tr>',
+        f'<tr><td>Positive Lag</td><td>{info.get("positive_lag", {}).get("count", 0)} ({info.get("positive_lag", {}).get("pct", 0)}%)</td><td>—</td></tr>',
+        f'<tr><td>Negative Lag</td><td>{info.get("negative_lag", {}).get("count", 0)} ({info.get("negative_lag", {}).get("pct", 0)}%)</td><td>—</td></tr>',
+        f'<tr><td>Convergence</td><td>{info.get("convergence", 0)}</td><td>≥ 5 predecessors</td></tr>',
+        f'<tr><td>Divergence</td><td>{info.get("divergence", 0)}</td><td>≥ 5 successors</td></tr>',
+        f'<tr><td>Duplicate Rels</td><td>{info.get("duplicate_rels", 0)}</td><td>—</td></tr>',
+        f'<tr><td>Dangling</td><td>{info.get("dangling", 0)}</td><td>Unbounded start/finish</td></tr>',
+    ]
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Schedule Quality Report — {project_name}</title>
+<style>{_WESTLAND_CSS}</style></head><body>
+<div class="container">
+<div class="header">
+  <h1>Schedule Quality Report — {project_name}</h1>
+  <div class="tracking">{tracking}</div>
+  <div class="meta">Data Date: {data_date} | Scope: {scope.get('incomplete_activities',0)} activities, {scope.get('incomplete_milestones',0)} milestones, {scope.get('total_relationships',0)} relationships | Ratio: {scored['rel_ratio']['ratio']}:1</div>
+</div>
+<div class="grade-box">
+  <div class="grade-badge {color}">{grade}</div>
+  <div class="score-text">{score}/100</div>
+  <div class="ded-text">{len(deductions)} deduction(s) totaling -{total_ded} points</div>
+</div>
+<div class="section">
+<h2>Scored Metrics</h2>
+<table>
+<thead><tr><th>#</th><th>Metric</th><th>Value</th><th>Threshold</th><th>Deduction</th><th>Status</th></tr></thead>
+<tbody>{''.join(metrics_rows)}</tbody>
+</table>
+</div>
+{findings_html}
+{improvements_html}
+<div class="section">
+<h2>Informational Metrics</h2>
+<table>
+<thead><tr><th>Metric</th><th>Value</th><th>Notes</th></tr></thead>
+<tbody>{''.join(info_rows)}</tbody>
+</table>
+</div>
+</div></body></html>"""
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+    return output_path
