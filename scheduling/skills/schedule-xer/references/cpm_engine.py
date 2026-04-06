@@ -276,27 +276,34 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
     if pred_es is None or pred_ef is None:
         return None
 
-    # For SS and SF relationships from active predecessors, P6 uses
-    # the actual start date for lag computation, not the computed ES.
-    # This reflects that the predecessor has already begun working and
-    # the lag represents elapsed work since actual start.
-    pred_ss_base = pred_task.get('_act_start', pred_es)
+    # For SS/SF: P6 uses actual start date for active/completed predecessors
+    # (lag measured from when work actually began, not computed ES).
+    # For FS/FF from completed predecessors: lag is consumed — use _ef
+    # directly (which is data_date), no lag applied.
+    pred_start = pred_task.get('_act_start', pred_es)
+    is_completed = pred_task.get('status_code', '') == 'TK_Complete'
 
     if _is_fs(pred_type):
         # Succ ES >= Pred EF + lag
+        # For completed preds: lag consumed, just use EF (data_date)
+        if is_completed:
+            return ('es', pred_ef)
         dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
         return ('es', dt)
     elif _is_ss(pred_type):
-        # Succ ES >= Pred start + lag (actual start for active preds)
-        dt = add_work_hours(pred_ss_base, lag_hours, cal) if lag_hours else pred_ss_base
+        # Succ ES >= Pred start + lag (actual start for started preds)
+        dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours else pred_start
         return ('es', dt)
     elif _is_ff(pred_type):
         # Succ EF >= Pred EF + lag
+        # For completed preds: lag consumed
+        if is_completed:
+            return ('ef', pred_ef)
         dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
         return ('ef', dt)
     elif _is_sf(pred_type):
-        # Succ EF >= Pred start + lag (actual start for active preds)
-        dt = add_work_hours(pred_ss_base, lag_hours, cal) if lag_hours else pred_ss_base
+        # Succ EF >= Pred start + lag (actual start for started preds)
+        dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours else pred_start
         return ('ef', dt)
     return None
 
@@ -431,6 +438,11 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
         # tasks is not applied, and P6 generally keeps them at data_date.
         if status == 'TK_Complete':
             es = data_date
+            # Store actual start for SS/SF contribution to successors.
+            # P6 uses actual start for SS/SF lag computation.
+            # FS/FF lag from completed predecessors is consumed (not applied).
+            act_start = _parse_date(task.get('act_start_date', ''))
+            task['_act_start'] = act_start or data_date
             for pred_id, rel in pred_map.get(tid, []):
                 pred_task = tasks_by_id.get(pred_id)
                 if not pred_task or pred_task.get('_es') is None:
@@ -456,10 +468,11 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
             base_es = stored_es or data_date
             base_ef = stored_ef or add_work_hours(data_date, duration, cal)
 
-            # Store actual start for SS/SF contribution to successors.
-            # P6 uses actual start (not computed ES) for SS/SF lag from
-            # active predecessors.
+            # Store actual dates for contribution to successors.
+            # P6 uses actual start for SS/SF lag, computed EF for FS/FF.
             task['_act_start'] = act_start or base_es
+            # Active tasks don't have act_end — use computed EF
+            # (no _act_end set, so contribution function uses _ef)
 
             # Ensure not before data_date
             if base_es < data_date:
