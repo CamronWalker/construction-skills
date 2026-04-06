@@ -270,30 +270,33 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
     lag_hours = _safe_float(rel.get('lag_hr_cnt', 0))
     cal = lag_cal or succ_cal
 
-    # Completed predecessors have _es=_ef=data_date. P6 still applies lag
-    # from those dates, so the contribution becomes data_date + lag.
-
     pred_es = pred_task.get('_es')
     pred_ef = pred_task.get('_ef')
 
     if pred_es is None or pred_ef is None:
         return None
 
+    # For SS and SF relationships from active predecessors, P6 uses
+    # the actual start date for lag computation, not the computed ES.
+    # This reflects that the predecessor has already begun working and
+    # the lag represents elapsed work since actual start.
+    pred_ss_base = pred_task.get('_act_start', pred_es)
+
     if _is_fs(pred_type):
         # Succ ES >= Pred EF + lag
         dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
         return ('es', dt)
     elif _is_ss(pred_type):
-        # Succ ES >= Pred ES + lag
-        dt = add_work_hours(pred_es, lag_hours, cal) if lag_hours else pred_es
+        # Succ ES >= Pred start + lag (actual start for active preds)
+        dt = add_work_hours(pred_ss_base, lag_hours, cal) if lag_hours else pred_ss_base
         return ('es', dt)
     elif _is_ff(pred_type):
         # Succ EF >= Pred EF + lag
         dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
         return ('ef', dt)
     elif _is_sf(pred_type):
-        # Succ EF >= Pred ES + lag
-        dt = add_work_hours(pred_es, lag_hours, cal) if lag_hours else pred_es
+        # Succ EF >= Pred start + lag (actual start for active preds)
+        dt = add_work_hours(pred_ss_base, lag_hours, cal) if lag_hours else pred_ss_base
         return ('ef', dt)
     return None
 
@@ -449,8 +452,14 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
         if status == 'TK_Active':
             stored_es = _parse_date(task.get('early_start_date', ''))
             stored_ef = _parse_date(task.get('early_end_date', ''))
+            act_start = _parse_date(task.get('act_start_date', ''))
             base_es = stored_es or data_date
             base_ef = stored_ef or add_work_hours(data_date, duration, cal)
+
+            # Store actual start for SS/SF contribution to successors.
+            # P6 uses actual start (not computed ES) for SS/SF lag from
+            # active predecessors.
+            task['_act_start'] = act_start or base_es
 
             # Ensure not before data_date
             if base_es < data_date:
