@@ -29,6 +29,7 @@ add_work_hours = _cal_mod.add_work_hours
 subtract_work_hours = _cal_mod.subtract_work_hours
 work_hours_between = _cal_mod.work_hours_between
 next_work_start = _cal_mod.next_work_start
+snap_to_work_time = _cal_mod.snap_to_work_time
 _default_calendar = _cal_mod._default_calendar
 
 
@@ -421,11 +422,24 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
         task_type = task.get('task_type', '')
         duration = _get_duration_hours(task)
 
-        # Completed tasks: P6 treats them as effectively done at data_date
-        # for scheduling purposes. Successors cannot start before data_date.
+        # Completed tasks: base ES=EF=data_date. Incomplete predecessors
+        # (active or not-started) can push them later via retained logic.
+        # Completed predecessors are skipped — lag between completed
+        # tasks is not applied, and P6 generally keeps them at data_date.
         if status == 'TK_Complete':
-            task['_es'] = data_date
-            task['_ef'] = data_date
+            es = data_date
+            for pred_id, rel in pred_map.get(tid, []):
+                pred_task = tasks_by_id.get(pred_id)
+                if not pred_task or pred_task.get('_es') is None:
+                    continue
+                if pred_task.get('status_code', '') == 'TK_Complete':
+                    continue
+                lag_c = _get_lag_calendar(pred_task, task, cal_lookup, lag_cal_option, default_cal_id)
+                contrib = _relationship_contribution_forward(pred_task, rel, cal, lag_c)
+                if contrib and contrib[1] > es:
+                    es = contrib[1]
+            task['_es'] = es
+            task['_ef'] = es
             continue
 
         # Active tasks: trust P6's stored early dates as the baseline, then
@@ -496,11 +510,13 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
         if es < data_date:
             es = data_date
 
-        # Snap ES to next work period start — but NOT for finish milestones,
-        # which in P6 align to the predecessor's end-of-day time
+        # Snap ES to valid work time — but NOT for finish milestones,
+        # which in P6 align to the predecessor's end-of-day time.
+        # Use snap_to_work_time (not next_work_start) to preserve
+        # mid-period times like 15:00 within 13:00-17:00.
         is_finish_mile = task_type == 'TT_FinMile'
         if not is_finish_mile:
-            es = next_work_start(es, cal)
+            es = snap_to_work_time(es, cal)
 
         # Compute EF from ES + duration
         ef = add_work_hours(es, duration, cal) if duration else es
@@ -604,117 +620,6 @@ def _backward_pass(tasks_by_id, reverse_topo, succ_map, pred_map, cal_lookup, pr
 # Float calculation
 # ---------------------------------------------------------------------------
 
-def _apply_alap_and_propagate(tasks_by_id, succ_map, pred_map, cal_lookup,
-                               topo_order, data_date,
-                               lag_cal_option='', default_cal_id=''):
-    """
-    ALAP post-processing with successor propagation.
-
-    1. Set ES=LS, EF=LF for ALAP-constrained tasks
-    2. Propagate changes to downstream successors only (targeted, not full re-run)
-    """
-    _ALAP_CODES = {'CS_ALAP'}
-
-    # Step 1: identify ALAP tasks and adjust them
-    alap_ids = set()
-    for tid, task in tasks_by_id.items():
-        if task.get('status_code', '') in ('TK_Complete', 'TK_Active'):
-            continue
-        is_alap = False
-        for cfield in ('cstr_type', 'cstr_type2', 'constraint_type'):
-            if task.get(cfield, '') in _ALAP_CODES:
-                is_alap = True
-                break
-        if not is_alap:
-            continue
-
-        ls = task.get('_ls')
-        lf = task.get('_lf')
-        if ls is not None and lf is not None:
-            task['_es'] = ls
-            task['_ef'] = lf
-            alap_ids.add(tid)
-
-    if not alap_ids:
-        return
-
-    # Step 2: find all tasks downstream of ALAP tasks that need recomputation
-    affected = set()
-    queue = []
-    for alap_id in alap_ids:
-        for succ_id, rel in succ_map.get(alap_id, []):
-            if succ_id not in alap_ids:
-                affected.add(succ_id)
-                queue.append(succ_id)
-
-    # BFS to find all downstream tasks
-    while queue:
-        current = queue.pop(0)
-        for succ_id, rel in succ_map.get(current, []):
-            if succ_id not in affected and succ_id not in alap_ids:
-                affected.add(succ_id)
-                queue.append(succ_id)
-
-    # Step 3: recompute affected tasks in topological order
-    topo_set = {tid: i for i, tid in enumerate(topo_order)}
-    affected_ordered = sorted(affected, key=lambda t: topo_set.get(t, 0))
-
-    for tid in affected_ordered:
-        task = tasks_by_id[tid]
-        if task.get('status_code', '') in ('TK_Complete', 'TK_Active'):
-            continue
-
-        cal = _get_calendar(task, cal_lookup)
-        duration = _get_duration_hours(task)
-        task_type = task.get('task_type', '')
-        is_finish_mile = task_type == 'TT_FinMile'
-
-        # Recompute ES/EF from predecessors (same logic as forward pass)
-        es_candidates = []
-        ef_candidates = []
-        for pred_id, rel in pred_map.get(tid, []):
-            pred_task = tasks_by_id.get(pred_id)
-            if not pred_task or pred_task.get('_es') is None:
-                continue
-            lag_c = _get_lag_calendar(pred_task, task, cal_lookup, lag_cal_option, default_cal_id)
-            contrib = _relationship_contribution_forward(pred_task, rel, cal, lag_c)
-            if contrib is None:
-                continue
-            if contrib[0] == 'es':
-                es_candidates.append(contrib[1])
-            elif contrib[0] == 'ef':
-                ef_candidates.append(contrib[1])
-
-        if es_candidates:
-            es = max(es_candidates)
-        else:
-            es = data_date
-
-        if es < data_date:
-            es = data_date
-        if not is_finish_mile:
-            es = next_work_start(es, cal)
-
-        ef = add_work_hours(es, duration, cal) if duration else es
-
-        if ef_candidates:
-            ef_from_rels = max(ef_candidates)
-            if ef_from_rels > ef:
-                ef = ef_from_rels
-                if duration:
-                    es_from_ef = subtract_work_hours(ef, duration, cal)
-                    if es_from_ef > es:
-                        es = es_from_ef
-                        ef = add_work_hours(es, duration, cal)
-                else:
-                    es = ef
-
-        es, ef = _apply_constraint_forward(task, es, ef, cal)
-
-        task['_es'] = es
-        task['_ef'] = ef
-
-
 def _compute_float(tasks_by_id, succ_map, cal_lookup):
     """Compute total float and free float for all tasks."""
     for tid, task in tasks_by_id.items():
@@ -816,34 +721,39 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
     _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, dd,
                   lag_cal_option, default_cal_id)
 
-    # Determine project end for backward pass (SC-focused)
+    # Determine project end for backward pass.
+    # P6 uses the latest EF across all tasks (= scd_end_date in PROJECT),
+    # NOT the SC milestone EF. This matters when there are activities after
+    # SC (e.g., Final Completion, close-out, punch lists).
     sc_task = _find_sc_milestone(tasks)
-    metadata = {}
 
+    # Project end = max EF across all computed tasks
+    max_ef = dd
+    for tid in cpm_task_ids:
+        t = tasks_by_id[tid]
+        if t.get('_ef') and t['_ef'] > max_ef:
+            max_ef = t['_ef']
+    project_end = max_ef
+
+    # Build metadata (SC milestone info for reports, separate from backward pass endpoint)
     if sc_task and sc_task.get('task_id') in tasks_by_id:
         sc_tid = sc_task['task_id']
         sc_in_graph = tasks_by_id[sc_tid]
-        project_end = sc_in_graph.get('_ef', dd)
         metadata = {
             'sc_milestone_id': sc_tid,
             'sc_milestone_name': sc_task.get('task_name', ''),
             'sc_milestone_code': sc_task.get('task_code', ''),
-            'sc_milestone_date': _format_date(project_end),
-            'project_end_source': 'SC milestone',
+            'sc_milestone_date': _format_date(sc_in_graph.get('_ef', dd)),
+            'project_end_date': _format_date(project_end),
+            'project_end_source': 'latest activity finish',
         }
     else:
-        # Fall back to latest EF across all tasks
-        max_ef = dd
-        for tid in cpm_task_ids:
-            t = tasks_by_id[tid]
-            if t.get('_ef') and t['_ef'] > max_ef:
-                max_ef = t['_ef']
-        project_end = max_ef
         metadata = {
             'sc_milestone_id': None,
             'sc_milestone_name': None,
             'sc_milestone_code': None,
             'sc_milestone_date': _format_date(project_end),
+            'project_end_date': _format_date(project_end),
             'project_end_source': 'latest activity finish',
         }
 
@@ -852,20 +762,11 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
     _backward_pass(tasks_by_id, reverse_topo, succ_map, pred_map, cal_lookup, project_end,
                     lag_cal_option, default_cal_id)
 
-    # ALAP post-processing: set ES=LS, EF=LF for ALAP-constrained tasks.
-    # In P6, ALAP consumes the task's own float. Successor dates use the
-    # original (pre-ALAP) early dates from the forward pass, so we don't
-    # propagate changes downstream.
-    _ALAP_CODES = {'CS_ALAP'}
-    for tid in cpm_task_ids:
-        task = tasks_by_id[tid]
-        if task.get('status_code', '') in ('TK_Complete', 'TK_Active'):
-            continue
-        is_alap = any(task.get(f, '') in _ALAP_CODES
-                      for f in ('cstr_type', 'cstr_type2', 'constraint_type'))
-        if is_alap and task.get('_ls') is not None:
-            task['_es'] = task['_ls']
-            task['_ef'] = task['_lf']
+    # ALAP note: P6's ALAP constraint does NOT modify early_start_date or
+    # early_end_date in the XER export. Those fields always reflect the
+    # forward pass. ALAP only affects when work is scheduled (the "actual"
+    # scheduling behavior), not the stored early dates. So we do NOT
+    # adjust ES/EF here — the forward pass values are correct.
 
     # Float calculation
     _compute_float(tasks_by_id, succ_map, cal_lookup)

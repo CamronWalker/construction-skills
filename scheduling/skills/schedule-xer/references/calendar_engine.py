@@ -305,6 +305,35 @@ def next_work_start(dt, cal):
     return dt
 
 
+def snap_to_work_time(dt, cal):
+    """
+    Snap a datetime to valid work time. Unlike next_work_start() which always
+    returns a period START, this preserves mid-period times.
+
+    - If dt is within a work period (start <= min < end), returns dt unchanged.
+    - If dt is between periods on a working day, returns next period start.
+    - If dt is after all periods or on a non-working day, advances to next working day start.
+    """
+    current_date = dt.date()
+    current_minutes = dt.hour * 60 + dt.minute
+
+    periods = _get_work_periods(current_date, cal)
+    for start, end in periods:
+        if start <= current_minutes < end:
+            return dt  # Already within a work period
+        if current_minutes < start:
+            return datetime.combine(current_date, _minutes_to_time(start))
+
+    # After all periods or non-working day — advance to next working day
+    for offset in range(1, 1000):
+        next_date = current_date + timedelta(days=offset)
+        periods = _get_work_periods(next_date, cal)
+        if periods:
+            return datetime.combine(next_date, _minutes_to_time(periods[0][0]))
+
+    return dt
+
+
 def prev_work_end(dt, cal):
     """
     Find the previous working-day end time on or before dt.
