@@ -887,10 +887,70 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
     _backward_pass(tasks_by_id, reverse_topo, succ_map, pred_map, cal_lookup, project_end,
                     lag_cal_option, default_cal_id)
 
-    # ALAP note: P6's ALAP behavior varies by schedule configuration.
-    # Setting ES=LS for all ALAP tasks causes regressions in many schedules.
-    # P6 may only apply ALAP shift in certain configurations or for tasks
-    # with specific successor patterns. Left as-is pending further investigation.
+    # ALAP: "As Late As Possible" — shifts early dates right to consume
+    # free float, butting the activity against its earliest successor.
+    # Process in reverse topological order so ALAP chains cascade correctly
+    # (furthest-downstream ALAP shifts first, then upstream ALAP uses
+    # the shifted successor dates).
+    for tid in reversed(topo_order):
+        t = tasks_by_id[tid]
+        if t.get('status_code', '') in ('TK_Complete', 'TK_Active'):
+            continue
+        cstr1 = t.get('cstr_type', '')
+        cstr2 = t.get('cstr_type2', '')
+        if cstr1 != 'CS_ALAP' and cstr2 != 'CS_ALAP':
+            continue
+
+        cal = _get_calendar(t, cal_lookup)
+        duration = _get_duration_hours(t)
+        fwd_es = t.get('_es')
+        if fwd_es is None:
+            continue
+
+        # For each successor relationship, compute the latest this task
+        # can start without delaying that successor.
+        max_es_candidates = []
+        for succ_id, rel in succ_map.get(tid, []):
+            succ = tasks_by_id.get(succ_id)
+            if not succ or succ.get('_es') is None:
+                continue
+            pred_type = rel.get('pred_type', 'PR_FS')
+            lag_hours = _safe_float(rel.get('lag_hr_cnt', 0))
+            lag_c = _get_lag_calendar(t, succ, cal_lookup, lag_cal_option, default_cal_id)
+
+            succ_es = succ['_es']
+            succ_ef = succ['_ef']
+
+            if _is_fs(pred_type):
+                # pred EF + lag <= succ ES
+                max_ef = subtract_work_hours(succ_es, lag_hours, lag_c) if lag_hours else succ_es
+                max_es = subtract_work_hours(max_ef, duration, cal) if duration else max_ef
+                max_es_candidates.append(max_es)
+            elif _is_ss(pred_type):
+                # pred ES + lag <= succ ES
+                max_es = subtract_work_hours(succ_es, lag_hours, lag_c) if lag_hours else succ_es
+                max_es_candidates.append(max_es)
+            elif _is_ff(pred_type):
+                # pred EF + lag <= succ EF
+                max_ef = subtract_work_hours(succ_ef, lag_hours, lag_c) if lag_hours else succ_ef
+                max_es = subtract_work_hours(max_ef, duration, cal) if duration else max_ef
+                max_es_candidates.append(max_es)
+            elif _is_sf(pred_type):
+                # pred ES + lag <= succ EF
+                max_es = subtract_work_hours(succ_ef, lag_hours, lag_c) if lag_hours else succ_ef
+                max_es_candidates.append(max_es)
+
+        if not max_es_candidates:
+            continue  # No successors — ALAP has no effect
+
+        alap_es = min(max_es_candidates)
+
+        # ALAP can only shift later, never earlier than forward pass
+        if alap_es <= fwd_es:
+            continue
+
+        t['_es'] = alap_es
+        t['_ef'] = add_work_hours(alap_es, duration, cal) if duration else alap_es
 
     # Float calculation
     _compute_float(tasks_by_id, succ_map, cal_lookup)
