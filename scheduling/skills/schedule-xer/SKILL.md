@@ -152,6 +152,119 @@ Unless instructed otherwise:
 
 ---
 
+## Schedule Recalculation (CPM Forward/Backward Pass)
+
+**Ready-to-run reference scripts exist** — do NOT rewrite the CPM engine. Load and call the functions directly.
+
+### Quick Start
+```python
+import importlib.util, os
+
+# Load calendar engine (must be loaded first — cpm_engine imports it)
+ref_dir = os.path.join(os.path.dirname(__file__), 'references')
+# Or use absolute path: ref_dir = 'scheduling/skills/schedule-xer/references'
+
+spec = importlib.util.spec_from_file_location('calendar_engine', os.path.join(ref_dir, 'calendar_engine.py'))
+cal_mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cal_mod)
+
+spec = importlib.util.spec_from_file_location('cpm_engine', os.path.join(ref_dir, 'cpm_engine.py'))
+cpm_mod = importlib.util.module_from_spec(spec)
+cpm_mod.loader.exec_module(cpm_mod)
+
+# Parse the XER first (see parsing section above)
+tables = parse_xer('schedule.xer')
+
+# Run CPM calculation — one function call
+results, metadata = cpm_mod.schedule_forward_backward(
+    tables.get('TASK', []),
+    tables.get('TASKPRED', []),
+    tables.get('CALENDAR', tables.get('CLNDR', [])),
+    data_date,                          # 'YYYY-MM-DD HH:MM' string or datetime
+    tables.get('SCHEDOPTIONS', []),     # optional — for lag calendar option
+    tables.get('PROJECT', [])           # optional — for default calendar ID
+)
+
+# results = same task dicts with updated: early_start_date, early_end_date,
+#           late_start_date, late_end_date, total_float_hr_cnt, free_float_hr_cnt,
+#           driving_path_flag ('Y'/'N')
+# metadata = dict with sc_milestone_name, sc_milestone_date, project_end_date,
+#            circular_dependencies (if any)
+
+# Generate HTML report
+cpm_mod.render_schedule_html(results, 'Project Name', data_date, metadata, 'schedule.html')
+```
+
+### What the Engine Handles
+- Forward pass (ES/EF) and backward pass (LS/LF) for all relationship types (FS, SS, FF, SF)
+- Lag computation with configurable lag calendar (successor, predecessor, 24-hour, or default)
+- Completed, active, and not-started tasks with P6-matching behavior
+- Calendar-aware workday arithmetic (holidays, exceptions, multi-period days)
+- Constraint types: mandatory start/finish, SNET, FNET, SNLT, FNLT
+- **Circular dependency detection** — identifies cycle members by task_code + task_name, breaks cycles gracefully, reports in `metadata['circular_dependencies']`
+- Float calculation (total float = LS − ES, free float per successor)
+- Critical path identification (driving_path_flag)
+
+### Circular Dependencies
+If the schedule has circular logic (e.g., A→B and B→A), the engine detects it, breaks the cycle, and reports the offending tasks:
+```python
+if metadata.get('circular_dependencies'):
+    for cycle in metadata['circular_dependencies']:
+        print(f"CIRCULAR: {cycle}")
+        # e.g. "NTVC10430 (Install Finish Hardware) → NTVC10440 (Final Paint Touch-up) → NTVC10430 (Install Finish Hardware)"
+```
+
+### Writing Recalculated Dates Back to XER
+
+**Track which table you are in** — XER tables are sequential. Do NOT use line-range slicing, which can cross table boundaries and corrupt other tables.
+
+```python
+def write_updated_xer(original_path, output_path, updated_tasks):
+    """Write recalculated dates back into XER, preserving all other data."""
+    updated = {t['task_id']: t for t in updated_tasks}
+
+    with open(original_path, 'rb') as f:
+        raw = f.read().decode('cp1252')
+
+    lines = raw.split('\r\n')
+    current_table = None
+    fields = []
+    out_lines = []
+
+    for line in lines:
+        if line.startswith('%T'):
+            current_table = line.split('\t')[1].strip() if '\t' in line else None
+            out_lines.append(line)
+        elif line.startswith('%F'):
+            fields = [f.strip() for f in line.split('\t')[1:]]
+            out_lines.append(line)
+        elif line.startswith('%R') and current_table == 'TASK':
+            vals = line.split('\t')[1:]
+            row = dict(zip(fields, vals))
+            tid = row.get('task_id', '')
+            if tid in updated:
+                u = updated[tid]
+                for date_field in ['early_start_date', 'early_end_date',
+                                   'late_start_date', 'late_end_date']:
+                    if date_field in row and date_field in u:
+                        row[date_field] = u[date_field]
+                for float_field in ['total_float_hr_cnt', 'free_float_hr_cnt']:
+                    if float_field in row and float_field in u:
+                        row[float_field] = u[float_field]
+                vals = [row.get(f, '') for f in fields]
+            out_lines.append('%R\t' + '\t'.join(vals))
+        else:
+            out_lines.append(line)
+
+    with open(output_path, 'wb') as f:
+        f.write('\r\n'.join(out_lines).encode('cp1252'))
+```
+
+### Date Field Format
+All date fields in the XER TASK table use format `YYYY-MM-DD HH:MM`. Start dates use work-start time (typically `08:00`), finish dates use work-end time (typically `17:00` or `16:00` depending on calendar). Empty dates are empty strings.
+
+---
+
 ## Validation
 
 ### File-Level Checks
@@ -183,22 +296,24 @@ After generation, score using the `schedule-standards` skill. Target: B+ or high
 
 ## Reference Files
 
-| File | When to Load |
-|------|-------------|
-| `references/xer-tables.md` | Complete field definitions for all 17+ XER tables — load for detailed field lookups, constraint codes, task types |
-| `references/build_from_raw_template.py` | Working 96-task example script (elementary school schedule, scores A-). Load when generating a new XER — use as the pattern and adapt for the project. |
-| `references/calendar_engine.py` | Calendar parsing & workday arithmetic — load with cpm_engine.py |
-| `references/cpm_engine.py` | CPM forward/backward pass — load when calculating dates/float |
-| `references/path_analysis.py` | SC path coverage & delay impact — load for path/delay work |
-| `references/xer_compare.py` | Multi-schedule comparison — load when comparing schedule updates |
+**These are READY-TO-RUN scripts** — import and call their functions directly. Do NOT rewrite or rebuild them. They handle P6's edge cases (calendar exceptions, completed-chain cascades, circular dependencies, relationship lag conventions) that took many iterations to get right.
+
+| File | Purpose | How to Use |
+|------|---------|-----------|
+| `references/xer-tables.md` | Field definitions for all 17+ XER tables | Read for field lookups, constraint codes, task types |
+| `references/build_from_raw_template.py` | Working 96-task XER generation example | Use as pattern when generating new XER files |
+| `references/calendar_engine.py` | Calendar parsing & workday arithmetic | Import first — cpm_engine.py depends on it |
+| `references/cpm_engine.py` | CPM forward/backward pass, float, critical path | See "Schedule Recalculation" section above |
+| `references/path_analysis.py` | SC path coverage & delay impact analysis | Call `analyze_sc_path_coverage()` or `compute_delay_impacts()` |
+| `references/xer_compare.py` | Multi-schedule comparison | Call `compare_schedules()` with parsed XER tables |
 
 ---
 
 ## Advanced Analysis (load only when needed)
 
-These reference scripts are pure-function libraries. Parse the XER first, then pass data in and get results out. No editing needed — just call the functions. All produce standalone HTML reports.
+**These are pure-function libraries — do NOT rewrite them.** Parse the XER first, then pass data in and get results out. All produce standalone HTML reports.
 
-**CPM Calculation (dates, float):** Load `calendar_engine.py` + `cpm_engine.py`. Call `schedule_forward_backward(tasks, preds, calendars, data_date)` → returns updated tasks with ES/EF/LS/LF, total/free float, driving path flag. Also returns `cpm_metadata` with SC milestone info. Call `render_schedule_html(tasks, project_name, data_date, metadata, output_path)` for HTML report.
+**CPM Calculation (dates, float):** See the "Schedule Recalculation" section above for full usage. In short: `schedule_forward_backward(tasks, preds, calendars, data_date, schedoptions, project)` → updated tasks + metadata. `render_schedule_html(...)` for HTML.
 
 **SC Path Coverage:** Load `path_analysis.py`. Call `analyze_sc_path_coverage(tasks, preds, wbs_rows)` → returns connected/disconnected activity counts by WBS, coverage %, recommendations. Call `render_coverage_html(data, output_path)` for HTML report.
 
