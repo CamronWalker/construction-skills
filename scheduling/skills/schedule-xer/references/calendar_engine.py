@@ -235,6 +235,8 @@ def _default_calendar():
 def build_calendar_lookup(calendars):
     """
     Build a lookup dict from raw CALENDAR/CLNDR table rows.
+    Handles calendar inheritance: child calendars inherit exceptions
+    from their base_clndr_id parent (P6 calendar hierarchy).
 
     Args:
         calendars: List of row dicts from the parsed XER CALENDAR or CLNDR table.
@@ -243,6 +245,8 @@ def build_calendar_lookup(calendars):
         { clndr_id: parsed_calendar_dict, ... }
     """
     lookup = {}
+    base_map = {}  # child_id -> parent_id
+
     for cal in calendars:
         cid = cal.get('clndr_id', '')
         data = cal.get('clndr_data', '')
@@ -255,6 +259,24 @@ def build_calendar_lookup(calendars):
         parsed['week_hr_cnt'] = _safe_float(cal.get('week_hr_cnt', '40'))
 
         lookup[cid] = parsed
+
+        base_id = (cal.get('base_clndr_id', '') or '').strip()
+        if base_id:
+            base_map[cid] = base_id
+
+    # Merge parent calendar exceptions into children.
+    # P6 inherits holidays from the base calendar — child exceptions
+    # override parent for the same date, but parent holidays that don't
+    # exist in the child are inherited.
+    for child_id, parent_id in base_map.items():
+        if parent_id not in lookup or child_id not in lookup:
+            continue
+        parent_exc = lookup[parent_id].get('exceptions', {})
+        child_exc = lookup[child_id].get('exceptions', {})
+        # Merge: parent exceptions that aren't overridden by child
+        merged = dict(parent_exc)
+        merged.update(child_exc)  # child overrides parent
+        lookup[child_id]['exceptions'] = merged
 
     # Always have a fallback
     if '' not in lookup:
