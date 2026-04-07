@@ -365,8 +365,7 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
 
     # For SS/SF: P6's reference point depends on lag:
     # - Zero lag: use computed early start (_es) — "start at same time"
-    #   means when the predecessor's remaining work is scheduled, not
-    #   when it historically started.
+    #   means when the predecessor's remaining work is scheduled.
     # - Nonzero lag: use actual start (_act_start) — lag is measured from
     #   when work actually began, partially consumed by actual progress.
     # For FS/FF from completed predecessors: lag is consumed — use _ef
