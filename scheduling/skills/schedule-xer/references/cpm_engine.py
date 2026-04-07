@@ -363,13 +363,18 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
     if pred_es is None or pred_ef is None:
         return None
 
-    # For SS/SF: P6 uses actual start date for active/completed predecessors
-    # (lag measured from when work actually began, not computed ES).
-    # Note: sched_lag_early_start_flag=Y is present in all test files but
-    # empirically P6 still uses act_start for SS/SF lag computation.
+    # For SS/SF: P6's reference point depends on lag:
+    # - Zero lag: use computed early start (_es) — "start at same time"
+    #   means when the predecessor's remaining work is scheduled, not
+    #   when it historically started.
+    # - Nonzero lag: use actual start (_act_start) — lag is measured from
+    #   when work actually began, partially consumed by actual progress.
     # For FS/FF from completed predecessors: lag is consumed — use _ef
     # directly, no lag applied.
-    pred_start = pred_task.get('_act_start', pred_es)
+    if lag_hours:
+        pred_start = pred_task.get('_act_start', pred_es)
+    else:
+        pred_start = pred_es  # Zero lag: use computed ES
     is_completed = pred_task.get('status_code', '') == 'TK_Complete'
 
     if _is_fs(pred_type):
