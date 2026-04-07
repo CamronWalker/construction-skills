@@ -402,9 +402,19 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
             dt = pred_ef
         return ('es', dt)
     elif _is_ss(pred_type):
-        # Succ ES >= Pred start + lag (actual start for started preds)
+        # Succ ES >= Pred start + lag.
+        # For active preds with nonzero lag: lag is measured from act_start,
+        # but if the lag is consumed by progress (act_start + lag < pred_es),
+        # the contribution = pred_es (current scheduled position drives).
         if lag_hours:
-            dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours > 0 else subtract_work_hours(pred_start, abs(lag_hours), cal)
+            if lag_hours > 0:
+                dt = add_work_hours(pred_start, lag_hours, cal)
+            else:
+                dt = subtract_work_hours(pred_start, abs(lag_hours), cal)
+            # Contribution is at least pred_es — lag can't pull earlier
+            # than where the predecessor is currently scheduled.
+            if dt < pred_es:
+                dt = pred_es
         else:
             dt = pred_start
         return ('es', dt)
@@ -422,9 +432,15 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
             dt = pred_ef
         return ('ef', dt)
     elif _is_sf(pred_type):
-        # Succ EF >= Pred start + lag (actual start for started preds)
+        # Succ EF >= Pred start + lag.
+        # Same consumed-lag logic as SS.
         if lag_hours:
-            dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours > 0 else subtract_work_hours(pred_start, abs(lag_hours), cal)
+            if lag_hours > 0:
+                dt = add_work_hours(pred_start, lag_hours, cal)
+            else:
+                dt = subtract_work_hours(pred_start, abs(lag_hours), cal)
+            if dt < pred_es:
+                dt = pred_es
         else:
             dt = pred_start
         return ('ef', dt)
