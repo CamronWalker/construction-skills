@@ -140,38 +140,125 @@ def _build_graph(tasks, preds):
     return tasks_by_id, succ_map, pred_map, cpm_task_ids
 
 
-def _topological_sort(task_ids, pred_map):
+def _find_cycles(remaining_ids, adj):
+    """
+    Find all cycles in a directed graph using DFS.
+    Returns list of cycles, each cycle is a list of task_ids.
+    """
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {tid: WHITE for tid in remaining_ids}
+    path = []
+    cycles = []
+
+    def dfs(node):
+        color[node] = GRAY
+        path.append(node)
+        for succ in adj.get(node, []):
+            if succ not in remaining_ids:
+                continue
+            if color[succ] == GRAY:
+                # Found cycle — extract from where succ appears in path
+                idx = path.index(succ)
+                cycles.append(list(path[idx:]))
+            elif color[succ] == WHITE:
+                dfs(succ)
+        path.pop()
+        color[node] = BLACK
+
+    for tid in remaining_ids:
+        if color[tid] == WHITE:
+            dfs(tid)
+
+    return cycles
+
+
+def _topological_sort(task_ids, pred_map, tasks_by_id=None):
     """
     Kahn's algorithm for topological ordering.
     Returns list of task_ids in forward-pass order.
-    Raises ValueError on circular dependencies.
+
+    If circular dependencies exist, breaks the cycles by removing
+    back-edges and returns the order with cycles broken. Stores
+    cycle info in tasks_by_id['_circular_deps'] if provided.
     """
-    # Count incoming edges (within our CPM scope)
-    in_degree = {tid: 0 for tid in task_ids}
+    # Count incoming edges (within our CPM scope).
+    # Sort task_ids for deterministic ordering — Python set iteration
+    # is non-deterministic, and different topological orderings can
+    # produce different CPM results when ties exist.
+    sorted_ids = sorted(task_ids)
+    in_degree = {tid: 0 for tid in sorted_ids}
     adj = defaultdict(list)
 
-    for succ_id in task_ids:
+    for succ_id in sorted_ids:
         for pred_id, _ in pred_map.get(succ_id, []):
-            if pred_id in task_ids:
+            if pred_id in in_degree:
                 in_degree[succ_id] += 1
                 adj[pred_id].append(succ_id)
 
-    queue = deque(tid for tid, deg in in_degree.items() if deg == 0)
+    # Sort initial queue and maintain sorted insertion for determinism
+    queue = deque(sorted(tid for tid, deg in in_degree.items() if deg == 0))
     order = []
 
     while queue:
         tid = queue.popleft()
         order.append(tid)
+        new_ready = []
         for succ_id in adj[tid]:
             in_degree[succ_id] -= 1
             if in_degree[succ_id] == 0:
-                queue.append(succ_id)
+                new_ready.append(succ_id)
+        # Sort newly ready tasks for determinism
+        for s in sorted(new_ready):
+            queue.append(s)
 
-    if len(order) != len(task_ids):
-        raise ValueError(
-            f"Circular dependency detected: scheduled {len(order)} of {len(task_ids)} tasks"
-        )
-    return order
+    if len(order) == len(task_ids):
+        return order, []  # No cycles
+
+    # --- Circular dependencies detected ---
+    scheduled = set(order)
+    remaining = {tid for tid in task_ids if tid not in scheduled}
+
+    # Find the actual cycles for reporting
+    cycles = _find_cycles(remaining, adj)
+
+    # Build human-readable cycle info
+    cycle_details = []
+    for cycle in cycles:
+        chain = []
+        for tid in cycle:
+            if tasks_by_id and tid in tasks_by_id:
+                t = tasks_by_id[tid]
+                code = t.get('task_code', tid)
+                name = t.get('task_name', '')
+                chain.append(f"{code} ({name})")
+            else:
+                chain.append(tid)
+        # Show the loop: A -> B -> C -> A
+        chain.append(chain[0])
+        cycle_details.append(' → '.join(chain))
+
+    # Break cycles: for each remaining task, remove one back-edge
+    # by artificially setting in_degree to 0 for the task with
+    # the fewest remaining predecessors
+    while remaining:
+        # Pick the task with lowest in_degree among remaining
+        best = min(remaining, key=lambda t: in_degree[t])
+        in_degree[best] = 0
+        queue = deque([best])
+        while queue:
+            tid = queue.popleft()
+            if tid in scheduled:
+                continue
+            scheduled.add(tid)
+            order.append(tid)
+            remaining.discard(tid)
+            for succ_id in adj[tid]:
+                if succ_id in remaining:
+                    in_degree[succ_id] -= 1
+                    if in_degree[succ_id] <= 0:
+                        queue.append(succ_id)
+
+    return order, cycle_details
 
 
 # ---------------------------------------------------------------------------
@@ -278,8 +365,10 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
 
     # For SS/SF: P6 uses actual start date for active/completed predecessors
     # (lag measured from when work actually began, not computed ES).
+    # Note: sched_lag_early_start_flag=Y is present in all test files but
+    # empirically P6 still uses act_start for SS/SF lag computation.
     # For FS/FF from completed predecessors: lag is consumed — use _ef
-    # directly (which is data_date), no lag applied.
+    # directly, no lag applied.
     pred_start = pred_task.get('_act_start', pred_es)
     is_completed = pred_task.get('status_code', '') == 'TK_Complete'
 
@@ -432,29 +521,24 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
         task_type = task.get('task_type', '')
         duration = _get_duration_hours(task)
 
-        # Completed tasks: base ES=EF=data_date. Incomplete predecessors
-        # (active or not-started) can push them later via retained logic.
-        # Completed predecessors are skipped — lag between completed
-        # tasks is not applied, and P6 generally keeps them at data_date.
+        # Completed tasks: use P6's stored early dates directly from the XER.
+        # P6 already computed these correctly during its schedule run —
+        # they account for predecessor pushes, retained logic, etc.
+        # We trust them as-is rather than recomputing (which loses the
+        # completed-chain cascade that P6 handles internally).
         if status == 'TK_Complete':
-            es = data_date
-            # Store actual start for SS/SF contribution to successors.
-            # P6 uses actual start for SS/SF lag computation.
-            # FS/FF lag from completed predecessors is consumed (not applied).
+            stored_es = _parse_date(task.get('early_start_date', ''))
+            stored_ef = _parse_date(task.get('early_end_date', ''))
+            # Use P6's stored dates but never go before data_date.
+            # Stored dates after data_date reflect P6's completed-chain
+            # cascade (predecessor pushes). Dates before data_date are
+            # stale from the original schedule and should floor to data_date.
+            es = max(stored_es, data_date) if stored_es else data_date
+            ef = max(stored_ef, data_date) if stored_ef else es
             act_start = _parse_date(task.get('act_start_date', ''))
             task['_act_start'] = act_start or data_date
-            for pred_id, rel in pred_map.get(tid, []):
-                pred_task = tasks_by_id.get(pred_id)
-                if not pred_task or pred_task.get('_es') is None:
-                    continue
-                if pred_task.get('status_code', '') == 'TK_Complete':
-                    continue
-                lag_c = _get_lag_calendar(pred_task, task, cal_lookup, lag_cal_option, default_cal_id)
-                contrib = _relationship_contribution_forward(pred_task, rel, cal, lag_c)
-                if contrib and contrib[1] > es:
-                    es = contrib[1]
             task['_es'] = es
-            task['_ef'] = es
+            task['_ef'] = ef
             continue
 
         # Active tasks: trust P6's stored early dates as the baseline, then
@@ -736,8 +820,8 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
     # Build graph
     tasks_by_id, succ_map, pred_map, cpm_task_ids = _build_graph(tasks, preds)
 
-    # Topological sort
-    topo_order = _topological_sort(cpm_task_ids, pred_map)
+    # Topological sort (with cycle detection)
+    topo_order, cycle_details = _topological_sort(cpm_task_ids, pred_map, tasks_by_id)
 
     # Forward pass
     _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, dd,
@@ -779,16 +863,20 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
             'project_end_source': 'latest activity finish',
         }
 
+    # Report circular dependencies if found
+    if cycle_details:
+        metadata['circular_dependencies'] = cycle_details
+        metadata['circular_dependency_count'] = len(cycle_details)
+
     # Backward pass
     reverse_topo = list(reversed(topo_order))
     _backward_pass(tasks_by_id, reverse_topo, succ_map, pred_map, cal_lookup, project_end,
                     lag_cal_option, default_cal_id)
 
-    # ALAP note: P6's ALAP constraint does NOT modify early_start_date or
-    # early_end_date in the XER export. Those fields always reflect the
-    # forward pass. ALAP only affects when work is scheduled (the "actual"
-    # scheduling behavior), not the stored early dates. So we do NOT
-    # adjust ES/EF here — the forward pass values are correct.
+    # ALAP note: P6's ALAP behavior varies by schedule configuration.
+    # Setting ES=LS for all ALAP tasks causes regressions in many schedules.
+    # P6 may only apply ALAP shift in certain configurations or for tasks
+    # with specific successor patterns. Left as-is pending further investigation.
 
     # Float calculation
     _compute_float(tasks_by_id, succ_map, cal_lookup)

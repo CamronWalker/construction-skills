@@ -48,13 +48,20 @@ def _minutes_to_time(minutes):
 def _extract_work_periods(text):
     """
     Extract work periods from a day's content.
-    Looks for patterns like (s|08:00|f|12:00) and (s|13:00|f|17:00).
+    Handles both orderings: (s|08:00|f|12:00) and (f|12:00|s|08:00).
     Returns list of (start_minutes, end_minutes) tuples sorted by start.
     """
     periods = []
+    # Standard order: s|start|f|finish
     for m in re.finditer(r's\|(\d{2}:\d{2})\|f\|(\d{2}:\d{2})', text):
         start = _parse_time(m.group(1))
         end = _parse_time(m.group(2))
+        if end > start:
+            periods.append((start, end))
+    # Reversed order: f|finish|s|start (seen in some P6 calendars)
+    for m in re.finditer(r'f\|(\d{2}:\d{2})\|s\|(\d{2}:\d{2})', text):
+        end = _parse_time(m.group(1))
+        start = _parse_time(m.group(2))
         if end > start:
             periods.append((start, end))
     periods.sort()
