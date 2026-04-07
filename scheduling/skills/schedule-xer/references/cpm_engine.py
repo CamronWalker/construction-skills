@@ -682,6 +682,14 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
         # Apply forward constraints
         es, ef = _apply_constraint_forward(task, es, ef, cal)
 
+        # Re-snap ES after constraints — constraints can set ES to non-work
+        # times (e.g., CS_MSOA with midnight date). Snap ensures work time.
+        if not is_finish_mile:
+            es_snapped = snap_to_work_time(es, cal)
+            if es_snapped != es:
+                es = es_snapped
+                ef = add_work_hours(es, duration, cal) if duration else es
+
         task['_es'] = es
         task['_ef'] = ef
 
