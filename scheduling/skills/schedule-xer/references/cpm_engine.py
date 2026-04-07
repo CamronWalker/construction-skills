@@ -374,8 +374,14 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
 
     if _is_fs(pred_type):
         # Succ ES >= Pred EF + lag
-        # For completed preds: lag consumed, just use EF (data_date)
+        # For completed preds with zero lag: contribution = pred_ef (lag consumed).
+        # For completed preds with nonzero lag: P6 applies lag from act_end_date
+        # (the lag represents a waiting period after actual completion, e.g. curing).
         if is_completed:
+            if lag_hours:
+                act_end = _parse_date(pred_task.get('act_end_date', ''))
+                base = act_end or pred_ef
+                return ('es', add_work_hours(base, lag_hours, cal))
             return ('es', pred_ef)
         dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
         return ('es', dt)
@@ -385,8 +391,12 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
         return ('es', dt)
     elif _is_ff(pred_type):
         # Succ EF >= Pred EF + lag
-        # For completed preds: lag consumed
+        # Same logic as FS: nonzero lag from completed uses act_end
         if is_completed:
+            if lag_hours:
+                act_end = _parse_date(pred_task.get('act_end_date', ''))
+                base = act_end or pred_ef
+                return ('ef', add_work_hours(base, lag_hours, cal))
             return ('ef', pred_ef)
         dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
         return ('ef', dt)
@@ -509,7 +519,7 @@ def _apply_constraint_backward(task, ls, lf, cal):
 # ---------------------------------------------------------------------------
 
 def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_date,
-                   lag_cal_option='', default_cal_id=''):
+                   lag_cal_option='', default_cal_id='', use_expect_end=False):
     """
     Forward pass: compute Early Start (ES) and Early Finish (EF) for all tasks.
     Results stored as _es and _ef on each task dict.
@@ -549,8 +559,11 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
             stored_es = _parse_date(task.get('early_start_date', ''))
             stored_ef = _parse_date(task.get('early_end_date', ''))
             act_start = _parse_date(task.get('act_start_date', ''))
+            # When sched_use_expect_end_flag=Y and expect_end_date is set,
+            # P6 uses it as the expected finish instead of computed EF.
+            expect_end = _parse_date(task.get('expect_end_date', '')) if use_expect_end else None
             base_es = stored_es or data_date
-            base_ef = stored_ef or add_work_hours(data_date, duration, cal)
+            base_ef = expect_end or stored_ef or add_work_hours(data_date, duration, cal)
 
             # Store actual dates for contribution to successors.
             # P6 uses actual start for SS/SF lag, computed EF for FS/FF.
@@ -811,6 +824,7 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
     # Read scheduling options
     sched_opts = (schedoptions or [{}])[0] if schedoptions else {}
     lag_cal_option = sched_opts.get('sched_calendar_on_relationship_lag', '')
+    use_expect_end = sched_opts.get('sched_use_expect_end_flag', 'N') == 'Y'
     proj_row = (project or [{}])[0] if project else {}
     default_cal_id = proj_row.get('default_clndr_id', '') or proj_row.get('clndr_id', '')
 
@@ -825,7 +839,7 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
 
     # Forward pass
     _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, dd,
-                  lag_cal_option, default_cal_id)
+                  lag_cal_option, default_cal_id, use_expect_end)
 
     # Determine project end for backward pass.
     # P6 uses the latest EF across all tasks (= scd_end_date in PROJECT),
