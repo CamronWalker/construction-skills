@@ -403,18 +403,16 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
         return ('es', dt)
     elif _is_ss(pred_type):
         # Succ ES >= Pred start + lag.
-        # For active preds with nonzero lag: lag is measured from act_start,
-        # but if the lag is consumed by progress (act_start + lag < pred_es),
-        # the contribution = pred_es (current scheduled position drives).
+        # Positive lag: consumed by progress — contribution = max(result, pred_es).
+        # Negative lag (lead): successor can start BEFORE predecessor — no floor.
         if lag_hours:
             if lag_hours > 0:
                 dt = add_work_hours(pred_start, lag_hours, cal)
+                # Positive lag can't pull earlier than predecessor's position
+                if dt < pred_es:
+                    dt = pred_es
             else:
                 dt = subtract_work_hours(pred_start, abs(lag_hours), cal)
-            # Contribution is at least pred_es — lag can't pull earlier
-            # than where the predecessor is currently scheduled.
-            if dt < pred_es:
-                dt = pred_es
         else:
             dt = pred_start
         return ('es', dt)
@@ -437,10 +435,10 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
         if lag_hours:
             if lag_hours > 0:
                 dt = add_work_hours(pred_start, lag_hours, cal)
+                if dt < pred_es:
+                    dt = pred_es
             else:
                 dt = subtract_work_hours(pred_start, abs(lag_hours), cal)
-            if dt < pred_es:
-                dt = pred_es
         else:
             dt = pred_start
         return ('ef', dt)
