@@ -702,11 +702,21 @@ def _forward_pass(tasks_by_id, topo_order, pred_map, succ_map, cal_lookup, data_
 
         # Re-snap ES after constraints — constraints can set ES to non-work
         # times (e.g., CS_MSOA with midnight date). Snap ensures work time.
+        # For finish milestones with hard-finish constraints (CS_MEO/MFO),
+        # P6 also snaps to next work start.
         if not is_finish_mile:
             es_snapped = snap_to_work_time(es, cal)
             if es_snapped != es:
                 es = es_snapped
                 ef = add_work_hours(es, duration, cal) if duration else es
+        elif is_finish_mile and duration == 0:
+            # FinMile: check if constraint pushed ES to end-of-day
+            cstr = task.get('cstr_type', '')
+            if cstr in _HARD_FINISH:
+                es_snapped = next_work_start(es, cal)
+                if es_snapped != es:
+                    es = es_snapped
+                    ef = es
 
         task['_es'] = es
         task['_ef'] = ef
