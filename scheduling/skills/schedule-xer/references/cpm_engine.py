@@ -375,34 +375,54 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
     if _is_fs(pred_type):
         # Succ ES >= Pred EF + lag
         # For completed preds with zero lag: contribution = pred_ef (lag consumed).
-        # For completed preds with nonzero lag: P6 applies lag from act_end_date
+        # For completed preds with positive lag: P6 applies lag from act_end_date
         # (the lag represents a waiting period after actual completion, e.g. curing).
+        # For completed preds with negative lag (lead): P6 applies lead from
+        # the stored EF (not act_end, which would be in the distant past).
         if is_completed:
-            if lag_hours:
+            if lag_hours and lag_hours > 0:
+                # Positive lag (waiting period after completion, e.g. curing):
+                # apply from act_end_date
                 act_end = _parse_date(pred_task.get('act_end_date', ''))
                 base = act_end or pred_ef
                 return ('es', add_work_hours(base, lag_hours, cal))
+            # Zero lag or negative lag (lead): consumed for completed preds.
+            # Lead is moot since predecessor already finished.
             return ('es', pred_ef)
-        dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
+        if lag_hours:
+            if lag_hours > 0:
+                dt = add_work_hours(pred_ef, lag_hours, cal)
+            else:
+                dt = subtract_work_hours(pred_ef, abs(lag_hours), cal)
+        else:
+            dt = pred_ef
         return ('es', dt)
     elif _is_ss(pred_type):
         # Succ ES >= Pred start + lag (actual start for started preds)
-        dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours else pred_start
+        if lag_hours:
+            dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours > 0 else subtract_work_hours(pred_start, abs(lag_hours), cal)
+        else:
+            dt = pred_start
         return ('es', dt)
     elif _is_ff(pred_type):
         # Succ EF >= Pred EF + lag
-        # Same logic as FS: nonzero lag from completed uses act_end
         if is_completed:
-            if lag_hours:
+            if lag_hours and lag_hours > 0:
                 act_end = _parse_date(pred_task.get('act_end_date', ''))
                 base = act_end or pred_ef
                 return ('ef', add_work_hours(base, lag_hours, cal))
             return ('ef', pred_ef)
-        dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours else pred_ef
+        if lag_hours:
+            dt = add_work_hours(pred_ef, lag_hours, cal) if lag_hours > 0 else subtract_work_hours(pred_ef, abs(lag_hours), cal)
+        else:
+            dt = pred_ef
         return ('ef', dt)
     elif _is_sf(pred_type):
         # Succ EF >= Pred start + lag (actual start for started preds)
-        dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours else pred_start
+        if lag_hours:
+            dt = add_work_hours(pred_start, lag_hours, cal) if lag_hours > 0 else subtract_work_hours(pred_start, abs(lag_hours), cal)
+        else:
+            dt = pred_start
         return ('ef', dt)
     return None
 
