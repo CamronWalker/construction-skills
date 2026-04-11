@@ -29,6 +29,9 @@ Usage:
                    'Review production with OPI every single day.'],
         include_compliance_report=True,
         include_procurement_sheets=True,
+        summary_screenshot_path='screenshots/smartpm-summary-report.png',
+        graphs_1_screenshot_path='screenshots/smartpm-performance-graphs-1.png',
+        graphs_2_screenshot_path='screenshots/smartpm-performance-graphs-2.png',
     )
 """
 
@@ -87,6 +90,9 @@ def generate_update_email(
     key_item_highlights=None,
     include_compliance_report=False,
     include_procurement_sheets=False,
+    summary_screenshot_path=None,
+    graphs_1_screenshot_path=None,
+    graphs_2_screenshot_path=None,
 ):
     """Generate a Westland schedule update email as a .docx file.
 
@@ -109,6 +115,9 @@ def generate_update_email(
         key_item_highlights: List of indices to bold/red
         include_compliance_report: Whether to mention compliance report
         include_procurement_sheets: Whether to mention procurement sheets
+        summary_screenshot_path: Path to SmartPM summary report PNG (optional)
+        graphs_1_screenshot_path: Path to performance graphs 1 PNG (optional)
+        graphs_2_screenshot_path: Path to performance graphs 2 PNG (optional)
     """
     successes = successes or []
     red_flags = red_flags or []
@@ -141,10 +150,13 @@ def generate_update_email(
         _add_colored_line(doc, 'Days Ahead/Behind Schedule: ',
                           'On Schedule', GREEN)
 
-    # --- SmartPM Summary Report Placeholder ---
-    p = doc.add_paragraph()
-    p.add_run('[Insert SmartPM Summary Report screenshot here — '
-              'hyperlink to SmartPM project URL]').italic = True
+    # --- SmartPM Summary Report ---
+    if summary_screenshot_path and os.path.isfile(summary_screenshot_path):
+        doc.add_picture(summary_screenshot_path, width=Inches(6.5))
+    else:
+        p = doc.add_paragraph()
+        p.add_run('[Insert SmartPM Summary Report screenshot here — '
+                  'hyperlink to SmartPM project URL]').italic = True
 
     # --- Successes ---
     _add_heading(doc, 'Successes:')
@@ -198,9 +210,14 @@ def generate_update_email(
         'a better view of these charts and drill down to greater detail regarding '
         'specific activities and trade performance by logging on to SmartPM and '
         'clicking the View Trends link on the right side of the screen.')
-    p = doc.add_paragraph()
-    p.add_run('[Insert SmartPM performance graph screenshots here — '
-              'hyperlink to View Trends URL]').italic = True
+    if graphs_1_screenshot_path and os.path.isfile(graphs_1_screenshot_path):
+        doc.add_picture(graphs_1_screenshot_path, width=Inches(6.5))
+    if graphs_2_screenshot_path and os.path.isfile(graphs_2_screenshot_path):
+        doc.add_picture(graphs_2_screenshot_path, width=Inches(6.5))
+    if not (graphs_1_screenshot_path and os.path.isfile(graphs_1_screenshot_path)):
+        p = doc.add_paragraph()
+        p.add_run('[Insert SmartPM performance graph screenshots here — '
+                  'hyperlink to View Trends URL]').italic = True
 
     # --- Compliance Report ---
     if include_compliance_report:

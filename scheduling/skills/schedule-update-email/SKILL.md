@@ -20,6 +20,18 @@ Generate a Westland schedule update email following the Westland Schedule Update
 
 ## Workflow
 
+### Step 0: Read Project Memory
+
+Look for the most recent `*-project-memory.md` file in the project folder:
+
+```bash
+ls -1 *-project-memory.md 2>/dev/null | sort -r | head -1
+```
+
+If found, read it for context: SmartPM URLs, previous weeks' metrics, carried-forward red flags, and historical trend data. Use this context when writing gain/loss narratives and identifying items to carry forward.
+
+If not found, create the initial `YYYY-MM-DD-project-memory.md` after Step 1 (once project info and SmartPM URLs are gathered).
+
 ### Step 1: Parse XER & Extract Metrics
 
 Parse the XER using the `schedule-xer` skill. Calculate:
@@ -59,7 +71,7 @@ Build the email following the Westland template (see `references/email-template.
 
 1. **Project Info Header** — Project name, job number, contractual completion, projected SC date (from XER)
 2. **Days Behind/Ahead** — Calculated from XER (red text if behind, green if ahead)
-3. **SmartPM Summary Report** — Placeholder for user to insert screenshot. Prompt user for SmartPM project URL.
+3. **SmartPM Summary Report** — Check for `screenshots/smartpm-summary-report.png`. If found, embed it. If not, invoke the `schedule-screenshots` skill to capture it (or prompt user to run `take-screenshots.bat`). Prompt user for SmartPM project URL if not in project memory.
 4. **Successes** — From transcript extraction + user additions
 5. **Gain/Loss Narrative** — Calculated figure + user narrative explaining what drove the change
 6. **EOT/Recovery Status** — From transcript + previous email + user input
@@ -68,7 +80,7 @@ Build the email following the Westland template (see `references/email-template.
 9. **Red Flags** — Carried forward + new from transcript + user additions. Bold/red for high priority.
 10. **Stalled/Slipping Tasks** — From XER analysis + carried forward + user additions
 11. **Key Items & Issues** — From transcript + previous email + user additions
-12. **Performance Graphs** — Placeholder for SmartPM screenshots. Prompt user for View Trends URL.
+12. **Performance Graphs** — Check for `screenshots/smartpm-performance-graphs-1.png` and `screenshots/smartpm-performance-graphs-2.png`. If found, embed them. If not, invoke the `schedule-screenshots` skill to capture them. Prompt user for View Trends URL if not in project memory.
 
 Include closing paragraphs about Schedule Compliance Report and procurement spreadsheets as applicable.
 
@@ -87,19 +99,39 @@ Read `references/generate_email_docx.py` and use it to generate the formatted .d
 
 Save to: `<project-folder>/Schedule Update Email - [Date].docx`
 
+If screenshots were captured (either pre-existing in `screenshots/` or via the `schedule-screenshots` skill), pass the file paths to `generate_email_docx.py` to embed them directly in the .docx. The SmartPM URLs from project memory are used for hyperlinking.
+
+If no screenshots are available, the .docx will contain placeholder text as a fallback.
+
 Remind the user to:
-- Insert SmartPM screenshots at the placeholder locations
-- Hyperlink screenshots to SmartPM URLs
+- Verify embedded SmartPM screenshots look correct (or insert manually if placeholders remain)
 - Attach: Master Schedule PDF, Critical Path PDF, Near Critical PDF, 4-Week Lookahead PDF, SmartPM Analytics Report, and any other requested layouts
 - Attach Schedule Compliance Report (Excel) and procurement/progress spreadsheets if applicable
 
-## SmartPM Integration Notes
+### Step 7: Update Project Memory
 
-This skill cannot access SmartPM directly. The user must provide:
-- SmartPM summary report screenshot (from Company Dashboard)
-- SmartPM changelog URL (from Changes layout)
-- SmartPM performance graph screenshots (from View Trends — resize browser with Ctrl+minus to fit 3 graphs per screenshot)
-- SmartPM project URL (for hyperlinking screenshots)
+After the .docx is generated, update (or create) the project memory file (`YYYY-MM-DD-project-memory.md`):
+
+1. Read the most recent existing `*-project-memory.md` for prior history
+2. Create a new file with today's date, carrying forward all previous entries
+3. Add a new dated entry with this week's metrics:
+   - Days behind/ahead
+   - Gain/loss
+   - Red flags (carried forward and new)
+   - Stalled/slipping tasks
+   - Key issues
+   - Screenshots captured: yes/no
+
+## SmartPM Screenshots
+
+Before assembling sections 3 and 12, check if `<project-folder>/screenshots/` exists with the required PNGs:
+- `smartpm-summary-report.png`
+- `smartpm-performance-graphs-1.png`
+- `smartpm-performance-graphs-2.png`
+
+If found, use them directly. If not, invoke the `schedule-screenshots` skill to capture them, or prompt the user to run `take-screenshots.bat` from the project folder.
+
+The `schedule-screenshots` skill uses Playwright via Chrome DevTools Protocol to connect to the user's already-running Chrome browser and capture screenshots from SmartPM — no manual screenshotting needed.
 
 ## Distribution Reminder
 

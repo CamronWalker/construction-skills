@@ -1,0 +1,9 @@
+{
+  "name": "schedule-screenshots",
+  "version": "1.0.0",
+  "description": "SmartPM screenshot capture for Westland schedule update emails via Playwright CDP",
+  "private": true,
+  "dependencies": {
+    "playwright": "^1.52.0"
+  }
+}

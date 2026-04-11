@@ -8,7 +8,7 @@
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules, quality scoring, and schedule update emails.",
-      "version": "0.5.0"
+      "version": "0.6.0"
     },
     {
       "name": "estimating",
