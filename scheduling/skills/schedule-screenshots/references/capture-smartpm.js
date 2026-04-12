@@ -22,10 +22,30 @@
  * Output (stdout): JSON with screenshot paths and status
  */
 
-const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execSync } = require('child_process');
+
+// Auto-install playwright if not available
+let chromium;
+try {
+  ({ chromium } = require('playwright'));
+} catch (_) {
+  console.error('Playwright not found — installing automatically...');
+  execSync('npm install --no-save playwright', {
+    cwd: __dirname,
+    stdio: 'inherit',
+  });
+  ({ chromium } = require('playwright'));
+  // Install Chromium browser if needed
+  try {
+    execSync('npx playwright install chromium', {
+      cwd: __dirname,
+      stdio: 'inherit',
+    });
+  } catch (_) { /* browser may already be installed */ }
+}
 
 const PROFILE_DIR = path.join(os.homedir(), '.smartpm-playwright-profile');
 const NAVIGATION_TIMEOUT = 45000;
