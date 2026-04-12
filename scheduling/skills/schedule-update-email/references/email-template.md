@@ -1,6 +1,6 @@
 # Westland Schedule Update Email Template
 
-This template defines the structure, sections, and formatting for the weekly schedule update email per Westland procedures. The email is assembled section by section, then output as a .docx for pasting into Outlook.
+This template defines the structure, sections, and formatting for the weekly schedule update email per Westland procedures. The email is assembled section by section, then output as an Outlook .msg draft file (HTML email with inline images). Double-click the .msg to open in Outlook, review, and click Send. Fallback: .docx output if Outlook is unavailable.
 
 ---
 
@@ -18,8 +18,9 @@ Projected Substantial Completion Date: [Date]
 ### 2. Days Ahead/Behind Schedule
 
 Format: `Days Ahead/Behind Schedule: X Days`
-- Use **green** text for days ahead
-- Use **red** text for days behind
+- The **entire line** (label + value) should be colored — not just the number
+- Use **green** text (#008000) for days ahead or on schedule
+- Use **red** text (#FF0000) for days behind
 
 ### 3. SmartPM Summary Report
 
@@ -36,8 +37,9 @@ Successes:
 ### 5. Schedule Gain / Loss Since Last Update
 
 Format: `Schedule Gain / Loss Since The Last Update: X Day Gain/Loss`
-- Use **green** text for gain
-- Use **red** text for loss
+- The **entire line** (label + value) should be colored — not just the number
+- Use **green** text (#008000) for gain
+- Use **red** text (#FF0000) for loss
 
 Follow with a narrative paragraph explaining what drove the change. Be specific about which activities, trades, or issues caused the gain or loss.
 
@@ -102,11 +104,17 @@ to greater detail regarding specific activities and trade performance by logging
 and clicking the View Trends link on the right side of the screen.
 ```
 
-Include two screenshots from SmartPM View Trends:
-1. Activity Hit Rate, Window Start Accuracy, Window Finish Accuracy
-2. Schedule Compression Index Over Time, Monthly Activity Start & Finish Distribution, SPI Over Time
+Include individual graph screenshots from SmartPM View Trends, in this default order:
+1. End Date Variance (`06-end-date-variance.png`)
+2. Schedule Compression Index Over Time (`07-schedule-compression-index-over-time.png`)
+3. Monthly Activity Start & Finish Distribution (`08-velocity.png`)
+4. Window Start Accuracy (`11-window-start-accuracy.png`)
+5. Window Finish Accuracy (`12-window-finish-accuracy.png`)
+6. SPI Over Time (`09-spi-over-time.png`)
+7. Activity Hit Rate (%) (`10-activity-hit-rate.png`)
 
-Right-click each screenshot and hyperlink to the SmartPM View Trends URL.
+This order can be customized per project via the `graph_screenshots` list in `project-memory.md`.
+Each screenshot is hyperlinked to the SmartPM View Trends URL.
 
 ### 12. Attachments & Closing
 
@@ -158,9 +166,10 @@ Create a project-specific schedule update email document using this template. Sa
 
 ## Formatting Notes
 
-- Section headers should be **bold**
-- Red/green color coding for days behind/ahead and gain/loss
+- Output targets HTML email (.msg format) with inline styles only — no `<style>` blocks (Outlook's Word renderer strips them)
+- Font: Calibri 11pt to match Outlook's default compose font
+- Section headers should be **bold** (12pt)
+- Days behind/ahead and gain/loss: **entire line** colored red or green, bold
 - Bold or red text for high-priority red flags, stalled tasks, and key issues
-- Screenshots should be hyperlinked to their SmartPM source URLs
-- Use the snipping tool or `Win+Shift+S` for screenshots
-- When taking SmartPM performance graph screenshots, resize browser (Ctrl + minus) until 3 graphs fit in one screenshot
+- Screenshots embedded as inline CID images, hyperlinked to their SmartPM source URLs
+- The `schedule-screenshots` skill automates SmartPM screenshot capture via Playwright

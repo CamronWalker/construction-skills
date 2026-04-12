@@ -1,0 +1,673 @@
+"""
+Generate a Westland Schedule Update Email as an Outlook draft.
+
+Saves the email directly to the Outlook Drafts folder via COM automation.
+The draft syncs to Exchange and appears in new Outlook — open Drafts, click Send.
+
+Requires: pip install pywin32
+Requires: Classic Microsoft Outlook installed and open on Windows.
+
+Usage:
+    from generate_email_msg import generate_update_email_msg
+
+    generate_update_email_msg(
+        output_path='Schedule Update Email - 2026-04-09',
+        project_info={
+            'project_name': 'Lubumbashi DRC Temple',
+            'job_number': 'W1177',
+            'contractual_completion': 'May 20, 2026',
+            'projected_completion': 'December 10, 2026',
+        },
+        days_behind=204,
+        gain_loss=-55,
+        successes=['Catwalks and ladders delivered and installed.'],
+        gain_loss_narrative='We lost 55 days since our last update...',
+        eot_recovery='Trade nonperformance has been the primary issue...',
+        logic_changes='Multiple changes to logic, sequencing...',
+        smartpm_changelog_url='https://live.smartpmtech.com/...',
+        red_flags=[
+            '**Extended durations for work that should be complete.**',
+            'Rework for several trades.',
+        ],
+        stalled_tasks=['Framing in each area is still not complete.'],
+        key_items=[
+            '**Material delays have been a constant concern.**',
+            'Review production with OPI every single day.',
+        ],
+        include_compliance_report=True,
+        include_procurement_sheets=True,
+        summary_screenshot_path='screenshots/smartpm-summary-report.png',
+        graph_screenshot_paths=[
+            'screenshots/01-planned-vs-actual-percent-complete.png',
+            'screenshots/07-schedule-compression-index-over-time.png',
+        ],
+        to_recipients='team@example.com',
+        cc_recipients='director@example.com',
+        subject='Schedule Update - Lubumbashi DRC Temple - 2026-04-09',
+        smartpm_project_url='https://live.smartpmtech.com/project/workspace',
+        smartpm_trends_url='https://live.smartpmtech.com/project/trends?tab=Graphs',
+        signer_name='CAMRON WALKER',
+        signer_title='SCHEDULER',
+        signer_mobile='',
+    )
+
+Markdown bold convention for list items:
+    Items wrapped in **double asterisks** in the project memory .md file
+    are treated as high priority — they render bold + red in the email.
+
+    Example in project-memory.md:
+        Red Flags:
+        1. **Extended durations for work that should be complete.**
+        2. Rework for several trades.
+        3. Stone delivery delayed — **3 additional weeks**.
+
+    Item 1: entire item bold + red (high priority)
+    Item 2: normal
+    Item 3: normal text, "3 additional weeks" rendered bold inline
+"""
+
+import os
+import re
+import html as html_mod
+
+try:
+    import win32com.client
+    HAS_WIN32COM = True
+except ImportError:
+    HAS_WIN32COM = False
+
+# Westland brand colors
+RED = '#C94444'
+YELLOW = '#D4A030'
+GREEN = '#3A9E6B'
+TEAL = '#0B4F66'
+
+# MAPI property tags for inline image attachments
+PR_ATTACH_CONTENT_ID = "http://schemas.microsoft.com/mapi/proptag/0x3712001F"
+PR_ATTACHMENT_HIDDEN = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
+
+# Default logo path (relative to this script's directory)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_LOGO_PATH = os.path.join(_SCRIPT_DIR, 'westland-logo.png')
+
+# Regex patterns for markdown formatting
+_HIGHLIGHT_RE = re.compile(r'==(.+?)==')
+_BOLD_RE = re.compile(r'\*\*(.+?)\*\*')
+
+
+def _esc(text):
+    """HTML-escape text."""
+    return html_mod.escape(str(text))
+
+
+def _md_to_html(text):
+    """Convert markdown formatting to HTML.
+
+    Three levels for list items:
+        ==highlighted== → bold + red (highest priority)
+        **bold**        → red only
+        plain text      → normal
+
+    Returns (html_string, priority) where priority is:
+        'highlight' — entire item wrapped in ==...== (bold + red)
+        'bold'      — entire item wrapped in **...** (red only)
+        None        — normal item (may contain inline markers)
+    """
+    stripped = text.strip()
+
+    # Check if entire item is ==highlighted==
+    if (stripped.startswith('==') and stripped.endswith('==')
+            and stripped.count('==') == 2):
+        inner = stripped[2:-2]
+        return _esc(inner), 'highlight'
+
+    # Check if entire item is **bold**
+    if (stripped.startswith('**') and stripped.endswith('**')
+            and stripped.count('**') == 2):
+        inner = stripped[2:-2]
+        return _esc(inner), 'bold'
+
+    # Otherwise, convert inline ==highlight== and **bold** markers
+    # Process ==highlight== first (bold+red inline), then **bold** (bold inline)
+    parts = _HIGHLIGHT_RE.split(text)
+    result = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            # Inside ==...== → bold + red inline
+            result.append(
+                f'<b style="color:{RED};">{_esc(part)}</b>'
+            )
+        else:
+            # Process remaining **bold** markers in this segment
+            bold_parts = _BOLD_RE.split(part)
+            for j, bp in enumerate(bold_parts):
+                if j % 2 == 1:
+                    result.append(f'<b>{_esc(bp)}</b>')
+                else:
+                    result.append(_esc(bp))
+    return ''.join(result), None
+
+
+def _build_signature(signer_name, signer_title, signer_mobile, has_logo):
+    """Build the Westland email signature HTML block."""
+    sig = []
+    sig.append(
+        '<table style="border-collapse:collapse; border-spacing:0; '
+        'width:508pt; box-sizing:border-box;">'
+        '<tbody><tr>'
+    )
+
+    # Left cell: logo with right border
+    sig.append(
+        '<td rowspan="5" style="border-right:1.5pt solid #A5A5A5; '
+        'padding-right:5.4pt; padding-left:5.4pt; vertical-align:top; '
+        'width:120pt;">'
+    )
+    if has_logo:
+        sig.append(
+            '<p style="margin:0; font-family:Arial,sans-serif; font-size:11pt;">'
+            '<a href="http://www.westlandconstruction.com/" style="color:black;">'
+            '<img src="cid:westland_logo" width="110" height="52" '
+            'style="width:110pt; height:52pt; border:0;"></a></p>'
+        )
+    sig.append('</td>')
+
+    # Right cell row 1: Name | Title
+    sig.append(
+        '<td style="padding-right:5.4pt; padding-left:5.4pt; width:388pt;">'
+        '<p style="margin:0; font-family:Arial,sans-serif; font-size:10pt;">'
+        f'<b style="color:black;">{_esc(signer_name)} | </b>'
+        f'<b style="color:{TEAL};">{_esc(signer_title)}</b>'
+        '</p></td></tr>'
+    )
+
+    # Right cell row 2: Address line 1
+    sig.append(
+        '<tr><td style="padding-right:5.4pt; padding-left:5.4pt; width:388pt;">'
+        f'<p style="margin:0; font-family:Arial,sans-serif; font-size:9pt; color:{TEAL};">'
+        '1411 West 1250 South,&nbsp;Suite 200</p></td></tr>'
+    )
+
+    # Right cell row 3: Address line 2
+    sig.append(
+        '<tr><td style="padding-right:5.4pt; padding-left:5.4pt; width:388pt;">'
+        f'<p style="margin:0; font-family:Arial,sans-serif; font-size:9pt; color:{TEAL};">'
+        'Orem, Utah&nbsp;&nbsp; 84058&nbsp;&nbsp;&nbsp; USA</p></td></tr>'
+    )
+
+    # Right cell row 4: Phone (office is fixed, mobile is per-person)
+    phone_html = (
+        f'<b style="color:{TEAL};">O</b>&nbsp;+1 801.374.6085'
+    )
+    if signer_mobile:
+        phone_html += (
+            f'&nbsp;&nbsp;&nbsp;&nbsp;<b style="color:{TEAL};">M</b>&nbsp;'
+            f'{_esc(signer_mobile)}'
+        )
+    sig.append(
+        '<tr><td style="padding-right:5.4pt; padding-left:5.4pt; width:388pt;">'
+        '<p style="margin:0; font-family:Arial,sans-serif; font-size:9pt;">'
+        f'{phone_html}&nbsp;&nbsp;&nbsp;</p></td></tr>'
+    )
+
+    # Right cell row 5: Tagline
+    sig.append(
+        '<tr><td style="padding-right:5.4pt; padding-left:5.4pt; width:388pt;">'
+        '<p style="margin:0; font-family:\'Arial Nova Cond Light\',Arial,sans-serif; '
+        'font-size:9pt;"><i>Building the Westland Way</i></p></td></tr>'
+    )
+
+    sig.append('</tbody></table>')
+    return '\n'.join(sig)
+
+
+def _build_html_body(
+    project_info,
+    days_behind=0,
+    gain_loss=0,
+    successes=None,
+    gain_loss_narrative='',
+    eot_recovery='',
+    logic_changes='',
+    smartpm_changelog_url='',
+    red_flags=None,
+    stalled_tasks=None,
+    key_items=None,
+    include_compliance_report=False,
+    include_procurement_sheets=False,
+    has_summary_screenshot=False,
+    graph_cid_names=None,
+    smartpm_project_url='',
+    smartpm_trends_url='',
+    signer_name='',
+    signer_title='',
+    signer_mobile='',
+    has_logo=False,
+):
+    """Build an Outlook-compatible HTML email body.
+
+    Uses inline styles only (no <style> blocks) for compatibility with
+    Outlook's Word-based HTML renderer. Items wrapped in **markdown bold**
+    render as bold + red (high priority).
+    """
+    successes = successes or []
+    red_flags = red_flags or []
+    stalled_tasks = stalled_tasks or []
+    key_items = key_items or []
+
+    font = 'font-family:Arial,sans-serif; font-size:11pt;'
+    heading = f'{font} font-size:12pt; font-weight:bold; color:{TEAL};'
+    parts = []
+
+    parts.append(
+        '<!DOCTYPE html>\n'
+        '<html><head><meta charset="utf-8"></head>\n'
+        f'<body style="{font} color:#000000;">\n'
+    )
+
+    # --- Section 1: Project Information Header ---
+    # Labels in teal+bold, values in black
+    info_lines = [
+        ('Project', 'project_name'),
+        ('Job Number', 'job_number'),
+        ('Contractual Completion Date', 'contractual_completion'),
+        ('Projected Substantial Completion Date', 'projected_completion'),
+    ]
+    parts.append('<p style="margin:0 0 6pt 0;">')
+    for label, key in info_lines:
+        val = _esc(project_info.get(key, ''))
+        parts.append(
+            f'<span style="{font} color:{TEAL}; font-weight:bold;">'
+            f'{_esc(label)}:</span> '
+            f'<span style="{font} color:#000000;">{val}</span><br>'
+        )
+    parts.append('</p>')
+
+    # --- Section 2: Days Ahead/Behind Schedule (entire line colored) ---
+    if days_behind > 0:
+        color = RED
+        text = f'Days Behind Schedule: {days_behind} Days'
+    elif days_behind < 0:
+        color = GREEN
+        text = f'Days Ahead of Schedule: {abs(days_behind)} Days'
+    else:
+        color = GREEN
+        text = 'Days Ahead/Behind Schedule: On Schedule'
+    parts.append(
+        f'<p style="{font} color:{color}; font-weight:bold; font-size:12pt; '
+        f'margin:12pt 0 18pt 0;">{_esc(text)}</p>'
+    )
+
+    # --- Section 3: SmartPM Summary Report ---
+    if has_summary_screenshot:
+        img_tag = '<img src="cid:summary_report" style="display:block; border:0; max-width:100%;">'
+        if smartpm_project_url:
+            parts.append(
+                f'<p style="margin:0 0 12pt 0;">'
+                f'<a href="{_esc(smartpm_project_url)}">{img_tag}</a></p>'
+            )
+        else:
+            parts.append(f'<p style="margin:0 0 12pt 0;">{img_tag}</p>')
+    else:
+        parts.append(
+            '<p style="margin:0 0 12pt 0; font-style:italic; color:#666666;">'
+            '[Insert SmartPM Summary Report screenshot here &mdash; '
+            'hyperlink to SmartPM project URL]</p>'
+        )
+
+    # --- Section 4: Successes ---
+    parts.append(f'<p style="{heading} margin:12pt 0 4pt 0;">Successes:</p>')
+    if successes:
+        parts.append('<ul style="margin:0 0 6pt 0;">')
+        for s in successes:
+            parts.append(f'<li style="{font} color:#000000;">{_esc(s)}</li>')
+        parts.append('</ul>')
+
+    # --- Section 5: Gain / Loss (heading + value on same line) ---
+    if gain_loss > 0:
+        gl_color = GREEN
+        gl_text = f'{gain_loss} Day Gain'
+    elif gain_loss < 0:
+        gl_color = RED
+        gl_text = f'{abs(gain_loss)} Day Loss'
+    else:
+        gl_color = GREEN
+        gl_text = 'No change since last update.'
+    parts.append(
+        f'<p style="{heading} margin:12pt 0 4pt 0;">'
+        f'Schedule Gain / Loss Since The Last Update: '
+        f'<span style="color:{gl_color};">{_esc(gl_text)}</span></p>'
+    )
+    if gain_loss_narrative:
+        parts.append(
+            f'<p style="{font} margin:0 0 6pt 0;">'
+            f'{_esc(gain_loss_narrative)}</p>'
+        )
+
+    # --- Section 6: EOT / Recovery ---
+    parts.append(
+        f'<p style="{heading} margin:12pt 0 4pt 0;">'
+        'Status Of EOT / Recovery Efforts:</p>'
+    )
+    if eot_recovery:
+        parts.append(
+            f'<p style="{font} margin:0 0 6pt 0;">{_esc(eot_recovery)}</p>'
+        )
+
+    # --- Section 7: Significant Logic Changes ---
+    parts.append(
+        f'<p style="{heading} margin:12pt 0 4pt 0;">'
+        'Significant Changes To Schedule Logic:</p>'
+    )
+    if logic_changes:
+        parts.append(
+            f'<p style="{font} margin:0 0 6pt 0;">{_esc(logic_changes)}</p>'
+        )
+    if smartpm_changelog_url:
+        parts.append(
+            f'<p style="{font} margin:0 0 2pt 0;">'
+            'Please refer to the attached Analytics Report, '
+            'or review schedule changes in SmartPM for specifics.</p>'
+        )
+        parts.append(
+            f'<p style="{font} margin:0 0 6pt 0;">'
+            f'<a href="{_esc(smartpm_changelog_url)}">'
+            f'{_esc(smartpm_changelog_url)}</a></p>'
+        )
+
+    # --- Section 8: Red Flags ---
+    parts.append(f'<p style="{heading} margin:12pt 0 4pt 0;">Red Flags:</p>')
+    parts.append(_build_list(red_flags, font))
+
+    # --- Section 9: Stalled or Slipping Tasks ---
+    parts.append(
+        f'<p style="{heading} margin:12pt 0 4pt 0;">'
+        'Stalled Or Slipping Tasks:</p>'
+    )
+    parts.append(_build_list(stalled_tasks, font))
+
+    # --- Section 10: Key Items & Issues ---
+    parts.append(
+        f'<p style="{heading} margin:12pt 0 4pt 0;">'
+        'Key Items &amp; Issues To Focus On:</p>'
+    )
+    parts.append(_build_list(key_items, font))
+
+    # --- Section 11: Performance Graphs ---
+    parts.append(
+        f'<p style="{heading} margin:12pt 0 4pt 0;">'
+        'Schedule Performance Graphs:</p>'
+    )
+    parts.append(
+        f'<p style="{font} margin:0 0 6pt 0;">'
+        'The charts below show our actual starts and finishes compared to planned, '
+        'schedule compression, and monthly activity finish distribution. You can get '
+        'a better view of these charts and drill down to greater detail regarding '
+        'specific activities and trade performance by logging on to SmartPM and '
+        'clicking the View Trends link on the right side of the screen.</p>'
+    )
+
+    graph_cids = graph_cid_names or []
+    for cid_name in graph_cids:
+        img_tag = (f'<img src="cid:{cid_name}" '
+                   'style="display:block; border:0; max-width:100%;">')
+        if smartpm_trends_url:
+            parts.append(
+                f'<p style="margin:6pt 0;">'
+                f'<a href="{_esc(smartpm_trends_url)}">{img_tag}</a></p>'
+            )
+        else:
+            parts.append(f'<p style="margin:6pt 0;">{img_tag}</p>')
+
+    if not graph_cids:
+        parts.append(
+            '<p style="margin:6pt 0; font-style:italic; color:#666666;">'
+            '[Insert SmartPM performance graph screenshots here &mdash; '
+            'hyperlink to View Trends URL]</p>'
+        )
+
+    # --- Section 12: Compliance Report & Procurement Sheets ---
+    if include_compliance_report:
+        parts.append(
+            f'<p style="{font} margin:12pt 0 6pt 0;">'
+            'I have again included the Schedule Compliance Report in excel for your use. '
+            'Please note: You will need to verify responsibility for the impacts. '
+            'This report should be distributed to the Project Team each week and reviewed '
+            'in detail during the OAC. Please include the form with the meeting minutes and '
+            'add language to the minutes stating all parties reviewed the Schedule Compliance '
+            'Report in detail and acknowledge doing so. If they wish to make any adjustments, '
+            'or contest any information included in the report they may do so by responding '
+            'to the meeting minutes within 24 hours, or as defined by the contract.</p>'
+        )
+
+    if include_procurement_sheets:
+        parts.append(
+            f'<p style="{font} margin:6pt 0;">'
+            'I have included the procurement and progress update spreadsheets. '
+            'Please use these to fill out all actual dates and confirmed durations '
+            'prior to each update. This will significantly reduce the time we spend '
+            'updating each week to give us more time to work on recovery planning.</p>'
+        )
+
+    # --- Closing ---
+    parts.append(
+        f'<p style="{font} margin:12pt 0 2pt 0;">'
+        'Please let me know if you have any questions.</p>'
+    )
+    parts.append(f'<p style="{font} margin:2pt 0 12pt 0;">Thanks,</p>')
+
+    # --- Email Signature ---
+    if signer_name:
+        parts.append(_build_signature(signer_name, signer_title,
+                                      signer_mobile, has_logo))
+
+    parts.append('</body></html>')
+    return '\n'.join(parts)
+
+
+def _build_list(items, font):
+    """Build an HTML ordered list with markdown bold → bold + red.
+
+    Three priority levels:
+        ==highlighted== → bold + red (highest priority)
+        **bold**        → red only
+        plain text      → normal
+    """
+    if not items:
+        return ''
+    lines = ['<ol style="margin:0 0 6pt 0;">']
+    for item in items:
+        html_text, priority = _md_to_html(item)
+        if priority == 'highlight':
+            # Bold + red: use <b> tag explicitly (Outlook ignores font-weight on <li>)
+            lines.append(
+                f'<li style="{font} color:{RED};">'
+                f'<b>{html_text}</b></li>'
+            )
+        elif priority == 'bold':
+            # Red only, no bold
+            lines.append(f'<li style="{font} color:{RED};">{html_text}</li>')
+        else:
+            lines.append(f'<li style="{font}">{html_text}</li>')
+    lines.append('</ol>')
+    return '\n'.join(lines)
+
+
+def _attach_inline_image(mail, image_path, cid_name):
+    """Attach an image as an inline CID attachment.
+
+    Sets MAPI properties so the image displays in the email body
+    (via cid: reference) and is hidden from the attachment pane.
+    """
+    abs_path = os.path.abspath(image_path)
+    mail.Attachments.Add(abs_path)
+    attachment = mail.Attachments.Item(mail.Attachments.Count)
+    pa = attachment.PropertyAccessor
+    pa.SetProperty(PR_ATTACH_CONTENT_ID, cid_name)
+    pa.SetProperty(PR_ATTACHMENT_HIDDEN, True)
+
+
+def generate_update_email_msg(
+    output_path,
+    project_info,
+    days_behind=0,
+    gain_loss=0,
+    successes=None,
+    gain_loss_narrative='',
+    eot_recovery='',
+    logic_changes='',
+    smartpm_changelog_url='',
+    red_flags=None,
+    stalled_tasks=None,
+    key_items=None,
+    include_compliance_report=False,
+    include_procurement_sheets=False,
+    summary_screenshot_path=None,
+    graph_screenshot_paths=None,
+    to_recipients='',
+    cc_recipients='',
+    subject='',
+    attachment_paths=None,
+    smartpm_project_url='',
+    smartpm_trends_url='',
+    signer_name='CAMRON WALKER',
+    signer_title='SCHEDULER',
+    signer_mobile='',
+    logo_path=None,
+):
+    """Generate a Westland schedule update email as an Outlook draft.
+
+    Creates an Outlook MailItem via COM automation, populates it with an
+    HTML body containing color-coded status lines, inline CID images,
+    and a Westland email signature, then saves it to the Outlook Drafts
+    folder. The draft syncs to Exchange and appears in new Outlook —
+    open Drafts and click Send.
+
+    List items support markdown bold: wrap an item in **double asterisks**
+    in the project memory .md to mark it as high priority (bold + red).
+
+    Args:
+        output_path: Identifier for this email (not saved to disk)
+        project_info: Dict with keys: project_name, job_number,
+                      contractual_completion, projected_completion
+        days_behind: Positive = behind (red), negative = ahead (green)
+        gain_loss: Positive = days gained (green), negative = days lost (red)
+        successes: List of success strings
+        gain_loss_narrative: Explanation of what drove the gain/loss
+        eot_recovery: EOT / recovery efforts narrative
+        logic_changes: Significant logic changes narrative
+        smartpm_changelog_url: URL to SmartPM change log
+        red_flags: List of strings (wrap in **bold** for high priority)
+        stalled_tasks: List of strings (wrap in **bold** for high priority)
+        key_items: List of strings (wrap in **bold** for high priority)
+        include_compliance_report: Whether to include compliance report paragraph
+        include_procurement_sheets: Whether to include procurement sheets paragraph
+        summary_screenshot_path: Path to SmartPM summary report PNG (optional)
+        graph_screenshot_paths: List of paths to individual graph PNGs (optional)
+        to_recipients: Semicolon-separated To addresses
+        cc_recipients: Semicolon-separated CC addresses
+        subject: Email subject line
+        attachment_paths: List of file paths to attach (PDFs, Excel, etc.)
+        smartpm_project_url: URL to hyperlink the summary screenshot
+        smartpm_trends_url: URL to hyperlink the performance graph screenshots
+        signer_name: Name for email signature (e.g. 'CAMRON WALKER')
+        signer_title: Title for email signature (e.g. 'SCHEDULER')
+        signer_mobile: Mobile phone for signature (optional, office is hardcoded)
+        logo_path: Path to Westland logo PNG for signature (defaults to
+                   references/westland-logo.png)
+
+    Returns:
+        The output_path identifier.
+
+    Raises:
+        ImportError: If pywin32 is not installed.
+        RuntimeError: If Outlook is not available via COM.
+    """
+    if not HAS_WIN32COM:
+        raise ImportError(
+            'pywin32 is required for .msg generation. '
+            'Install with: pip install pywin32'
+        )
+
+    # Resolve logo path
+    if logo_path is None:
+        logo_path = DEFAULT_LOGO_PATH
+    has_logo = bool(logo_path and os.path.isfile(logo_path))
+
+    # Resolve screenshot availability
+    has_summary = bool(
+        summary_screenshot_path and os.path.isfile(summary_screenshot_path)
+    )
+
+    # Build list of available graph screenshots with CID names
+    graph_images = []  # [(path, cid_name), ...]
+    for i, gpath in enumerate(graph_screenshot_paths or []):
+        if gpath and os.path.isfile(gpath):
+            cid_name = f'graph_{i}'
+            graph_images.append((gpath, cid_name))
+
+    # Build HTML body
+    html_body = _build_html_body(
+        project_info=project_info,
+        days_behind=days_behind,
+        gain_loss=gain_loss,
+        successes=successes,
+        gain_loss_narrative=gain_loss_narrative,
+        eot_recovery=eot_recovery,
+        logic_changes=logic_changes,
+        smartpm_changelog_url=smartpm_changelog_url,
+        red_flags=red_flags,
+        stalled_tasks=stalled_tasks,
+        key_items=key_items,
+        include_compliance_report=include_compliance_report,
+        include_procurement_sheets=include_procurement_sheets,
+        has_summary_screenshot=has_summary,
+        graph_cid_names=[cid for _, cid in graph_images],
+        smartpm_project_url=smartpm_project_url,
+        smartpm_trends_url=smartpm_trends_url,
+        signer_name=signer_name,
+        signer_title=signer_title,
+        signer_mobile=signer_mobile,
+        has_logo=has_logo,
+    )
+
+    # Create Outlook MailItem via COM
+    try:
+        outlook = win32com.client.Dispatch('Outlook.Application')
+    except Exception as exc:
+        raise RuntimeError(
+            'Could not connect to Outlook. Make sure Outlook is installed '
+            f'and running. Error: {exc}'
+        ) from exc
+
+    mail = outlook.CreateItem(0)  # 0 = olMailItem
+
+    # Set envelope fields
+    if to_recipients:
+        mail.To = to_recipients
+    if cc_recipients:
+        mail.CC = cc_recipients
+    if subject:
+        mail.Subject = subject
+
+    # Attach inline images first (before setting HTMLBody)
+    if has_logo:
+        _attach_inline_image(mail, logo_path, 'westland_logo')
+    if has_summary:
+        _attach_inline_image(mail, summary_screenshot_path, 'summary_report')
+    for img_path, cid_name in graph_images:
+        _attach_inline_image(mail, img_path, cid_name)
+
+    # Set HTML body (CID references resolve against attached images)
+    mail.HTMLBody = html_body
+
+    # Attach file attachments (PDFs, Excel, etc.) — skip Office temp lock files
+    for path in (attachment_paths or []):
+        if os.path.isfile(path) and not os.path.basename(path).startswith('~$'):
+            mail.Attachments.Add(os.path.abspath(path))
+
+    # Save draft to Outlook Drafts folder (syncs to Exchange → new Outlook)
+    mail.Save()
+    mail.Close(1)  # 1 = olDiscard — don't duplicate in Drafts
+
+    return output_path

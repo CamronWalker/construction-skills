@@ -82,6 +82,22 @@ job_number: {job_number}
 smartpm_url: {workspace_url}
 smartpm_trends_url: {trends_url}
 smartpm_changelog_url: {changelog_url}
+expected_attachments:
+  - "Report 0.01*Master Schedule*.pdf"
+  - "Report 0.02A*Critical Path*.pdf"
+  - "Report 0.02B*Longest Critical Path*.pdf"
+  - "Report 0.03*Near Critical*.pdf"
+  - "Report 0.04A*Four Week Look Ahead*.pdf"
+  - "Report 0.04B*Four Week Look Ahead*Construction*.pdf"
+  - "Report 0.05*Impacts*.pdf"
+  - "Report 0.06*Procurement Schedule*.pdf"
+  - "Report 0.12*Construction Activities Only*.pdf"
+  - "Report 0.13*Construction Activities With Baseline Variance*.pdf"
+  - "*Schedule Analytics Report*.pdf"
+  - "*KPI Comparison*.pdf"
+  - "*Progress Update Export*.xlsm"
+  - "*Procurement Update Export*.xlsm"
+  - "*KPI Comparison*.xlsx"
 ---
 
 # Project Memory — {job_number} {name}
@@ -89,6 +105,8 @@ smartpm_changelog_url: {changelog_url}
 ## {today's date} (current)
 - Screenshots captured: pending
 ```
+
+The `expected_attachments` list uses glob patterns to match files in the project folder. Adjust the list per project — not all projects have every report type. The schedule-update-email skill reads this list in Step 6 to auto-collect attachment file paths.
 
 ### Step 2: Write Checklist
 
