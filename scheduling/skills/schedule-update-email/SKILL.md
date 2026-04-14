@@ -14,32 +14,45 @@ Generate a Westland schedule update email following the Westland Schedule Update
 
 ## Project Files
 
-Each project folder contains two markdown files:
+The scheduling system uses two markdown files at different levels:
 
-### `project-memory.md` (one per project, updated in place)
+### `project-context.md` (one per project, in the root Schedules folder)
 
-Project-level configuration that carries forward across all updates:
+Persistent project-level configuration created by the `schedule-project-init` skill. Lives at the Schedules root — **not** inside dated subfolders.
 
 ```yaml
 ---
-project_name: Nauvoo House Visitors' Center
-job_number: NTVC
-contractual_completion: May 30, 2026
-smartpm_url: https://live.smartpmtech.com/...
-smartpm_trends_url: https://live.smartpmtech.com/.../trends?tab=Graphs
-smartpm_changelog_url: https://live.smartpmtech.com/.../changelog
+project_name: Project Name
+job_number: W####
+contractual_completion: Month Day, Year
+smartpm_url: https://live.smartpmtech.com/#/company/.../workspace
+smartpm_trends_url: https://live.smartpmtech.com/#/company/.../trends?tab=Graphs
+smartpm_changelog_url: https://live.smartpmtech.com/#/company/.../changelog
 to_recipients: "person@example.com; person2@example.com"
 cc_recipients: "director@example.com; scheduling@example.com"
-signer_name: CAMRON WALKER
-signer_title: SCHEDULER
+signer_name: SIGNER NAME
+signer_title: TITLE
 signer_mobile: ""
 expected_attachments:
   - "Report 0.01*Master Schedule*.pdf"
+  - "Report 0.02A*Critical Path*.pdf"
+  - "Report 0.02B*Longest Critical Path*.pdf"
+  - "Report 0.03*Near Critical*.pdf"
+  - "Report 0.04A*Four Week Look Ahead*.pdf"
+  - "Report 0.04B*Four Week Look Ahead*Construction*.pdf"
+  - "Report 0.05*Impacts*.pdf"
+  - "Report 0.06*Procurement Schedule*.pdf"
+  - "Report 0.12*Construction Activities Only*.pdf"
+  - "Report 0.13*Construction Activities With Baseline Variance*.pdf"
   - "*Schedule Analytics Report*.pdf"
-  - "*Progress Update Export*.xlsm"
+  - "*KPI Comparison*.pdf"
+  - "COMPLETED_*Progress Update Export*.xlsm"
+  - "COMPLETED_*Procurement Update Export*.xlsm"
+  - "*KPI Comparison*.xlsx"
 graph_screenshots:
   - "06-end-date-variance.png"
   - "07-schedule-compression-index-over-time.png"
+  - "08-velocity.png"
   - "11-window-start-accuracy.png"
   - "12-window-finish-accuracy.png"
   - "09-spi-over-time.png"
@@ -47,7 +60,9 @@ graph_screenshots:
 ---
 ```
 
-### `YYYY-MM-DD-update-email.md` (one per week)
+All values are project-specific — set during initialization and updated as needed by re-running `schedule-project-init`.
+
+### `YYYY-MM-DD-update-email.md` (one per week, in the dated folder)
 
 Weekly email content and project log. Two sections:
 
@@ -62,13 +77,15 @@ Weekly email content and project log. Two sections:
 
 ## Workflow
 
-### Step 0: Read Project Memory & Previous Update
+### Step 0: Read Project Context & Previous Update
 
-Look for `project-memory.md` in the project folder. If found, read it for: SmartPM URLs, recipients, signer info, expected attachments, and graph selection.
+**Resolve the Schedules root folder:** If the CWD basename matches a `YYYY-MM-DD` pattern (a dated folder), the Schedules root is the parent directory (`../`). If CWD is named `Schedules`, use it directly.
 
-Also look for the most recent `*-update-email.md` file to carry forward red flags, stalled tasks, and key items.
+Look for `project-context.md` in the **root Schedules folder** (not the dated folder). If found, read it for: SmartPM URLs, recipients, signer info, expected attachments, and graph selection.
 
-**If `project-memory.md` is not found**, run the **Project Setup Q&A** (see below).
+**If `project-context.md` is not found**, tell the user: "No project-context.md found in the Schedules root. Run the `schedule-project-init` skill first to set up the project configuration." Then stop.
+
+To find the previous update email, list all `YYYY-MM-DD` sibling folders in the Schedules root, sort by date descending, skip the current folder, and check each for `*-update-email.md`. Use the first match to carry forward red flags, stalled tasks, and key items.
 
 ### Step 1: Parse XER & Extract Metrics
 
@@ -114,11 +131,11 @@ Build the email following the Westland template (see `references/email-template.
 5. **Gain/Loss Narrative** — Calculated figure + user narrative explaining what drove the change. Entire line colored.
 6. **EOT/Recovery Status** — From transcript + previous email + user input
 7. **Significant Logic Changes** — Prompt user for summary of changes made during update
-8. **SmartPM Changelog Link** — From project memory
+8. **SmartPM Changelog Link** — From project context
 9. **Red Flags** — Carried forward + new from transcript + user additions. Items wrapped in `**bold**` render bold + red.
 10. **Stalled/Slipping Tasks** — From XER analysis + carried forward + user additions. `**bold**` = red.
 11. **Key Items & Issues** — From transcript + previous email + user additions. `**bold**` = red.
-12. **Performance Graphs** — Individual graph screenshots from `screenshots/` folder, in the order specified by `graph_screenshots` in project memory.
+12. **Performance Graphs** — Individual graph screenshots from `screenshots/` folder, in the order specified by `graph_screenshots` in project context.
 
 Include closing paragraphs about Schedule Compliance Report and procurement spreadsheets as applicable.
 
@@ -147,32 +164,19 @@ Save the weekly `YYYY-MM-DD-update-email.md` file with:
 - **Update Email** section: all 12 sections of email content (successes, red flags, etc.)
 - **Project Log** section: detailed notes on delays, late starts, impacts, decisions — anything relevant for future claims or delay analysis. This section is cumulative; each week adds a dated entry.
 
-Update `project-memory.md` if any settings changed (recipients, attachments, graphs).
+Update `project-context.md` in the **root Schedules folder** if any settings changed (recipients, attachments, graphs).
 
-## Project Setup Q&A
+## Project Setup
 
-When `project-memory.md` does not exist, run this setup flow to create it:
-
-1. **Project name and job number** — Parse from folder name (`YYYY-MM-DD -- JOB# ProjectName`) or ask user
-2. **Contractual completion date** — Ask user
-3. **SmartPM workspace URL** — Ask user (derive trends and changelog URLs from it)
-4. **To recipients** — Ask user: "Who should receive the update email? (semicolon-separated)"
-5. **CC recipients** — Ask user: "Who should be CC'd? (default: Project Director + Scheduling Department)"
-6. **Signer** — Ask user: "Whose name and title for the email signature?" Default: CAMRON WALKER, SCHEDULER
-7. **Signer mobile** — Ask user: "Mobile number for signature? (leave blank if none)"
-8. **Previous email** — Ask user: "Paste or attach a previous update email so I can extract the format and carried-forward items"
-9. **Expected attachments** — Scan the project folder for PDFs and Excel files. Present the list and ask which ones should be attached each week.
-10. **Graph selection** — Present the default graph list and ask if any should be added or removed.
-
-Save the results to `project-memory.md`.
+If `project-context.md` does not exist in the Schedules root, direct the user to run the `schedule-project-init` skill. Do not attempt to create it from this skill — all project configuration is handled by the init skill.
 
 ## SmartPM Screenshots
 
-Before assembling sections 3 and 12, check if `<project-folder>/screenshots/` exists with the required PNGs.
+Before assembling sections 3 and 12, check if `screenshots/` exists **in the current dated folder** with the required PNGs.
 
 The summary report is always: `smartpm-summary-report.png`
 
-The performance graphs are read from the `graph_screenshots` list in `project-memory.md`. Default order:
+The performance graphs are read from the `graph_screenshots` list in `project-context.md`. Default order:
 1. `06-end-date-variance.png`
 2. `07-schedule-compression-index-over-time.png`
 3. `08-velocity.png` (Monthly Activity Start & Finish Distribution)
@@ -185,8 +189,8 @@ If screenshots are missing, invoke the `schedule-screenshots` skill to capture t
 
 ## Distribution Reminder
 
-- **TO:** Project team (from `project-memory.md`)
-- **CC:** Project Director, all Scheduling Department members (from `project-memory.md`)
+- **TO:** Project team (from `project-context.md`)
+- **CC:** Project Director, all Scheduling Department members (from `project-context.md`)
 
 ---
 

@@ -57,56 +57,23 @@ Charts are identified by their Angular component tags in DOM order:
 3. Check if Playwright browsers are installed. If not, run `npx playwright install chromium` in the `references/` directory.
 4. No Chrome setup needed — the script launches its own Chromium with a persistent profile at `~/.smartpm-playwright-profile/`. First run requires manual SmartPM login; subsequent runs reuse the saved session.
 
-### Step 1: Read Project Memory
+### Step 1: Read Project Context
 
-Look for the most recent `*-project-memory.md` file in the current project folder:
+**Resolve the Schedules root folder:** If the CWD basename matches a `YYYY-MM-DD` pattern (a dated folder), the Schedules root is the parent directory (`../`). If CWD is named `Schedules`, use it directly.
+
+Look for `project-context.md` in the **root Schedules folder**:
 
 ```bash
-ls -1 *-project-memory.md 2>/dev/null | sort -r | head -1
+ls -1 ../project-context.md 2>/dev/null  # if CWD is a dated folder
 ```
 
 **If found:** Read the frontmatter to extract `smartpm_url`. Derive the URLs:
 - Workspace URL: the `smartpm_url` value (ends with `/workspace`)
 - Trends URL: replace `/workspace` with `/trends?tab=Graphs`
 
-**If not found:** Ask the user for:
-1. Project name and job number (or parse from the folder name — format: `YYYY-MM-DD -- JOB# ProjectName`)
-2. SmartPM workspace URL
+**If not found:** Tell the user: "No project-context.md found in the Schedules root. Run the `schedule-project-init` skill first to set up the project configuration, or provide the SmartPM workspace URL directly."
 
-Then create the initial `YYYY-MM-DD-project-memory.md` file with today's date:
-
-```markdown
----
-project_name: {name}
-job_number: {job_number}
-smartpm_url: {workspace_url}
-smartpm_trends_url: {trends_url}
-smartpm_changelog_url: {changelog_url}
-expected_attachments:
-  - "Report 0.01*Master Schedule*.pdf"
-  - "Report 0.02A*Critical Path*.pdf"
-  - "Report 0.02B*Longest Critical Path*.pdf"
-  - "Report 0.03*Near Critical*.pdf"
-  - "Report 0.04A*Four Week Look Ahead*.pdf"
-  - "Report 0.04B*Four Week Look Ahead*Construction*.pdf"
-  - "Report 0.05*Impacts*.pdf"
-  - "Report 0.06*Procurement Schedule*.pdf"
-  - "Report 0.12*Construction Activities Only*.pdf"
-  - "Report 0.13*Construction Activities With Baseline Variance*.pdf"
-  - "*Schedule Analytics Report*.pdf"
-  - "*KPI Comparison*.pdf"
-  - "*Progress Update Export*.xlsm"
-  - "*Procurement Update Export*.xlsm"
-  - "*KPI Comparison*.xlsx"
----
-
-# Project Memory — {job_number} {name}
-
-## {today's date} (current)
-- Screenshots captured: pending
-```
-
-The `expected_attachments` list uses glob patterns to match files in the project folder. Adjust the list per project — not all projects have every report type. The schedule-update-email skill reads this list in Step 6 to auto-collect attachment file paths.
+If the user provides a URL directly, proceed without project-context.md (capture screenshots only).
 
 ### Step 2: Write Checklist
 
@@ -148,7 +115,7 @@ If any screenshot looks wrong (blank, login page, wrong project), inform the use
 
 ### Step 5: Update Checklist & Report
 
-Mark all checklist items as complete in `screenshots/checklist.md`. Update the project memory file's current entry with `Screenshots captured: yes`.
+Mark all checklist items as complete in `screenshots/checklist.md`.
 
 Report to the user:
 - Total screenshots captured (17)

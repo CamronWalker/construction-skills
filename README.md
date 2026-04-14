@@ -19,6 +19,7 @@ Browse available plugins and install the ones you need:
 
 ### Schedule
 
+- **schedule-project-init** — Initialize a project's Schedules folder with persistent project configuration (SmartPM URLs, recipients, signer, attachments, graph selection). Creates `project-context.md` at the Schedules root. Re-run to update any field.
 - **schedule-best-practices** — Guide for building and maintaining construction schedules that score well on DCMA, GAO, and AACE best practice metrics.
 - **schedule-create-proposal-schedule** — Create a construction proposal schedule plan through a structured Q&A session using sample schedules and bid documents.
 - **schedule-quality-score** — Score a Primavera P6 schedule against industry best practice metrics and output a quality report with a letter grade, scored metrics, and key findings.

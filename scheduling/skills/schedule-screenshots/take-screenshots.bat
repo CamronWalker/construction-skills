@@ -26,7 +26,7 @@ cd /d "%~dp0"
 echo  Project folder: %cd%
 echo.
 
-claude "Use the schedule-screenshots skill to capture all SmartPM screenshots for the project in this folder. Read the project-memory file for the SmartPM URL, or ask me for it if there isn't one. Save screenshots to ./screenshots/."
+claude "Use the schedule-screenshots skill to capture all SmartPM screenshots for the project in this folder. Read project-context.md from the parent Schedules folder for the SmartPM URL, or ask me for it if there isn't one. Save screenshots to ./screenshots/."
 
 echo.
 echo  ============================================

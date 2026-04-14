@@ -113,7 +113,7 @@ Include individual graph screenshots from SmartPM View Trends, in this default o
 6. SPI Over Time (`09-spi-over-time.png`)
 7. Activity Hit Rate (%) (`10-activity-hit-rate.png`)
 
-This order can be customized per project via the `graph_screenshots` list in `project-memory.md`.
+This order can be customized per project via the `graph_screenshots` list in `project-context.md`.
 Each screenshot is hyperlinked to the SmartPM View Trends URL.
 
 ### 12. Attachments & Closing

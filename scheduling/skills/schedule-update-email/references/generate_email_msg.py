@@ -52,10 +52,10 @@ Usage:
     )
 
 Markdown bold convention for list items:
-    Items wrapped in **double asterisks** in the project memory .md file
+    Items wrapped in **double asterisks** in the project context .md file
     are treated as high priority — they render bold + red in the email.
 
-    Example in project-memory.md:
+    Example in project-context.md:
         Red Flags:
         1. **Extended durations for work that should be complete.**
         2. Rework for several trades.
@@ -544,7 +544,7 @@ def generate_update_email_msg(
     open Drafts and click Send.
 
     List items support markdown bold: wrap an item in **double asterisks**
-    in the project memory .md to mark it as high priority (bold + red).
+    in the project context .md to mark it as high priority (bold + red).
 
     Args:
         output_path: Identifier for this email (not saved to disk)
