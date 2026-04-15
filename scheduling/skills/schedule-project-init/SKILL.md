@@ -83,6 +83,11 @@ Ask each question using AskUserQuestion. Proceed through all fields until everyt
 7. **Signer mobile**
    > "Mobile number for the email signature? (leave blank to omit)"
 
+8. **Procore project ID**
+   > "What is the Procore project ID for this project?"
+
+   The Procore company ID is always `11093` (Westland Construction) — do not ask for it.
+
 ### Step 4: Build Expected Attachments
 
 Scan the most recent dated folder (sort `YYYY-MM-DD` folders descending, take the first) for files:
@@ -153,6 +158,8 @@ cc_recipients: "{cc_recipients}"
 signer_name: {signer_name}
 signer_title: {signer_title}
 signer_mobile: "{signer_mobile}"
+procore_company_id: 11093
+procore_project_id: {procore_project_id}
 expected_attachments:
   - "{pattern_1}"
   - "{pattern_2}"

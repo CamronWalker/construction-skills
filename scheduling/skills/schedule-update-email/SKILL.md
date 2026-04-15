@@ -33,6 +33,8 @@ cc_recipients: "director@example.com; scheduling@example.com"
 signer_name: SIGNER NAME
 signer_title: TITLE
 signer_mobile: ""
+procore_company_id: 11093
+procore_project_id: 12345
 expected_attachments:
   - "Report 0.01*Master Schedule*.pdf"
   - "Report 0.02A*Critical Path*.pdf"
