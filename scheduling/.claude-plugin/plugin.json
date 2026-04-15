@@ -1,7 +1,7 @@
 {
   "name": "scheduling",
-  "version": "1.4.0",
-  "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules, quality scoring, schedule update emails, CPM engine, delay analysis, and schedule comparison.",
+  "version": "1.5.0",
+  "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules, quality scoring, and full schedule update pipeline (folder setup, SmartPM screenshots, email draft, Outlook draft).",
   "author": {
     "name": "Camron Walker"
   },
