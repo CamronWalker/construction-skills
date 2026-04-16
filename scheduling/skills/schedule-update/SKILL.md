@@ -250,7 +250,7 @@ If screenshots are missing or incomplete, ask: "Screenshots are missing. Run `/s
 
 ### Step 3: Parse XER & Extract Metrics
 
-Parse the XER using the `schedule-xer` skill. Calculate:
+Parse the XER using the `schedule-toolbox` skill. Calculate:
 
 - **Days behind/ahead:** Compare projected Substantial Completion date to contractual completion. Use SC milestone early finish if present; otherwise use project end date from PROJECT table.
 - **Gain/loss since last update:** Compare to previous email's days-behind figure.

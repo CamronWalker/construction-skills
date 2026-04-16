@@ -20,12 +20,9 @@ Browse available plugins and install the ones you need:
 ### Schedule
 
 - **schedule-project-init** — Initialize a project's Schedules folder with persistent project configuration (SmartPM URLs, recipients, signer, attachments, graph selection). Creates `project-context.md` at the Schedules root. Re-run to update any field.
-- **schedule-best-practices** — Guide for building and maintaining construction schedules that score well on DCMA, GAO, and AACE best practice metrics.
-- **schedule-create-proposal-schedule** — Create a construction proposal schedule plan through a structured Q&A session using sample schedules and bid documents.
-- **schedule-quality-score** — Score a Primavera P6 schedule against industry best practice metrics and output a quality report with a letter grade, scored metrics, and key findings.
-- **schedule-xer-generate** — Generate new Primavera P6 XER schedule files from scratch using similar project schedules and a proposal/scope document.
-- **schedule-xer-read-modify** — Read, parse, analyze, and modify existing Primavera P6 XER schedule files.
-- **schedule-update** (TODO) — Import actual start/finish dates and revised durations into an XER file. Feed this skill a spreadsheet or list of updates and get back the updated schedule XER file.
+- **schedule-toolbox** — P6 XER operations: parse, analyze, score quality (31 checks), update review, trade activities, SC coverage, path analysis, schedule comparison, and XER generation. Also covers Westland standards, DCMA best practices, and CPM recalculation. Core tool for all schedule analytics.
+- **schedule-create-proposal-schedule** — Create a construction proposal schedule plan through a structured Q&A session using sample schedules and bid documents. Generates plan PDF and XER.
+- **schedule-update** — Full weekly schedule update pipeline: folder setup, SmartPM screenshot capture, email draft generation, and Outlook draft creation.
 - **schedule-update-report** (TODO) — Generate schedule narrative reports from XER data — weekly update narratives, critical path discussion, and milestone summaries.
 - **schedule-delay-analysis** (TODO) — Analyze schedule versions to identify and document delays, compare baselines, and draft time impact analyses.
 

@@ -7,7 +7,7 @@ description: >
   schedules and a bid package", "help me plan out this schedule", "schedule plan from bid docs",
   or wants to create a new schedule from bid documents and sample schedules. This skill reads the
   documents first, makes smart recommendations using Westland standards, and only asks about things
-  the documents don't answer. Output feeds into the schedule-xer skill for XER generation.
+  the documents don't answer. Output feeds into the schedule-toolbox skill for XER generation.
 ---
 
 # Proposal Schedule Planning
@@ -21,8 +21,8 @@ This skill creates a proposal schedule by analyzing bid documents and sample XER
 3. **Present Recommendations** — Propose complete schedule structure based on findings
 4. **Ask 2-3 Targeted Questions** — Only what the documents don't answer
 5. **Generate Plan Document** — Save to project folder
-6. **Generate XER** — Via `schedule-xer` skill
-7. **Score & Iterate** — Via `schedule-standards` skill until A grade achieved
+6. **Generate XER** — Via `schedule-toolbox` skill
+7. **Score & Iterate** — Via `schedule-toolbox` skill until A grade achieved
 
 ---
 
@@ -43,7 +43,7 @@ List all files found and confirm before proceeding.
 ## Phase 2: Auto-Parse & Analyze
 
 ### Parse Sample XER Files
-For each XER, parse using the `schedule-xer` skill and extract a profile. Read `references/xer-analysis-code.md` for the extraction functions. Extract: WBS structure, activity counts, duration stats, relationship types, milestones, naming patterns, calendars.
+For each XER, parse using the `schedule-toolbox` skill and extract a profile. Read `references/xer-analysis-code.md` for the extraction functions. Extract: WBS structure, activity counts, duration stats, relationship types, milestones, naming patterns, calendars.
 
 ### Read Bid Documents
 Extract into structured categories:
@@ -63,7 +63,7 @@ Show the user: sample schedule profiles side by side + bid document findings.
 
 Based on the analysis, propose a **complete schedule structure** using Westland standards as the default for all style/format decisions. The skill determines from the documents:
 
-- **WBS structure** — Westland standard from `schedule-standards`, adapted to project scope (e.g., add Demo phase above Construction if demolition is required before construction starts)
+- **WBS structure** — Westland standard from `schedule-toolbox`, adapted to project scope (e.g., add Demo phase above Construction if demolition is required before construction starts)
 - **Activity list and durations** — From sample XER analysis, scaled to project scope
 - **Milestone strategy** — Contract milestones + Westland 30-day rule
 - **Construction sequence/flow** — From sample schedule patterns and bid doc scope
@@ -124,15 +124,15 @@ See `references/plan-document-template.md` for the original markdown template st
 ## Phase 6: Generate XER
 
 After the user reviews the plan document:
-1. Use the `schedule-xer` skill to generate the XER file from the plan
+1. Use the `schedule-toolbox` skill to generate the XER file from the plan
 2. Pass the plan document as scope input + sample XERs as reference schedules
-3. Apply all Westland standards during generation (from `schedule-standards`)
+3. Apply all Westland standards during generation (from `schedule-toolbox`)
 4. Convert all durations from working days (plan) to hours (days x 8 for XER)
 5. Save to `<project-folder>/Proposal Schedule/[Project Name].xer`
 
 ## Phase 7: Score & Iterate
 
-Score the generated XER using the `schedule-standards` skill. Target: **A grade (90+)**.
+Score the generated XER using the `schedule-toolbox` skill. Target: **A grade (90+)**.
 
 If below A:
 1. Identify failing metrics from the `details` dict (contains every flagged activity with `task_code`)
