@@ -7,15 +7,9 @@ Claude Code skills for construction workflows. Each subdirectory (`scheduling/`,
 Every change that modifies skills must follow this sequence before committing:
 
 1. **Bump version** — increment the version in `{category}/.claude-plugin/plugin.json` (semver, patch for fixes, minor for new skills)
-2. **Zip to src** — zip the entire `{category}/` directory into `src/{category}.zip`
-   ```bash
-   cd /path/to/construction-skills
-   mkdir -p src
-   zip -r src/{category}.zip {category}/
-   ```
-3. **Commit and push** — include the bumped plugin.json, all skill changes, and the updated zip in one commit
+2. **Commit** — include the bumped plugin.json and all skill changes in one commit
 
-`src/` is gitignored for local builds but the zips **are** committed — they are the distributable artifacts.
+The `src/` zip is for internal team distribution only — it is gitignored and never committed.
 
 ## Structure
 
