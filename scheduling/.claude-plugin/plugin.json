@@ -1,6 +1,6 @@
 {
   "name": "scheduling",
-  "version": "1.7.0",
+  "version": "1.10.0",
   "description": "Claude Code skills for construction scheduling — schedule-toolbox (XER parsing, 31 quality checks, update review, trade activities, SC coverage, CPM, path analysis), proposal schedules, and full schedule update pipeline.",
   "author": {
     "name": "Camron Walker"

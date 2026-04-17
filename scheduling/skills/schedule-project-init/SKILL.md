@@ -1,207 +1,142 @@
 ---
 name: schedule-project-init
 description: >
-  Initialize a construction project's Schedules folder with a persistent project-context.md file.
-  Parses the parent folder name for project name and job number, asks for contractual completion,
-  SmartPM workspace URL, recipients, signer info, expected attachments, and graph selection, then
-  writes project-context.md to the root Schedules folder. Can be re-run to update any field.
-  Use this skill whenever the user says "initialize project", "project setup", "init project",
-  "set up project", "create project context", "project init", or when another scheduling skill
-  reports that project-context.md is missing.
+  Initialize a construction project's Schedules folder with a persistent
+  project-context.html file — an editable HTML with Westland header, recipient
+  name+email rows, SmartPM URLs, signer info, graph selection, and a project
+  log for scope changes / EOT filings / major decisions. Use this skill whenever
+  the user says "initialize project", "project setup", "init project",
+  "set up project", "create project context", "project init", or when another
+  scheduling skill reports that project-context.html is missing.
 ---
 
 # Project Initialization
 
-Create or update the `project-context.md` file that all scheduling skills depend on. This file lives in the root Schedules folder (not inside dated subfolders) and carries forward across every weekly update.
+Create or update the **`project-context.html`** file that all scheduling skills depend on. This file lives in the **root Schedules folder** (not inside dated subfolders) and carries forward across every weekly update.
+
+`project-context.html` is an editable HTML file (same pattern as the weekly email preview). Colleagues can double-click it, edit fields in the browser, and click **Save Edits** to overwrite in place. A separate parser reads it into a Python dict for all downstream skill use.
 
 ## Folder Resolution
 
 All scheduling skills share this logic to find the Schedules root:
 
-1. If CWD basename matches `YYYY-MM-DD` (a dated folder) → root is the **parent** directory (`../`)
-2. If CWD basename is `Schedules` → root is CWD
-3. If CWD contains a `Schedules/` child directory → root is that child
-4. Otherwise → ask the user for the Schedules folder path
+1. If CWD basename matches `YYYY-MM-DD` (a dated folder) → root is the **parent** directory (`../`).
+2. If CWD basename is `Schedules` → root is CWD.
+3. If CWD contains a `Schedules/` child directory → root is that child.
+4. Otherwise → ask the user for the Schedules folder path.
 
-**Validate:** The parent of the resolved root should match the pattern `W\d+ - .+` (e.g., `W1134 - Neiafu Tonga Temple Construction`). The resolved folder itself should be named `Schedules`.
+**Validate:** the parent of the resolved root should match the pattern `W\d+ - .+` (e.g., `W1134 - Neiafu Tonga Temple Construction`). The resolved folder itself should be named `Schedules`.
 
 ## Workflow
 
-### Step 1: Resolve Schedules Root
+### Step 1 — resolve Schedules root and check state
 
-Apply the folder resolution logic above. Then check if `project-context.md` already exists in the resolved root.
+Apply the folder resolution logic above. Then:
 
-- **If it exists:** Read it, display the current values, and ask the user which fields they want to update. Skip to the relevant questions in Step 3.
-- **If it does not exist:** Proceed to Step 2 for a fresh setup.
+- If `project-context.html` exists → read it with `parse_project_context_html.parse_project_context_html(...)` and display current values. Ask the user which fields to update, then skip to the affected questions in Step 3.
+- If it doesn't exist → proceed to Step 2 for a fresh setup.
 
-### Step 2: Parse Project Identity
+### Step 2 — parse project identity from the folder name
 
-Read the **grandparent** folder name (the parent of `Schedules/`). Parse it using the pattern:
-
-```
-W{number} - {Project Name}
-```
-
-Regex: `^(W\d+)\s*-\s*(.+)$`
+Read the **grandparent** folder (parent of `Schedules/`). Parse with the regex `^(W\d+)\s*-\s*(.+)$`:
 
 - `job_number` = the `W####` portion (e.g., `W1134`)
 - `project_name` = the rest (e.g., `Neiafu Tonga Temple Construction`)
 
-If parsing fails (non-standard folder name), ask the user for both values.
+If parsing fails, ask the user for both.
 
-Present the parsed values for confirmation:
+Confirm:
 > "I read the project as **W1134 — Neiafu Tonga Temple Construction**. Is that correct?"
 
-### Step 3: Collect Project Configuration
+### Step 3 — collect project configuration
 
-Ask each question using AskUserQuestion. Proceed through all fields until everything is filled.
+Ask each question via AskUserQuestion, filling in every field.
 
-1. **Contractual completion date**
-   > "What is the contractual Substantial Completion date for this project?"
+1. **Contractual completion date** — "What is the contractual Substantial Completion date?"
+2. **SmartPM workspace URL** — must end in `/workspace`. Derive `smartpm_trends_url` (replace `/workspace` with `/trends?tab=Graphs`) and `smartpm_changelog_url` (replace with `/changelog`). Show all three for confirmation.
+3. **TO recipients** — "Who should receive the weekly update email?" Accept either plain emails (`a@b.com; c@d.com`) or `Name <email>` pairs. The generator stores them as `{name, email}` rows in the HTML — name is optional but rendered as `"Name <email>"` in Outlook when present.
+4. **CC recipients** — same format.
+5. **Signer name / title / mobile** — signature fields. Mobile is optional.
+6. **Procore project ID** — the project's Procore ID. (Company ID is always `11093` for Westland and renders **locked** in the HTML — not editable by colleagues.)
 
-2. **SmartPM workspace URL**
-   > "Paste the SmartPM workspace URL for this project."
+### Step 4 — graph selection
 
-   Validate the URL contains `/workspace` at the end. Derive the other two URLs:
-   - `smartpm_trends_url` = replace `/workspace` with `/trends?tab=Graphs`
-   - `smartpm_changelog_url` = replace `/workspace` with `/changelog`
-
-   Show all three derived URLs to the user for confirmation.
-
-3. **TO recipients**
-   > "Who should receive the weekly update email? (semicolon-separated email addresses, or leave blank for now)"
-
-4. **CC recipients**
-   > "Who should be CC'd on the update email? (semicolon-separated, or leave blank for now)"
-
-5. **Signer name**
-   > "Whose name goes on the email signature for this project?"
-
-6. **Signer title**
-   > "What title for the email signature?"
-
-7. **Signer mobile**
-   > "Mobile number for the email signature? (leave blank to omit)"
-
-8. **Procore project ID**
-   > "What is the Procore project ID for this project?"
-
-   The Procore company ID is always `11093` (Westland Construction) — do not ask for it.
-
-### Step 4: Build Expected Attachments
-
-Scan the most recent dated folder (sort `YYYY-MM-DD` folders descending, take the first) for files:
-- List all `.pdf`, `.xlsm`, `.xlsx`, `.csv` files found
-- Build candidate glob patterns by generalizing the filenames (replace dates and project-specific text with `*` wildcards)
-
-Present the candidate list and ask the user to confirm, add, or remove patterns:
-> "Based on the files in the most recent update folder, here are the attachment patterns I'd suggest. Edit as needed — these vary per project."
-
-If no dated folders exist yet, present a minimal default set and let the user adjust:
-```yaml
-expected_attachments:
-  - "Report 0.01*Master Schedule*.pdf"
-  - "*Schedule Analytics Report*.pdf"
-  - "*Progress Update Export*.xlsm"
-```
-
-### Step 5: Configure Graph Selection
-
-Present the default graph list for the weekly update email:
+Default graph list for the weekly email (matches the `schedule-update` skill's `screenshots` command):
 
 ```
-1. 06-end-date-variance.png
-2. 07-schedule-compression-index-over-time.png
-3. 08-velocity.png
-4. 11-window-start-accuracy.png
-5. 12-window-finish-accuracy.png
-6. 09-spi-over-time.png
-7. 10-activity-hit-rate.png
-```
-
-> "These are the default performance graphs included in the update email. Would you like to add, remove, or reorder any?"
-
-The full set of available graphs (from the schedule-screenshots skill):
-```
-01-planned-vs-actual-percent-complete.png
-02-schedule-quality-grade-over-time.png
-03-project-health-index-over-time.png
-04-schedule-changes-over-time.png
-05-schedule-delay-over-time.png
 06-end-date-variance.png
 07-schedule-compression-index-over-time.png
 08-velocity.png
-09-spi-over-time.png
-10-activity-hit-rate.png
 11-window-start-accuracy.png
 12-window-finish-accuracy.png
-13-missing-logic.png
-14-average-total-float.png
-15-high-total-float.png
-16-critical-path-percentage.png
+09-spi-over-time.png
+10-activity-hit-rate.png
 ```
 
-### Step 6: Write project-context.md
+Ask if the user wants to add, remove, or reorder. Full list available (see schedule-update SKILL.md).
 
-Write the file to `{schedules_root}/project-context.md` with YAML frontmatter and a short body:
+### Step 5 — write `project-context.html`
 
-```markdown
----
-project_name: {project_name}
-job_number: {job_number}
-contractual_completion: {contractual_completion}
-smartpm_url: {smartpm_url}
-smartpm_trends_url: {smartpm_trends_url}
-smartpm_changelog_url: {smartpm_changelog_url}
-to_recipients: "{to_recipients}"
-cc_recipients: "{cc_recipients}"
-signer_name: {signer_name}
-signer_title: {signer_title}
-signer_mobile: "{signer_mobile}"
-procore_company_id: 11093
-procore_project_id: {procore_project_id}
-expected_attachments:
-  - "{pattern_1}"
-  - "{pattern_2}"
-  - ...
-graph_screenshots:
-  - "{graph_1}"
-  - "{graph_2}"
-  - ...
----
+Call `references/generate_project_context_html.generate_project_context_html(output_path, context, today_iso=..., logo_path=...)` with the collected fields. The generator produces a self-contained HTML with:
 
-# Project Context — {job_number} {project_name}
+- **Header** — project name (editable h1), job number (editable), and the Westland logo embedded as a base64 PNG in the top-right.
+- **Basics card** — contractual completion, Procore project ID (editable), Procore company ID (locked display).
+- **SmartPM card** — three URL fields (workspace / trends / changelog).
+- **Signer card** — name / title / mobile.
+- **Recipients card** — separate TO and CC lists, each row with drag handle, name input, email input, remove button. `+ Add TO` / `+ Add CC` buttons.
+- **Graph Screenshots card** — ordered list of graph PNG filenames with drag/reorder and `+ Add` / `× Remove`.
+- **Project Log card** — one entry per project-level event (EOT filed, scope change, contract amendment, major decision). Entries dated before today render read-only with a 🔒 icon. Today's entry is editable. `+ Add entry (today)` button stamps a new entry with today's ISO date.
 
-Project-level configuration that carries forward across updates.
-Edit this file to change recipients, signer, attachments, or graph selection.
-Weekly email content lives in `YYYY-MM-DD-update-email.md` files.
-```
+Save the file as `{schedules_root}/project-context.html`. Tell the user:
+> "Created **project-context.html** in the Schedules root. Double-click it to open in your browser — all scheduling skills read from this file."
 
-Confirm to the user:
-> "Created `project-context.md` in the Schedules root. All scheduling skills will read from this file."
+## Note on attachments
+
+Earlier versions had an `expected_attachments` glob-pattern list in the context. That was removed — the weekly preview HTML carries attachments forward automatically via `transition_attachments` (date-normalized fuzzy match against the dated folder), so the context doesn't need template patterns. On the very first week for a project, the `schedule-update` skill globs all `.pdf` / `.xlsm` / `.xer` files in the dated folder as the initial set; the user curates from there.
 
 ## Re-run Behavior
 
-When `project-context.md` already exists, this skill acts as an editor:
+When `project-context.html` already exists, this skill acts as an editor:
 
-1. Read and display all current values
-2. Ask which fields the user wants to change
-3. Walk through only those fields
-4. Write the updated file back
+1. Call `parse_project_context_html.parse_project_context_html(path)` — returns current values.
+2. Display what's there and ask which fields to change.
+3. Walk through only the affected fields.
+4. Re-generate the HTML with the updated dict.
 
-This is the intended way to update project configuration — for example, when attachment patterns change, recipients change, or a different scheduler takes over the project.
+This is the intended way to update project config (recipient changes, signer change, graph reordering, project log entries, etc.).
 
-## Folder Structure Reference
+## Writing to the Project Log during weekly updates
 
-After initialization, the project's Schedules folder should look like:
+The `schedule-update` skill should append a new project-log entry when a weekly update contains project-level events (scope changes, EOT filings, contract amendments, major decisions). Mechanics:
+
+1. After parsing the weekly preview HTML at `draft` time, read `project-context.html` via `parse_project_context_html`.
+2. If there are notable events this week, append `{date: today_iso, body: <summary>}` to the `project_log` list. If an entry for today already exists, append to its body (newline-separated) rather than creating a duplicate.
+3. Re-generate `project-context.html` with the updated log.
+
+On the next day, the entry you just wrote renders as locked (per the today-vs-past check in the generator). Colleagues can still see the history but won't accidentally edit it.
+
+## Reference files
+
+All reference files live in `references/` within this skill directory.
+
+| File | Purpose |
+|------|---------|
+| `references/generate_project_context_html.py` | Builds the editable HTML — header + Westland logo + all cards + contenteditable fields + Save Edits / Copy for Claude JS. |
+| `references/parse_project_context_html.py` | Parses an edited HTML back into a dict. Convenience helper `load_project_context(root)` returns `(ctx, html_path)` or `(None, None)` if the file is missing. |
+| `references/westland-logo.png` | Signature/header logo, base64-embedded into the HTML so the file is self-contained. |
+
+## Folder structure reference
+
+After initialization:
 
 ```
 Schedules/
-├── project-context.md             ← persistent project config (this skill creates it)
+├── project-context.html              ← persistent project config (this skill creates it)
 ├── 2026-04-01/
-│   ├── 2026-04-01-update-email.md ← weekly email (schedule-update-email skill)
-│   ├── screenshots/               ← SmartPM screenshots (schedule-screenshots skill)
-│   └── *.xer, *.pdf, *.xlsm      ← schedule files and reports
+│   ├── 2026-04-01-email-preview.html ← weekly preview (schedule-update skill)
+│   ├── 2026-04-01-update-email.md    ← archive of the sent email
+│   ├── screenshots/                  ← SmartPM screenshots
+│   └── *.xer, *.pdf, *.xlsm          ← schedule files and reports
 ├── 2026-04-08/
 │   └── ...
 ```

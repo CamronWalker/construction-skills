@@ -148,6 +148,26 @@ def _md_to_html(text):
     return ''.join(result), None
 
 
+def _inline_md_to_html(text):
+    """Convert inline **bold** and ==highlight== (bold+red) markers to HTML.
+
+    Used by body paragraphs like custom closing paragraphs. HTML-escapes
+    surrounding text so raw angle brackets stay safe.
+    """
+    if not text:
+        return ''
+    # Escape everything, then re-introduce our specific tags
+    s = _esc(text)
+    s = re.sub(
+        r'==(.+?)==',
+        f'<b style="color:{RED};">\\1</b>',
+        s,
+        flags=re.DOTALL,
+    )
+    s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s, flags=re.DOTALL)
+    return s
+
+
 def _build_signature(signer_name, signer_title, signer_mobile, has_logo):
     """Build the Westland email signature HTML block."""
     sig = []
@@ -235,6 +255,7 @@ def _build_html_body(
     key_items=None,
     include_compliance_report=False,
     include_procurement_sheets=False,
+    custom_paragraphs=None,
     has_summary_screenshot=False,
     graph_cid_names=None,
     smartpm_project_url='',
@@ -283,24 +304,30 @@ def _build_html_body(
         )
     parts.append('</p>')
 
-    # --- Section 2: Days Ahead/Behind Schedule (entire line colored) ---
+    # --- Section 2: Days Ahead/Behind Schedule (label teal, value colored) ---
     if days_behind > 0:
-        color = RED
-        text = f'Days Behind Schedule: {days_behind} Days'
+        value_color = RED
+        label = 'Days Behind Schedule'
+        value = f'{days_behind} Days'
     elif days_behind < 0:
-        color = GREEN
-        text = f'Days Ahead of Schedule: {abs(days_behind)} Days'
+        value_color = GREEN
+        label = 'Days Ahead of Schedule'
+        value = f'{abs(days_behind)} Days'
     else:
-        color = GREEN
-        text = 'Days Ahead/Behind Schedule: On Schedule'
+        value_color = GREEN
+        label = 'Days Ahead/Behind Schedule'
+        value = 'On Schedule'
     parts.append(
-        f'<p style="{font} color:{color}; font-weight:bold; font-size:12pt; '
-        f'margin:12pt 0 18pt 0;">{_esc(text)}</p>'
+        f'<p style="{font} font-weight:bold; font-size:12pt; '
+        f'margin:12pt 0 18pt 0;">'
+        f'<span style="color:{TEAL};">{_esc(label)}:</span> '
+        f'<span style="color:{value_color};">{_esc(value)}</span>'
+        f'</p>'
     )
 
     # --- Section 3: SmartPM Summary Report ---
     if has_summary_screenshot:
-        img_tag = '<img src="cid:summary_report" style="display:block; border:0; max-width:100%;">'
+        img_tag = '<img src="cid:summary_report" width="100%" style="display:block; border:0; width:100%; height:auto;">'
         if smartpm_project_url:
             parts.append(
                 f'<p style="margin:0 0 12pt 0;">'
@@ -409,8 +436,10 @@ def _build_html_body(
 
     graph_cids = graph_cid_names or []
     for cid_name in graph_cids:
-        img_tag = (f'<img src="cid:{cid_name}" '
-                   'style="display:block; border:0; max-width:100%;">')
+        img_tag = (
+            f'<img src="cid:{cid_name}" width="100%" '
+            'style="display:block; border:0; width:100%; height:auto;">'
+        )
         if smartpm_trends_url:
             parts.append(
                 f'<p style="margin:6pt 0;">'
@@ -426,35 +455,50 @@ def _build_html_body(
             'hyperlink to View Trends URL]</p>'
         )
 
-    # --- Section 12: Compliance Report & Procurement Sheets ---
-    if include_compliance_report:
-        parts.append(
-            f'<p style="{font} margin:12pt 0 6pt 0;">'
-            'I have again included the Schedule Compliance Report in excel for your use. '
-            'Please note: You will need to verify responsibility for the impacts. '
-            'This report should be distributed to the Project Team each week and reviewed '
-            'in detail during the OAC. Please include the form with the meeting minutes and '
-            'add language to the minutes stating all parties reviewed the Schedule Compliance '
-            'Report in detail and acknowledge doing so. If they wish to make any adjustments, '
-            'or contest any information included in the report they may do so by responding '
-            'to the meeting minutes within 24 hours, or as defined by the contract.</p>'
-        )
+    # --- Section 12: Closing Paragraphs (custom_paragraphs OR legacy flags) ---
+    if custom_paragraphs:
+        for p in custom_paragraphs:
+            if not p.get('checked', True):
+                continue
+            body_md = p.get('text', '').strip()
+            if not body_md:
+                continue
+            # Allow inline **bold** / ==priority== in the body text
+            body_html = _inline_md_to_html(body_md)
+            parts.append(
+                f'<p style="{font} margin:12pt 0 6pt 0;">{body_html}</p>'
+            )
+    else:
+        if include_compliance_report:
+            parts.append(
+                f'<p style="{font} margin:12pt 0 6pt 0;">'
+                'I have again included the Schedule Compliance Report in excel for your use. '
+                'Please note: You will need to verify responsibility for the impacts. '
+                'This report should be distributed to the Project Team each week and reviewed '
+                'in detail during the OAC. Please include the form with the meeting minutes and '
+                'add language to the minutes stating all parties reviewed the Schedule Compliance '
+                'Report in detail and acknowledge doing so. If they wish to make any adjustments, '
+                'or contest any information included in the report they may do so by responding '
+                'to the meeting minutes within 24 hours, or as defined by the contract.</p>'
+            )
 
-    if include_procurement_sheets:
-        parts.append(
-            f'<p style="{font} margin:6pt 0;">'
-            'I have included the procurement and progress update spreadsheets. '
-            'Please use these to fill out all actual dates and confirmed durations '
-            'prior to each update. This will significantly reduce the time we spend '
-            'updating each week to give us more time to work on recovery planning.</p>'
-        )
+        if include_procurement_sheets:
+            parts.append(
+                f'<p style="{font} margin:6pt 0;">'
+                'I have included the procurement and progress update spreadsheets. '
+                'Please use these to fill out all actual dates and confirmed durations '
+                'prior to each update. This will significantly reduce the time we spend '
+                'updating each week to give us more time to work on recovery planning.</p>'
+            )
 
     # --- Closing ---
     parts.append(
-        f'<p style="{font} margin:12pt 0 2pt 0;">'
+        f'<p style="{font} margin:12pt 0 0 0;">'
         'Please let me know if you have any questions.</p>'
     )
-    parts.append(f'<p style="{font} margin:2pt 0 12pt 0;">Thanks,</p>')
+    # Blank spacer paragraph — Camron prefers a visible gap before "Thanks,"
+    parts.append(f'<p style="{font} margin:0;">&nbsp;</p>')
+    parts.append(f'<p style="{font} margin:0 0 12pt 0;">Thanks,</p>')
 
     # --- Email Signature ---
     if signer_name:
@@ -472,11 +516,27 @@ def _build_list(items, font):
         ==highlighted== → bold + red (highest priority)
         **bold**        → red only
         plain text      → normal
+
+    Accepts list items as plain strings OR as dicts (from the preview HTML
+    parser with {text, checked, status}). Dict items that are unchecked or
+    archived are skipped.
     """
     if not items:
         return ''
-    lines = ['<ol style="margin:0 0 6pt 0;">']
+    rendered = []
     for item in items:
+        if isinstance(item, dict):
+            if not item.get('checked', True):
+                continue
+            if item.get('status') == 'archived':
+                continue
+            rendered.append(item.get('text', ''))
+        else:
+            rendered.append(str(item))
+    if not rendered:
+        return ''
+    lines = ['<ol style="margin:0 0 6pt 0;">']
+    for item in rendered:
         html_text, priority = _md_to_html(item)
         if priority == 'highlight':
             # Bold + red: use <b> tag explicitly (Outlook ignores font-weight on <li>)
@@ -522,6 +582,7 @@ def generate_update_email_msg(
     key_items=None,
     include_compliance_report=False,
     include_procurement_sheets=False,
+    custom_paragraphs=None,
     summary_screenshot_path=None,
     graph_screenshot_paths=None,
     to_recipients='',
@@ -621,6 +682,7 @@ def generate_update_email_msg(
         key_items=key_items,
         include_compliance_report=include_compliance_report,
         include_procurement_sheets=include_procurement_sheets,
+        custom_paragraphs=custom_paragraphs,
         has_summary_screenshot=has_summary,
         graph_cid_names=[cid for _, cid in graph_images],
         smartpm_project_url=smartpm_project_url,
