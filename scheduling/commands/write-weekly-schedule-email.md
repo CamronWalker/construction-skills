@@ -6,14 +6,19 @@ description: Steps 6–10 of the weekly schedule update — SmartPM screenshots,
 
 ## ⚠️ Absolute rule — XER file handling
 
-`.xer` files in this folder tree are **master historical records** of the project's schedule evolution — source of truth for claims, delay analysis, and contract disputes.
+Two categories of `.xer` files exist in these folder trees:
 
-- **READ** any `.xer` freely (parse, analyze, compare against last week).
-- **WRITE** new `.xer` files only with a **version suffix** (e.g. `2026-04-17 NTVS ACME-v2.xer`, `...-working.xer`) alongside the original. These are your working copies.
-- **EDIT** only the working copies you created in this session. **Never edit an existing master XER.**
-- **DELETE** no `.xer` file, ever.
+1. **Record XERs** — the originals placed in Schedules folders by the team. They are the project's **immutable historical record** (source of truth for claims, delay analysis, contract disputes). **Uneditable. Undeletable. Ever.**
+2. **Working copies** — files *you* create this session, identified by a version suffix (`-v2.xer`, `-working.xer`, `-claude.xer`) alongside the record. Yours — read, write, edit, delete as the workflow needs.
 
-If a step seems to require editing a master XER, stop and ask the colleague — you've misunderstood the workflow.
+Policy:
+
+- **READ** any `.xer` freely (record or working copy).
+- **WRITE** new `.xer` files only as working copies with a version suffix (e.g. record `2026-04-17 NTVS ACME.xer` → working copy `2026-04-17 NTVS ACME-v2.xer`).
+- **EDIT** only working copies you created this session.
+- **DELETE** only working copies you created this session. **Never delete a record XER.**
+
+If a step seems to require editing or deleting a record XER, stop and ask the colleague — you've misunderstood the workflow.
 
 ---
 

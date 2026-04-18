@@ -63,9 +63,9 @@ Write-Host "================================================================" -F
 Write-Host "  WESTLAND — WEEKLY SCHEDULE UPDATE EMAIL" -ForegroundColor Yellow
 Write-Host "================================================================" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  XER POLICY: Read any .xer freely. If schedule changes are" -ForegroundColor Red
-Write-Host "  needed, write a NEW versioned file (e.g. '...-v2.xer') —" -ForegroundColor Red
-Write-Host "  NEVER edit or overwrite the original master XER." -ForegroundColor Red
+Write-Host "  XER POLICY: Record XERs (originals from the team) are" -ForegroundColor Red
+Write-Host "  UNEDITABLE and UNDELETABLE — immutable historical record." -ForegroundColor Red
+Write-Host "  Working copies you create (e.g. '...-v2.xer') are yours." -ForegroundColor Red
 Write-Host ""
 Write-Host "  claude: $claudePath" -ForegroundColor DarkGray
 Write-Host "  folder: $PWD" -ForegroundColor DarkGray
@@ -94,41 +94,58 @@ a new XER, uploads it to SmartPM, and sends a stakeholder email
 summarizing progress, risks, and upcoming key items — plus attachments
 (PDFs, Excel reports) and embedded SmartPM trend graphs.
 
-Steps 1-5 of that cycle are the human's job (update the schedule, export,
-upload to SmartPM, drop the transcript, create next week's Excel files).
-**Your job is steps 6-10**: capture SmartPM graphs, draft the email,
-produce an editable HTML preview for the colleague to review, and create
-the Outlook draft on approval.
+The full pipeline has 14 steps. This launcher covers **steps 6-10** —
+the email-building tail end. Everything before step 6 is already done by
+the time the colleague double-clicked the .bat: they ran the schedule
+update meeting, exported schedule files, uploaded the XER to SmartPM,
+dropped the meeting transcript, exported PDFs, and staged next week's
+Excel files.
 
-The full workflow lives in the **scheduling plugin's
-`/write-weekly-schedule-email` slash command**. That command routes into
-the `schedule-update` skill's `report` flow, which owns the details
-(SmartPM screenshot capture via Playwright MCP, XER parsing, transcript
-mining, HTML preview generation, carry-forward state from last week,
-Outlook COM draft).
+Within steps 6-10, your work interleaves with the colleague's:
+
+| # | Owner | What happens |
+|---|-------|-------------|
+| 6 | **You** | Capture SmartPM graphs via Playwright MCP |
+| 7 | **You** | Draft the update email (mine transcript + compare XERs) |
+| 8 | Colleague | Review the editable HTML preview |
+| 9 | **You** | Create the Outlook draft from the approved preview |
+| 10 | Colleague | Send the email |
+
+The logic for all of this lives in the **scheduling plugin's
+`/write-weekly-schedule-email` slash command**, which routes into the
+`schedule-update` skill's `report` flow. That flow owns the details
+(SmartPM capture, XER parsing, transcript mining, HTML preview
+generation, week-over-week carry-forward, Outlook COM draft).
 
 ## Absolute rule — XER file handling
 
-The ``.xer`` files in this folder tree are **master historical records**
-of the project's schedule evolution. They are the source of truth for
-claims, delay analysis, and contract disputes. You must never
-accidentally corrupt or overwrite them.
+Two categories of ``.xer`` files exist in these folder trees:
 
-Policy — what you can and cannot do:
+1. **Record XERs** — the originals placed in Schedules folders by the
+   team (exports from the scheduling software after each weekly update).
+   They are the project's **immutable historical record**: source of
+   truth for claims, delay analysis, and contract disputes.
+   **Uneditable. Undeletable. Ever.**
+2. **Working copies** — files *you* create this session, identifiable
+   by a version suffix (``-v2.xer``, ``-working.xer``, ``-claude.xer``,
+   etc.) written alongside the original. These are yours — read,
+   write, edit, delete as the workflow needs.
 
-- **READ** any ``.xer`` file freely. Parsing for analysis, metrics,
-  comparisons against last week — all fine.
-- **WRITE** new ``.xer`` files only with a **version suffix**
-  (e.g., ``2026-04-17 NTVS ACME-v2.xer``,
-  ``2026-04-17 NTVS ACME-working.xer``) alongside the original. These
-  are *your* working copies.
-- **EDIT** only the working copies you created in this session. Never
-  edit an existing master XER.
-- **DELETE** no ``.xer`` file, ever.
+Policy:
+
+- **READ** any ``.xer`` file freely (record or working copy). Parsing
+  for analysis, metrics, comparisons against last week — all fine.
+- **WRITE** new ``.xer`` files only as working copies with a version
+  suffix alongside the record (e.g. record ``2026-04-17 NTVS ACME.xer``
+  → working copy ``2026-04-17 NTVS ACME-v2.xer``).
+- **EDIT** only the working copies you created in this session.
+- **DELETE** only the working copies you created in this session (for
+  cleanup). Never delete a record XER.
 
 This rule overrides any tool call you might consider making that
-conflicts with it. If a step seems to require editing a master XER,
-stop and ask the colleague — you've misunderstood the workflow.
+conflicts with it. If a step seems to require editing or deleting a
+record XER, stop and ask the colleague — you've misunderstood the
+workflow.
 
 ## How to start
 

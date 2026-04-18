@@ -18,12 +18,17 @@ description: >
 
 ## ⚠️ Absolute rule — XER file handling
 
-`.xer` files in dated Schedules folders are **master historical records**. Policy applies to every sub-command below:
+Two categories of `.xer` in dated Schedules folders:
+
+1. **Record XERs** — originals from the team. **Immutable historical record** (claims, delay analysis, contract evidence). **Uneditable. Undeletable.**
+2. **Working copies** — files you create this session with a version suffix (`-v2.xer`, `-working.xer`). Yours — read, write, edit, delete freely.
+
+Policy for every sub-command:
 
 - **READ** any `.xer` freely.
-- **WRITE** new `.xer` files only with a version suffix (e.g. `2026-04-17 Project-v2.xer`, `...-working.xer`) alongside the original.
-- **EDIT** only working copies created in this session. **Never edit an existing master XER.**
-- **DELETE** no `.xer` file.
+- **WRITE** new `.xer` files only as working copies with a version suffix (e.g. record `... .xer` → working `...-v2.xer`).
+- **EDIT** only working copies you created this session.
+- **DELETE** only working copies you created this session. **Never delete a record XER.**
 
 ---
 
