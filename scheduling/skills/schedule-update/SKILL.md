@@ -32,8 +32,9 @@ Invoke with an optional command argument:
 | `/schedule-update report` | **Colleague-friendly end-to-end:** screenshots → Q&A or transcript → editable HTML preview → Outlook draft. Runs steps 6–10 as one guided conversation. |
 | `/schedule-update draft` | Create Outlook draft from the approved email (reads the edited HTML preview) |
 | `/schedule-update status` | Show where the project is in the pipeline |
+| `/write-weekly-schedule-email` | **Cowork drop-in** — dedicated slash command that lands in a dated `YYYY-MM-DD` folder (steps 1–5 already done by human) and runs the `report` flow for steps 6–10. See `commands/write-weekly-schedule-email.md`. |
 
-**Picking a command:** Camron uses `copy` then the individual steps (`screenshots` → `email` → `draft`). Colleagues who just need help after the meeting should use `report` — it bundles screenshots, content-gathering (with or without a meeting transcript), the HTML preview, and the Outlook draft into one guided conversation. Both flows share the same editable HTML preview as the review artifact.
+**Picking a command:** Camron uses `copy` then the individual steps (`screenshots` → `email` → `draft`). Colleagues who just need help after the meeting should use `report` — it bundles screenshots, content-gathering (with or without a meeting transcript), the HTML preview, and the Outlook draft into one guided conversation. Cowork sessions that fire automatically in a dated folder use `/write-weekly-schedule-email` as the dedicated entry point (same `report` flow, just with the starting assumptions baked in). All three flows share the same editable HTML preview as the review artifact.
 
 Every command reads `project-context.html` first. If it is missing, stop with:
 > "No project-context.html found in the Schedules root. Run the `schedule-project-init` skill first."
