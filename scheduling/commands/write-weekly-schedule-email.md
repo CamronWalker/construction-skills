@@ -14,7 +14,7 @@ description: Steps 6–10 of the weekly schedule update — SmartPM screenshots,
 - **NEVER** edit an existing `.xer` in place (Edit / MultiEdit / overwriting Write are all modifications).
 - **NEVER** delete a `.xer` file.
 
-Enforcement: a PreToolUse hook (`hooks/check_xer_write.py`) physically blocks `Edit`, `Write` overwrite, `MultiEdit`, `NotebookEdit`, and Bash `rm` / `del` / `Remove-Item` / `find -delete` calls targeting `.xer` paths. If a step seems to require editing or deleting a `.xer`, you've misunderstood the workflow — stop and ask the colleague.
+Enforcement: the `westland` plugin (required org-wide dependency) ships a PreToolUse hook (`westland/hooks/check_xer_write.py`) that physically blocks `Edit`, `Write` overwrite, `MultiEdit`, `NotebookEdit`, and Bash `rm` / `del` / `Remove-Item` / `find -delete` calls targeting `.xer` paths. If a step seems to require editing or deleting a `.xer`, you've misunderstood the workflow — stop and ask the colleague.
 
 ---
 
