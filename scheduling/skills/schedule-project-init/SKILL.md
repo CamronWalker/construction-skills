@@ -92,7 +92,7 @@ Save the file as `{schedules_root}/project-context.html`. Tell the user:
 
 ### Step 6 — drop the weekly email launcher script
 
-Copy `references/Write Weekly Schedule Email.bat` into the Schedules root (same folder as `project-context.html`). This is the colleague-facing double-click launcher for the weekly email flow — it `cd`s to its own folder and runs `claude --permission-mode acceptEdits "/write-weekly-schedule-email"`, so a colleague doesn't need to know about Cowork, Claude Code, or slash commands; they just click the file in Explorer. `acceptEdits` auto-accepts file edits (which the flow does frequently — screenshots, preview HTML, archive markdown) but still prompts for Bash/MCP tool calls.
+Copy `references/Write Weekly Schedule Email.bat` into the Schedules root (same folder as `project-context.html`). This is the colleague-facing double-click launcher for the weekly email flow — it `cd`s to its own folder and runs `claude --permission-mode auto "/write-weekly-schedule-email"`, so a colleague doesn't need to know about Cowork, Claude Code, or slash commands; they just click the file in Explorer. `auto` mode keeps the session autonomous (minimizes interruptions, prefers action over planning) while still respecting permission boundaries — same mode Iris uses for its daily launcher.
 
 On re-run, if the .bat is missing (older project, file was moved), copy it again. If it exists, check whether the content matches the current template and offer to refresh it if not. Never overwrite silently.
 

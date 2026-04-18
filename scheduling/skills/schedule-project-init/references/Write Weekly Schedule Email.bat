@@ -14,4 +14,4 @@ REM If Claude Code is missing, the `claude` call will fail — install it from
 REM the link above and re-run.
 
 cd /d "%~dp0"
-claude --permission-mode acceptEdits "/write-weekly-schedule-email"
+claude --permission-mode auto "/write-weekly-schedule-email"
