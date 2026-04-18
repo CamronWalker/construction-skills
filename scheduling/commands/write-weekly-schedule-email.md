@@ -4,7 +4,7 @@ description: Steps 6–10 of the weekly schedule update — SmartPM screenshots,
 
 # Write Weekly Schedule Email
 
-You are being dropped into a Westland weekly schedule update at the **email-building phase**. A colleague double-clicked `Write Weekly Schedule Email.bat` at the Schedules root, which launched Claude Code CLI with auto-permissions and queued this command.
+You are being dropped into a Westland weekly schedule update at the **email-building phase**. A colleague double-clicked `Write Weekly Schedule Email.bat` at the Schedules root, which launched Claude Code CLI in `acceptEdits` permission mode and queued this command.
 
 The human has already completed the manual steps of the update and is handing the email off to you.
 
