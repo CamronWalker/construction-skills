@@ -150,6 +150,7 @@ async function main() {
     const summaryClip = await page.evaluate(() => {
       let topY = null;
       let bottomY = null;
+      let projectNameEl = null;
 
       // Walk text nodes to find "Project Name:" — use the parent element's top
       // but look specifically for the label text (not the large container)
@@ -163,6 +164,7 @@ async function main() {
           const r = el.getBoundingClientRect();
           if (r.top > 50) { // must be below the logo area
             topY = Math.max(0, r.top - 6);
+            projectNameEl = el;
             break;
           }
         }
@@ -184,7 +186,40 @@ async function main() {
 
       if (!topY) topY = 0;
       if (!bottomY) bottomY = window.innerHeight;
-      return { x: 0, y: Math.round(topY), width: window.innerWidth, height: Math.round(bottomY - topY) };
+
+      // Find the modal's actual horizontal bounds. The modal overlay/backdrop meets
+      // the viewport edges and would show up as 1px dark stripes on left/right if we
+      // captured the full window.innerWidth. Walk up from the Project Name element
+      // to find the widest ancestor that is still narrower than the viewport — that's
+      // the modal content container. Fall back to trimming 2px from each edge.
+      let leftX = 2;
+      let rightX = window.innerWidth - 2;
+      if (projectNameEl) {
+        let cur = projectNameEl;
+        let bestLeft = null;
+        let bestRight = null;
+        while (cur && cur !== document.body) {
+          const r = cur.getBoundingClientRect();
+          // Clearly narrower than viewport means we've escaped the overlay
+          if (r.width > 800 && r.width < window.innerWidth - 2) {
+            bestLeft = r.left;
+            bestRight = r.right;
+          }
+          cur = cur.parentElement;
+        }
+        if (bestLeft !== null && bestRight !== null) {
+          // Round inward by 1px on each side to avoid anti-aliased border pixels
+          leftX = Math.max(0, Math.ceil(bestLeft) + 1);
+          rightX = Math.min(window.innerWidth, Math.floor(bestRight) - 1);
+        }
+      }
+
+      return {
+        x: leftX,
+        y: Math.round(topY),
+        width: rightX - leftX,
+        height: Math.round(bottomY - topY),
+      };
     });
     await page.screenshot({ path: summaryPath, clip: summaryClip });
     console.error('Captured: smartpm-summary-report.png (cropped to content)');
