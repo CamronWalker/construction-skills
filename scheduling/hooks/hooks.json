@@ -1,0 +1,16 @@
+{
+  "description": "XER immutability hook — blocks in-place edits, overwrites, and deletes of .xer files in Westland scheduling projects. New versioned files (-v2.xer, -v3.xer) are allowed.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/check_xer_write.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

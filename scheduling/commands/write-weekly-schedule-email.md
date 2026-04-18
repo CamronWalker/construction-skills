@@ -4,21 +4,17 @@ description: Steps 6–10 of the weekly schedule update — SmartPM screenshots,
 
 # Write Weekly Schedule Email
 
-## ⚠️ Absolute rule — XER file handling
+## ⚠️ Absolute rule — XER files are immutable
 
-Two categories of `.xer` files exist in these folder trees:
+**Every `.xer` file in these folder trees is an immutable project record.** No in-place edits, no overwrites, no deletes — ever.
 
-1. **Record XERs** — the originals placed in Schedules folders by the team. They are the project's **immutable historical record** (source of truth for claims, delay analysis, contract disputes). **Uneditable. Undeletable. Ever.**
-2. **Working copies** — files *you* create this session, identified by a version suffix (`-v2.xer`, `-working.xer`, `-claude.xer`) alongside the record. Yours — read, write, edit, delete as the workflow needs.
+- **READ** any `.xer` freely (parse, analyze, compare against last week).
+- **MODIFY** by writing a **new versioned file** alongside the existing one, incrementing the suffix each time:
+  - `2026-04-17 NTVS ACME.xer` → `2026-04-17 NTVS ACME-v2.xer` → `...-v3.xer` → ...
+- **NEVER** edit an existing `.xer` in place (Edit / MultiEdit / overwriting Write are all modifications).
+- **NEVER** delete a `.xer` file.
 
-Policy:
-
-- **READ** any `.xer` freely (record or working copy).
-- **WRITE** new `.xer` files only as working copies with a version suffix (e.g. record `2026-04-17 NTVS ACME.xer` → working copy `2026-04-17 NTVS ACME-v2.xer`).
-- **EDIT** only working copies you created this session.
-- **DELETE** only working copies you created this session. **Never delete a record XER.**
-
-If a step seems to require editing or deleting a record XER, stop and ask the colleague — you've misunderstood the workflow.
+Enforcement: a PreToolUse hook (`hooks/check_xer_write.py`) physically blocks `Edit`, `Write` overwrite, `MultiEdit`, `NotebookEdit`, and Bash `rm` / `del` / `Remove-Item` / `find -delete` calls targeting `.xer` paths. If a step seems to require editing or deleting a `.xer`, you've misunderstood the workflow — stop and ask the colleague.
 
 ---
 

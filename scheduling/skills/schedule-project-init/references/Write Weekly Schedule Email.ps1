@@ -63,9 +63,10 @@ Write-Host "================================================================" -F
 Write-Host "  WESTLAND — WEEKLY SCHEDULE UPDATE EMAIL" -ForegroundColor Yellow
 Write-Host "================================================================" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  XER POLICY: Record XERs (originals from the team) are" -ForegroundColor Red
-Write-Host "  UNEDITABLE and UNDELETABLE — immutable historical record." -ForegroundColor Red
-Write-Host "  Working copies you create (e.g. '...-v2.xer') are yours." -ForegroundColor Red
+Write-Host "  XER POLICY: every .xer is an IMMUTABLE record." -ForegroundColor Red
+Write-Host "  No in-place edits, no overwrites, no deletes — ever." -ForegroundColor Red
+Write-Host "  Modify by writing a new '...-v2.xer' (then -v3, etc.)." -ForegroundColor Red
+Write-Host "  Hook enforcement: hooks/check_xer_write.py blocks violations." -ForegroundColor Red
 Write-Host ""
 Write-Host "  claude: $claudePath" -ForegroundColor DarkGray
 Write-Host "  folder: $PWD" -ForegroundColor DarkGray
@@ -117,35 +118,29 @@ The logic for all of this lives in the **scheduling plugin's
 (SmartPM capture, XER parsing, transcript mining, HTML preview
 generation, week-over-week carry-forward, Outlook COM draft).
 
-## Absolute rule — XER file handling
+## Absolute rule — XER files are immutable
 
-Two categories of ``.xer`` files exist in these folder trees:
+**Every ``.xer`` file in this folder tree is an immutable project
+record.** They are the source of truth for claims, delay analysis, and
+contract disputes.
 
-1. **Record XERs** — the originals placed in Schedules folders by the
-   team (exports from the scheduling software after each weekly update).
-   They are the project's **immutable historical record**: source of
-   truth for claims, delay analysis, and contract disputes.
-   **Uneditable. Undeletable. Ever.**
-2. **Working copies** — files *you* create this session, identifiable
-   by a version suffix (``-v2.xer``, ``-working.xer``, ``-claude.xer``,
-   etc.) written alongside the original. These are yours — read,
-   write, edit, delete as the workflow needs.
+Policy — no exceptions:
 
-Policy:
+- **READ** any ``.xer`` freely (parse, analyze, compare against last week).
+- **MODIFY** by writing a **new versioned file** alongside the existing
+  one, incrementing the suffix each time:
+    ``2026-04-17 NTVS ACME.xer``
+    → ``2026-04-17 NTVS ACME-v2.xer``
+    → ``...-v3.xer``, and so on.
+- **NEVER** edit an existing ``.xer`` in place (Edit, MultiEdit, or
+  overwriting Write are all in-place modifications).
+- **NEVER** delete a ``.xer``.
 
-- **READ** any ``.xer`` file freely (record or working copy). Parsing
-  for analysis, metrics, comparisons against last week — all fine.
-- **WRITE** new ``.xer`` files only as working copies with a version
-  suffix alongside the record (e.g. record ``2026-04-17 NTVS ACME.xer``
-  → working copy ``2026-04-17 NTVS ACME-v2.xer``).
-- **EDIT** only the working copies you created in this session.
-- **DELETE** only the working copies you created in this session (for
-  cleanup). Never delete a record XER.
-
-This rule overrides any tool call you might consider making that
-conflicts with it. If a step seems to require editing or deleting a
-record XER, stop and ask the colleague — you've misunderstood the
-workflow.
+Enforcement: a PreToolUse hook (``hooks/check_xer_write.py``) physically
+blocks these operations. If you try anyway, the tool call will be
+rejected with a stderr message. Don't try to work around the hook — if
+a step seems to require editing or deleting a ``.xer``, stop and ask
+the colleague. You've misunderstood the workflow.
 
 ## How to start
 

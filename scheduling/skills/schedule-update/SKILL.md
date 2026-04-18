@@ -16,19 +16,16 @@ description: >
 
 # Schedule Update Pipeline
 
-## ⚠️ Absolute rule — XER file handling
+## ⚠️ Absolute rule — XER files are immutable
 
-Two categories of `.xer` in dated Schedules folders:
-
-1. **Record XERs** — originals from the team. **Immutable historical record** (claims, delay analysis, contract evidence). **Uneditable. Undeletable.**
-2. **Working copies** — files you create this session with a version suffix (`-v2.xer`, `-working.xer`). Yours — read, write, edit, delete freely.
-
-Policy for every sub-command:
+**Every `.xer` in dated Schedules folders is an immutable project record.** Policy applies to every sub-command below:
 
 - **READ** any `.xer` freely.
-- **WRITE** new `.xer` files only as working copies with a version suffix (e.g. record `... .xer` → working `...-v2.xer`).
-- **EDIT** only working copies you created this session.
-- **DELETE** only working copies you created this session. **Never delete a record XER.**
+- **MODIFY** by writing a **new versioned file** alongside the existing one, incrementing the suffix each time (`...xer` → `...-v2.xer` → `...-v3.xer`).
+- **NEVER** edit in place (Edit / MultiEdit / overwriting Write).
+- **NEVER** delete.
+
+Enforced at the tool layer by `hooks/check_xer_write.py` (PreToolUse matcher: `Edit|Write|MultiEdit|NotebookEdit|Bash`), which blocks in-place edits, overwrites of existing `.xer` files, and Bash delete commands (`rm`, `del`, `Remove-Item`, `find -delete`) targeting `.xer` paths.
 
 ---
 
