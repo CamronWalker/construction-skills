@@ -41,34 +41,46 @@ _BASH_DELETE_PATTERNS = [
     re.compile(r"\bfind\b[^|]*\*\.xer[^|]*-delete\b", re.IGNORECASE),
 ]
 
-BLOCK_EDIT_MESSAGE = (
-    "XER safety hook: blocked {tool} on '{name}'.\n"
-    "\n"
-    ".xer files are immutable project records. Every modification must be "
-    "saved as a NEW versioned file (e.g. '{stem}-v2.xer') next to the "
-    "previous version — never edit in place.\n"
-    "\n"
-    "To proceed: use Write with a new -vN.xer filename instead of Edit on "
-    "an existing .xer."
-)
+BLOCK_EDIT_MESSAGE = """⚠️ XER Immutability: {tool} on an existing .xer file is blocked.
 
-BLOCK_OVERWRITE_MESSAGE = (
-    "XER safety hook: blocked Write overwriting existing '{name}'.\n"
-    "\n"
-    ".xer files are immutable. Write a NEW versioned file (e.g. "
-    "'{stem}-v2.xer') instead of replacing the existing one.\n"
-    "\n"
-    "Detected target: {path}"
-)
+.xer files in Westland scheduling projects are immutable project records — source of truth for claims, delay analysis, and contract disputes. They cannot be modified in place.
 
-BLOCK_DELETE_MESSAGE = (
-    "XER safety hook: blocked Bash command that deletes a .xer file.\n"
-    "\n"
-    ".xer files are immutable project records and must never be deleted "
-    "— they are the historical record for claims and delay analysis.\n"
-    "\n"
-    "Blocked command: {command}"
-)
+Instead of editing the existing file:
+  Write a new versioned file alongside it.
+
+Example:
+  UNSAFE (blocked): {tool} on "{name}"
+  SAFE:             Write to "{stem}-v2.xer"
+                    (then -v3, -v4, etc. for subsequent revisions)
+
+If a step seems to require editing an existing .xer, you've misunderstood the workflow — stop and ask the colleague."""
+
+BLOCK_OVERWRITE_MESSAGE = """⚠️ XER Immutability: Write overwriting an existing .xer file is blocked.
+
+.xer files in Westland scheduling projects are immutable project records — source of truth for claims, delay analysis, and contract disputes. They cannot be replaced in place.
+
+Instead of overwriting:
+  Write a new versioned file alongside the existing one.
+
+Example:
+  UNSAFE (blocked): Write to "{name}" (already exists at {path})
+  SAFE:             Write to "{stem}-v2.xer"
+                    (then -v3, -v4, etc. for subsequent revisions)
+
+If a step seems to require overwriting an existing .xer, you've misunderstood the workflow — stop and ask the colleague."""
+
+BLOCK_DELETE_MESSAGE = """⚠️ XER Immutability: Bash command that deletes a .xer file is blocked.
+
+.xer files are immutable project records — source of truth for claims and delay analysis. They must never be deleted.
+
+Instead of deleting:
+  Leave the file in place. Every revision is a new versioned file (-v2, -v3, ...), not a replacement, so old versions are meant to accumulate. If something looks like clutter, archive the folder — don't delete the .xer.
+
+Example:
+  UNSAFE (blocked): rm old.xer / del old.xer / Remove-Item old.xer
+  SAFE:             leave old.xer in place; add a new revision like "old-v2.xer"
+
+Blocked command: {command}"""
 
 
 def check_file_tool(tool_name: str, tool_input: dict) -> tuple[bool, str]:
