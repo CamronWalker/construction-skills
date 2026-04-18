@@ -4,6 +4,19 @@ description: Steps 6–10 of the weekly schedule update — SmartPM screenshots,
 
 # Write Weekly Schedule Email
 
+## ⚠️ ABSOLUTE SAFETY RULE — XER FILES ARE READ-ONLY
+
+**The `.xer` files in these folders are MASTER HISTORICAL RECORDS of the project schedule. NEVER edit, overwrite, resave, or "clean up" an existing `.xer` in place under any circumstances.**
+
+If the workflow needs a modified, regenerated, or repaired XER, write it as a **NEW file with a version suffix** alongside the original:
+
+- original: `2026-04-17 NTVS ACME.xer`
+- new: `2026-04-17 NTVS ACME-v2.xer`
+
+This rule applies to every kind of write: edits, format conversions, auto-fixes, cleanup, tool output. **Always-new-file, never-in-place.** Our historical record of the project's schedule evolution must not be accidentally modified.
+
+---
+
 You are being dropped into a Westland weekly schedule update at the **email-building phase**. A colleague double-clicked `Write Weekly Schedule Email.bat` at the Schedules root, which launched Claude Code CLI in `auto` permission mode and queued this command.
 
 The human has already completed the manual steps of the update and is handing the email off to you.

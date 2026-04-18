@@ -16,6 +16,12 @@ description: >
 
 # Schedule Update Pipeline
 
+## ⚠️ ABSOLUTE SAFETY RULE — XER FILES ARE READ-ONLY
+
+**The `.xer` files in dated Schedules folders are MASTER HISTORICAL RECORDS. NEVER edit, overwrite, resave, or "clean up" an existing `.xer` in place.** If the workflow needs a modified/regenerated/repaired XER, write a **NEW file** with a version suffix alongside the original (e.g. `2026-04-17 Project-v2.xer`). Applies to every sub-command below. Always-new-file, never-in-place.
+
+---
+
 Unified skill for the Westland weekly schedule update workflow. One entry point covers the full
 post-meeting pipeline: folder setup, SmartPM screenshots, email draft, and Outlook draft creation.
 
