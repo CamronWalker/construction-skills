@@ -1,6 +1,6 @@
 {
   "name": "westland",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Westland Construction organizational plugin — always-loaded safety hooks and progressively-disclosed company style references. Install this first on every Westland machine (it's a required dependency of the domain plugins like scheduling, estimating, etc.). Contains: XER immutability PreToolUse hook (blocks in-place edits, overwrites, and deletes of .xer project records) and a westland-house-style skill for formatting conventions on company documents.",
   "author": {
     "name": "Camron Walker"
