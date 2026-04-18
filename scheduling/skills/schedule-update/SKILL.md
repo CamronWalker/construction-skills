@@ -16,9 +16,14 @@ description: >
 
 # Schedule Update Pipeline
 
-## ⚠️ ABSOLUTE SAFETY RULE — XER FILES ARE READ-ONLY
+## ⚠️ Absolute rule — XER file handling
 
-**The `.xer` files in dated Schedules folders are MASTER HISTORICAL RECORDS. NEVER edit, overwrite, resave, or "clean up" an existing `.xer` in place.** If the workflow needs a modified/regenerated/repaired XER, write a **NEW file** with a version suffix alongside the original (e.g. `2026-04-17 Project-v2.xer`). Applies to every sub-command below. Always-new-file, never-in-place.
+`.xer` files in dated Schedules folders are **master historical records**. Policy applies to every sub-command below:
+
+- **READ** any `.xer` freely.
+- **WRITE** new `.xer` files only with a version suffix (e.g. `2026-04-17 Project-v2.xer`, `...-working.xer`) alongside the original.
+- **EDIT** only working copies created in this session. **Never edit an existing master XER.**
+- **DELETE** no `.xer` file.
 
 ---
 

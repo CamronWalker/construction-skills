@@ -4,16 +4,16 @@ description: Steps 6–10 of the weekly schedule update — SmartPM screenshots,
 
 # Write Weekly Schedule Email
 
-## ⚠️ ABSOLUTE SAFETY RULE — XER FILES ARE READ-ONLY
+## ⚠️ Absolute rule — XER file handling
 
-**The `.xer` files in these folders are MASTER HISTORICAL RECORDS of the project schedule. NEVER edit, overwrite, resave, or "clean up" an existing `.xer` in place under any circumstances.**
+`.xer` files in this folder tree are **master historical records** of the project's schedule evolution — source of truth for claims, delay analysis, and contract disputes.
 
-If the workflow needs a modified, regenerated, or repaired XER, write it as a **NEW file with a version suffix** alongside the original:
+- **READ** any `.xer` freely (parse, analyze, compare against last week).
+- **WRITE** new `.xer` files only with a **version suffix** (e.g. `2026-04-17 NTVS ACME-v2.xer`, `...-working.xer`) alongside the original. These are your working copies.
+- **EDIT** only the working copies you created in this session. **Never edit an existing master XER.**
+- **DELETE** no `.xer` file, ever.
 
-- original: `2026-04-17 NTVS ACME.xer`
-- new: `2026-04-17 NTVS ACME-v2.xer`
-
-This rule applies to every kind of write: edits, format conversions, auto-fixes, cleanup, tool output. **Always-new-file, never-in-place.** Our historical record of the project's schedule evolution must not be accidentally modified.
+If a step seems to require editing a master XER, stop and ask the colleague — you've misunderstood the workflow.
 
 ---
 
