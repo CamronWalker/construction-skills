@@ -129,11 +129,20 @@ List the created folder and its contents. Tell the user what's next:
 
 Captures 17 screenshots from SmartPM: 1 Summary Report + 16 individual trend graphs.
 
-### Step 0: Pre-Flight
+### Step 0: Pre-Flight — pick a browser backend
 
-1. Verify Node.js: `node --version`
-2. Check if Playwright is installed: look for `node_modules/playwright` in `{skill_dir}/references/`. If missing, run `npm install` in `{skill_dir}/references/`.
-3. Playwright browser check: if Chromium not installed, run `npx playwright install chromium` in `{skill_dir}/references/`.
+Two supported paths; **prefer the MCP path**. The Node path stays as a fallback for environments (e.g., Camron's workstation) where the MCP isn't available but Node is.
+
+**MCP path (preferred — no local dependencies):**
+
+Check for Playwright MCP tools in this session — look for `mcp__*playwright*__browser_navigate`, `browser_take_screenshot`, `browser_snapshot`, etc. If present, use them directly. This is the only supported path when invoked via `/write-weekly-schedule-email` (the colleague-facing flow — colleagues won't have Node).
+
+**Node fallback:**
+
+If the MCP tools aren't available, fall back to the bundled script:
+1. Verify Node.js: `node --version`.
+2. Check `node_modules/playwright` in `{skill_dir}/references/`. If missing, run `npm install` in `{skill_dir}/references/`.
+3. If Chromium is missing, run `npx playwright install chromium` in `{skill_dir}/references/`.
 
 ### Step 1: Read Project Context
 
@@ -154,7 +163,21 @@ filling in project name, date, and SmartPM URLs.
 
 Print the checklist.
 
-### Step 3: Run Capture Script
+### Step 3a: Capture via Playwright MCP (preferred)
+
+Drive the browser through the MCP tools. Target the same 17 files the Node script produces (table below). Sequence:
+
+1. **Navigate to Workspace.** `browser_navigate({workspace_url})`. Resize to a desktop viewport (e.g., `browser_resize(1920, 1080)`) so charts render at full width.
+2. **Handle login if needed.** The first run each session will land on SmartPM's login page. Call `browser_snapshot` — if you see login fields, stop and tell the user:
+   > "SmartPM wants you to log in. Complete the login in the browser window, then tell me `logged in` and I'll continue." Resume on that signal. Subsequent captures in the same session should reuse the login.
+3. **Summary Report.** On the Workspace page, find the "View Summary" button via `browser_snapshot` and `browser_click` it. Wait for the modal (`browser_wait_for`). Take a screenshot **of the modal content only** (use the `element`/`ref` form of `browser_take_screenshot` so you don't capture the dimmed overlay edges) and save as `{dated_folder}/screenshots/smartpm-summary-report.png`. Close the modal (press Escape or click the close button).
+4. **Trends graphs.** `browser_navigate({trends_url})`. Wait for the first `APP-CHART-*` element to render. For each of the 16 components in the order below, scroll the element into view, snapshot it, and save to the listed filename via element-scoped `browser_take_screenshot`. If an element isn't returned by `browser_snapshot` (lazy-rendered), use `browser_evaluate` to scroll it into view first — `document.querySelector('APP-CHART-SPI-OVER-TIME').scrollIntoView({behavior: 'instant', block: 'center'})`.
+5. **Wide charts.** `APP-DELAY-WATERFALL` and `APP-END-DATE-VARIANCE` extend past the viewport — scroll the chart's internal container to the right-most position before capturing so the latest data points are visible. `browser_evaluate` with `el.scrollLeft = el.scrollWidth` on the chart's inner scroll container handles this.
+6. **Verify after each capture.** Between screenshots, re-check `browser_snapshot` to confirm the chart actually loaded (no spinner, no "no data" empty state). If empty, wait a few seconds and retry once before moving on.
+
+### Step 3b: Capture via Node fallback
+
+Only when MCP tools are absent:
 
 ```bash
 node "{skill_dir}/references/capture-smartpm.js" \

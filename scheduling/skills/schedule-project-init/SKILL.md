@@ -90,6 +90,15 @@ Call `references/generate_project_context_html.generate_project_context_html(out
 Save the file as `{schedules_root}/project-context.html`. Tell the user:
 > "Created **project-context.html** in the Schedules root. Double-click it to open in your browser — all scheduling skills read from this file."
 
+### Step 6 — drop the weekly email launcher script
+
+Copy `references/Write Weekly Schedule Email.bat` into the Schedules root (same folder as `project-context.html`). This is the colleague-facing double-click launcher for the weekly email flow — it `cd`s to its own folder and runs `claude --dangerously-skip-permissions "/write-weekly-schedule-email"`, so a colleague doesn't need to know about Cowork, Claude Code, or slash commands; they just click the file in Explorer.
+
+On re-run, if the .bat is missing (older project, file was moved), copy it again. If it exists, check whether the content matches the current template and offer to refresh it if not. Never overwrite silently.
+
+Tell the user (on first init):
+> "Dropped **Write Weekly Schedule Email.bat** next to `project-context.html`. Colleagues double-click it after the schedule meeting and Claude Code takes over from there — no Cowork, no slash commands to remember. Claude Code CLI and Node.js need to be installed on whichever machine runs it."
+
 ## Note on attachments
 
 Earlier versions had an `expected_attachments` glob-pattern list in the context. That was removed — the weekly preview HTML carries attachments forward automatically via `transition_attachments` (date-normalized fuzzy match against the dated folder), so the context doesn't need template patterns. On the very first week for a project, the `schedule-update` skill globs all `.pdf` / `.xlsm` / `.xer` files in the dated folder as the initial set; the user curates from there.
@@ -124,6 +133,7 @@ All reference files live in `references/` within this skill directory.
 | `references/generate_project_context_html.py` | Builds the editable HTML — header + Westland logo + all cards + contenteditable fields + Save Edits / Copy for Claude JS. |
 | `references/parse_project_context_html.py` | Parses an edited HTML back into a dict. Convenience helper `load_project_context(root)` returns `(ctx, html_path)` or `(None, None)` if the file is missing. |
 | `references/westland-logo.png` | Signature/header logo, base64-embedded into the HTML so the file is self-contained. |
+| `references/Write Weekly Schedule Email.bat` | Colleague-facing double-click launcher. Copied into the Schedules root on init — runs `claude --dangerously-skip-permissions "/write-weekly-schedule-email"` from the folder it lives in. |
 
 ## Folder structure reference
 
