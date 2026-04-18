@@ -92,11 +92,14 @@ Save the file as `{schedules_root}/project-context.html`. Tell the user:
 
 ### Step 6 — drop the weekly email launcher script
 
-Copy `references/Write Weekly Schedule Email.bat` into the Schedules root (same folder as `project-context.html`). This is the colleague-facing double-click launcher for the weekly email flow — it invokes PowerShell (with `-NoExit` so the window stays open), `Set-Location`s to its own folder, clears inherited Claude env vars, and runs `claude --permission-mode auto "/write-weekly-schedule-email"`. A colleague doesn't need to know about Cowork, Claude Code, or slash commands; they just click the file in Explorer.
+Copy **both** launcher files from `references/` into the Schedules root (same folder as `project-context.html`):
 
-The PowerShell-over-cmd pattern mirrors the Iris task-watcher agent launcher (same comment in `task-watcher.js`: "No bash, no MSYS2 DLL issues."). The launcher also checks for `claude` on PATH before launching — if the Claude Code CLI isn't installed, it prints the install link (https://claude.com/claude-code) and exits cleanly instead of flashing away.
+- `Write Weekly Schedule Email.bat` — thin wrapper. Uses `start "" powershell ... -File` so the PowerShell window is its own process (cmd shim exits instead of hosting PowerShell).
+- `Write Weekly Schedule Email.ps1` — the actual logic. Clears inherited Claude env vars, `Set-Location $PSScriptRoot`, discovers the `claude` binary robustly (PATH + known install locations — some installers add the full exe path to PATH instead of its folder, which breaks `Get-Command`), and runs `claude --permission-mode auto '/write-weekly-schedule-email'`.
 
-`auto` mode keeps the session autonomous (minimizes interruptions, prefers action over planning) while still respecting permission boundaries.
+A colleague double-clicks the `.bat` in Explorer — they don't need to know Cowork, Claude Code, slash commands, or PowerShell. If the Claude Code CLI isn't installed (or isn't discoverable), the script prints the install link (https://claude.com/claude-code) and lists the locations it checked, in red, then stops — no silent flash.
+
+The pattern mirrors the Iris task-watcher agent launcher (see `task-watcher.js` comment: "No bash, no MSYS2 DLL issues."). `auto` mode keeps the session autonomous while still respecting permission boundaries.
 
 On re-run, if the .bat is missing (older project, file was moved), copy it again. If it exists, check whether the content matches the current template and offer to refresh it if not. Never overwrite silently.
 
@@ -137,7 +140,8 @@ All reference files live in `references/` within this skill directory.
 | `references/generate_project_context_html.py` | Builds the editable HTML — header + Westland logo + all cards + contenteditable fields + Save Edits / Copy for Claude JS. |
 | `references/parse_project_context_html.py` | Parses an edited HTML back into a dict. Convenience helper `load_project_context(root)` returns `(ctx, html_path)` or `(None, None)` if the file is missing. |
 | `references/westland-logo.png` | Signature/header logo, base64-embedded into the HTML so the file is self-contained. |
-| `references/Write Weekly Schedule Email.bat` | Colleague-facing double-click launcher. Copied into the Schedules root on init — runs `claude --dangerously-skip-permissions "/write-weekly-schedule-email"` from the folder it lives in. |
+| `references/Write Weekly Schedule Email.bat` | Colleague-facing double-click launcher. Copied into the Schedules root on init — uses `start` to spawn a new PowerShell window running the sibling .ps1. |
+| `references/Write Weekly Schedule Email.ps1` | Actual launcher logic. Clears inherited Claude env vars, discovers `claude` robustly (PATH + known install locations), then runs `claude --permission-mode auto "/write-weekly-schedule-email"` from the Schedules root. |
 
 ## Folder structure reference
 
