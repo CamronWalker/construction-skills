@@ -1,0 +1,22 @@
+[
+  {"query": "ok so we got the RFP for the new alpine high school rebuild today. I've got two similar temple schedules in the samples folder and the SFJHS proposal we just finished. need to build a proposal schedule — can you help me think through the WBS before I start adding activities?", "should_trigger": true},
+  {"query": "i've got bid docs for a medical office tower out in lehi. 26-month contract window and a 3-phase occupant turnover. my sample folder has summit medical and a couple of hospitals. help me plan this one out", "should_trigger": true},
+  {"query": "starting on the nebo district elementary school proposal — similar scope to SFJHS but greenfield this time. can you help me plan the schedule using the PES.xer as the template?", "should_trigger": true},
+  {"query": "the estimator just handed me the bid package for the BYU-I temple and said we need a schedule to go with the proposal. i have the provo elementary and lubumbashi temple XERs as references. where do i start", "should_trigger": true},
+  {"query": "help me plan out this proposal schedule — occupied building rebuild at a junior high", "should_trigger": true},
+  {"query": "I have some similar schedules and a bid package, how do I start building the proposal schedule?", "should_trigger": true},
+  {"query": "schedule plan from bid docs", "should_trigger": true},
+  {"query": "need to respond to an RFP by friday. have the RFP and some older completed proposal XERs from similar jobs. whats the process for building our proposal schedule", "should_trigger": true},
+  {"query": "got a new RFP for the pago pago maintenance building. my scheduler hat is on. have the pago pago temple xer as a reference. whats the process?", "should_trigger": true},
+  {"query": "build a bid schedule for the new Canyon View addition — CM/GC, occupied existing school, 22 month window. i've got the district's template RFP and two similar additions we've done.", "should_trigger": true},
+  {"query": "update the weekly schedule for Summit Medical — need to capture last weeks progress and send the colleague email", "should_trigger": false},
+  {"query": "review this xer and tell me whats wrong with it. i think we have too many open ends and the float is all over the place", "should_trigger": false},
+  {"query": "take screenshots of smartpm for the weekly report on Alpine High", "should_trigger": false},
+  {"query": "score this schedule against DCMA. project name is Canyon Ridge and the xer is in the 2026-04-15 folder", "should_trigger": false},
+  {"query": "what activities does plumbco need to do this month on the BYU-I job", "should_trigger": false},
+  {"query": "compare the current XER against last weeks and tell me what changed on the critical path", "should_trigger": false},
+  {"query": "run the CPM on this schedule and tell me the critical path. specifically i want to know why SC moved 2 weeks", "should_trigger": false},
+  {"query": "I need to write a TIA for the delay on the roofing submittal on the pago pago job. the vendor slipped 3 weeks and i think it drives SC", "should_trigger": false},
+  {"query": "initialize the project folder for the new Alpine High proposal. nebo district, CM/GC, fall 2028 SC", "should_trigger": false},
+  {"query": "what is the current status of the Alpine High schedule update? did we get last weeks done", "should_trigger": false}
+]
