@@ -8,16 +8,18 @@ Features and bug fixes go on branches — never commit directly to `main`. Branc
 
 On the branch:
 
-1. **Bump version** — increment the version in `{category}/.claude-plugin/plugin.json` (semver, patch for fixes, minor for new skills)
-2. **Commit** — include the bumped plugin.json and all skill changes in one commit
-3. **Merge to `main`** — via PR or fast-forward merge once the change is reviewed and tested
+1. **Bump plugin version** — increment the version in `{category}/.claude-plugin/plugin.json` (semver, patch for fixes, minor for new skills).
+2. **Bump marketplace version** — update the matching plugin entry in `.claude-plugin/marketplace.json` at repo root. Claude Code reads this file to detect available updates; if it's stale, installed instances won't know a new version exists.
+3. **Commit** — include both version bumps plus all skill changes in one commit.
+4. **Merge to `main`** — via PR or fast-forward merge once the change is reviewed and tested.
 
 After merging to `main`:
 
-4. **Build** — run `python build.py` at the repo root to produce `src/{plugin}.zip` for each plugin. Pass a plugin name (e.g. `python build.py scheduling`) to build just one.
-5. **Distribute** — upload the updated zip(s) to the enterprise plugin distribution (Claude Code enterprise plugins are delivered as zip uploads, not through a marketplace).
+5. **Push to origin** — so that any installed Claude Code instance pulling from the repo sees the marketplace bump.
+6. **Build** — run `python build.py` at the repo root to produce `src/{plugin}.zip` for each plugin. Pass a plugin name (e.g. `python build.py scheduling`) to build just one.
+7. **Distribute** — upload the updated zip(s) to the enterprise plugin distribution for zip-based installs.
 
-The `src/` folder is gitignored — zips are rebuilt locally after each merge and never committed.
+The `src/` folder is gitignored — zips are rebuilt locally after each merge and never committed. Both distribution paths are supported: the marketplace (`marketplace.json`) serves direct-from-repo installs; the zip serves enterprise-managed installs.
 
 ## Structure
 
