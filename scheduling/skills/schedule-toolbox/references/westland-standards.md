@@ -123,7 +123,7 @@ PROJECT
 
 ### WBS Flexibility
 The standard WBS is a starting point. Adapt it to the project:
-- **Demo phase:** If demolition must occur before construction, add a DEMOLITION section above CONSTRUCTION
+- **Demo phase:** Demolition placement depends on phasing — before construction (greenfield), after construction (occupied rebuild), or interleaved (phased turnover). See `schedule-create-proposal-schedule/references/wbs-patterns.md` for the three patterns and decision table. The one-line rule "add DEMOLITION above CONSTRUCTION" covers only the greenfield case and is wrong for occupied rebuilds — post-demo sitework on the old footprint should nest under DEMOLITION, not under new-school SITEWORK.
 - **Multiple buildings:** Repeat the Construction sub-structure for each building or use building-level WBS nodes
 - **Phased turnover:** Add turnover milestones within the appropriate WBS sections
 - **Additional phases:** Insert as needed while maintaining the overall Westland organizational structure
