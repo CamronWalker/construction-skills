@@ -5,6 +5,12 @@
   },
   "plugins": [
     {
+      "name": "westland",
+      "source": "./westland",
+      "description": "Westland Construction organizational plugin — always-loaded safety hooks and progressively-disclosed company style references. Install first on every Westland machine; required dependency of the domain plugins (scheduling, estimating, etc.). Contains: XER immutability PreToolUse hook and the westland-house-style skill.",
+      "version": "1.0.3"
+    },
+    {
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules, quality scoring, and full schedule update pipeline (folder setup, SmartPM screenshots, email draft, Outlook draft).",
