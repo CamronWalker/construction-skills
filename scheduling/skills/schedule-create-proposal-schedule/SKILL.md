@@ -16,7 +16,7 @@ This skill creates a proposal schedule by analyzing bid documents and sample XER
 
 A proposal schedule is a **sales document built to win the job** — a clean, credible, defensible path to completion that a reviewer will compare against competitors. Scope every decision to that purpose. Construction-phase tracking elements (Progress Impact buckets, SmartPM, TIA, weekly updates) belong to post-award work and do not go in a proposal.
 
-This skill operationalizes the Westland Scheduling Department Procedural Outline for the proposal-schedule phase specifically. The full source-of-truth PDF is bundled as `references/Westland Scheduling Procedures Outline - 2026-03-09.pdf`. Load `references/westland-procedures-summary.md` in Phase 2 for the distilled proposal-stage version.
+This skill operationalizes the Westland Scheduling Department Procedural Outline for the proposal-schedule phase specifically. The full text is bundled as `references/westland-procedures.md` with site logistics workflow examples in `references/site-logistics-examples/`. Load `references/westland-procedures-summary.md` in Phase 2 for the distilled proposal-stage version; load `westland-procedures.md` only when the summary doesn't answer the question.
 
 ## Workflow
 
@@ -95,7 +95,7 @@ Based on the analysis, propose a **complete schedule structure** using Westland 
 - **Calendar** — From contract requirements (5-day/6-day/7-day)
 - **Logic network** — Based on sample schedule patterns
 - **Responsibility codes** — Assign a Westland standard responsibility code to every activity. No unassigned activities in the final XER.
-- **Site Logistics & Workflow Plan** — The procedures doc requires a graphic zone-and-arrow plan view *prior to* the detailed schedule (see Lubumbashi/Querétaro temple examples in the bundled PDF). If one has not been developed, flag it as a Phase 4 question to the PMT rather than inferring zones from the sample schedule. Note the status in the plan document.
+- **Site Logistics & Workflow Plan** — The procedures doc requires a graphic zone-and-arrow plan view *prior to* the detailed schedule. Reference `references/site-logistics-examples/` for what a good one looks like (Lubumbashi structural/interior/site workflows, Querétaro floor-level zoning). If one has not been developed, flag it as a Phase 4 question to the PMT rather than inferring zones from the sample schedule. Note the status in the plan document.
 
 **Task code prefix** — Ask once whether to rename task codes from the sample prefix to the project prefix, or keep sample codes for traceability. Default: keep sample codes. Do not bulk-rename without user confirmation.
 
@@ -247,7 +247,8 @@ When this skill is used on a real proposal and the human-submitted version diver
 |------|-------------|
 | `references/wbs-patterns.md` | WBS pattern selection (A/B/C) — load in Phase 2/3 when deciding top-level structure |
 | `references/westland-procedures-summary.md` | Distilled Westland procedure for proposal schedules — load in Phase 2 before recommendations |
-| `references/Westland Scheduling Procedures Outline - 2026-03-09.pdf` | Full source-of-truth procedures doc — load only when the summary doesn't answer the question |
+| `references/westland-procedures.md` | Full Westland procedures text — load only when the summary doesn't answer the question |
+| `references/site-logistics-examples/` | Lubumbashi & Querétaro site logistics workflow PNGs — reference for what a good plan looks like |
 | `references/generate_proposal_schedule_pdf.py` | Westland-branded PDF generator — load when generating the plan document |
 | `references/sample_data.json` | Schema template showing all required JSON keys for the PDF generator |
 | `references/xer-analysis-code.md` | Python functions for extracting schedule profiles from sample XERs |
