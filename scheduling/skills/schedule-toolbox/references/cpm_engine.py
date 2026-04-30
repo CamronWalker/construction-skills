@@ -103,6 +103,176 @@ def _find_sc_milestone(tasks):
     return None
 
 
+def check_anchor_dates(results, anchors, tolerance_days=0):
+    """Compare CPM results against project anchor dates and report any slips.
+
+    Anchors are the bid-given milestones (NTP, drawings issued, SC, final
+    GMP, etc.) captured as project metadata -- NOT as XER constraints.
+    Westland best practice is to keep these dates pinned via *logic and
+    durations*, not hard constraints, so the schedule remains honest about
+    what's actually driving each date.
+
+    During the proposal-schedule iteration loop, Claude calls this after
+    a what-if CPM but BEFORE writing the next -v{N+1}.xer. Any non-zero
+    slip means the proposed change would push an anchor; Claude must
+    formulate an absorption plan and confirm with the scheduler before
+    regenerating the file.
+
+    Args:
+        results: list of task dicts after schedule_forward_backward (each
+            has early_start_date / early_end_date populated)
+        anchors: list of anchor dicts from the project's anchors metadata
+            (typically `<project>/proposal-anchors.json`). Each entry:
+                - task_code (str): matches results[*].task_code
+                - anchor_date (str: YYYY-MM-DD)
+                - anchor_kind (str): "start" or "finish" -- which side of
+                    the task the date applies to (default "finish")
+                - kind_label (str, optional): human label like "NTP" / "SC"
+        tolerance_days (int): allowed slip without reporting (default 0)
+
+    Returns: list of slip dicts, one per anchor that drifted past tolerance:
+        {task_code, task_name, kind_label, anchor_date, computed_date,
+         anchor_kind, slip_days}.
+        Empty list = all anchors hold.
+    """
+    by_code = {t.get('task_code', ''): t for t in results}
+    slips = []
+    for a in anchors:
+        code = a.get('task_code', '')
+        t = by_code.get(code)
+        if not t:
+            continue
+        anchor_kind = (a.get('anchor_kind') or 'finish').lower()
+        anchor_d = _parse_date(a.get('anchor_date', ''))
+        if not anchor_d:
+            continue
+        if anchor_kind == 'start':
+            computed = _parse_date(t.get('early_start_date', ''))
+        else:
+            computed = _parse_date(t.get('early_end_date', ''))
+        if not computed:
+            continue
+        # Compare date-only — anchor_date is YYYY-MM-DD, but early_*_date
+        # carries a time-of-day (08:00 / 17:00) that would otherwise show
+        # an on-time task as a fractional-day slip.
+        computed_d = computed.replace(hour=0, minute=0, second=0, microsecond=0)
+        anchor_d_norm = anchor_d.replace(hour=0, minute=0, second=0, microsecond=0)
+        slip = (computed_d - anchor_d_norm).days
+        if abs(slip) <= tolerance_days:
+            continue
+        slips.append({
+            'task_id': t.get('task_id', ''),
+            'task_code': code,
+            'task_name': t.get('task_name', ''),
+            'kind_label': a.get('kind_label', ''),
+            'anchor_date': a.get('anchor_date', ''),
+            'computed_date': computed_d.strftime('%Y-%m-%d'),
+            'anchor_kind': anchor_kind,
+            'slip_days': int(slip),
+        })
+    return slips
+
+
+def suggest_anchor_absorption(results, preds, slip, max_suggestions=8):
+    """For a single anchor slip, return candidate edits that would pull
+    the anchor task back to its target date.
+
+    Walks predecessors of the slipped task and ranks the chain by duration
+    (longest tasks first -- highest leverage per cut). Returns concrete
+    suggestions Claude can surface to the scheduler for confirmation;
+    Claude is expected to present these as options, not auto-apply.
+
+    Args:
+        results: task list after schedule_forward_backward
+        preds: TASKPRED rows
+        slip: one entry from check_anchor_dates() return value (must
+            include task_id and slip_days)
+        max_suggestions: cap on the number of candidate tasks listed
+
+    Returns: list of suggestion dicts:
+        {task_id, task_code, task_name, current_duration_days,
+         suggested_max_cut_days, total_float_days, kind, rationale}
+        Sum of `suggested_max_cut_days` across the list is at least the
+        slip; Claude picks a subset that adds up to the slip and presents
+        the absorption plan to the scheduler.
+    """
+    target_id = slip.get('task_id', '')
+    slip_days = abs(int(slip.get('slip_days', 0)))
+    if not target_id or slip_days == 0:
+        return []
+
+    # Build predecessor map from preds rows
+    pred_map = defaultdict(list)
+    for r in preds:
+        succ_id = r.get('task_id', '')
+        pred_id = r.get('pred_task_id', '')
+        if succ_id and pred_id:
+            pred_map[succ_id].append(pred_id)
+    tasks_by_id = {t.get('task_id', ''): t for t in results}
+
+    # Walk back from the target task collecting all upstream tasks
+    upstream = set()
+    queue = [target_id]
+    seen = set()
+    while queue:
+        tid = queue.pop()
+        if tid in seen:
+            continue
+        seen.add(tid)
+        if tid != target_id:
+            upstream.add(tid)
+        for p in pred_map.get(tid, []):
+            if p not in seen:
+                queue.append(p)
+        # Cap traversal so a large schedule doesn't fan out infinitely
+        if len(seen) > 1000:
+            break
+
+    # Rank candidates by current duration (largest first), excluding
+    # milestones (zero-duration). Tasks with high total_float can be
+    # cut without affecting the anchor — so prefer tasks WITHOUT float
+    # (= on the driving path to the anchor).
+    cands = []
+    for tid in upstream:
+        t = tasks_by_id.get(tid)
+        if not t:
+            continue
+        ttype = t.get('task_type', '')
+        if ttype in ('TT_Mile', 'TT_FinMile', 'TT_WBS', 'TT_LOE'):
+            continue
+        dur_hr = _safe_float(t.get('target_drtn_hr_cnt', 0))
+        dur_days = dur_hr / 8
+        if dur_days < 1:
+            continue
+        tf_hr = _safe_float(t.get('total_float_hr_cnt', 0))
+        tf_days = tf_hr / 8
+        # Only critical-path tasks (TF <= 1d) actually pull the anchor in.
+        # Tasks with float are on parallel branches — cutting them just
+        # gives those branches more slack and doesn't move the anchor.
+        # Once Camron has allocated cuts on the critical path and the
+        # near-critical path becomes the new bottleneck, run the function
+        # again on the new what-if results.
+        if tf_days > 1:
+            continue
+        # Suggest a cut up to ~half the duration (still leaves a sane
+        # estimate). Claude can adjust on a per-task basis.
+        max_cut = max(1, int(dur_days * 0.5))
+        cands.append({
+            'task_id': tid,
+            'task_code': t.get('task_code', ''),
+            'task_name': t.get('task_name', ''),
+            'current_duration_days': round(dur_days, 1),
+            'suggested_max_cut_days': max_cut,
+            'total_float_days': round(tf_days, 1),
+            'kind': 'duration_cut',
+            'rationale': f'On the driving path to the anchor (TF {round(tf_days,1)}d). Cutting up to {max_cut}d preserves a realistic estimate.',
+        })
+
+    # Largest-leverage tasks first so Claude considers them first
+    cands.sort(key=lambda c: -c['current_duration_days'])
+    return cands[:max_suggestions]
+
+
 # ---------------------------------------------------------------------------
 # Graph construction
 # ---------------------------------------------------------------------------
@@ -1027,6 +1197,450 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
         results.append(t)
 
     return results, metadata
+
+
+# ---------------------------------------------------------------------------
+# Path extraction (post-processing on schedule_forward_backward results)
+# ---------------------------------------------------------------------------
+
+# Constraints that pin a task to a finish-by date — treat as key end-states
+_PATH_END_CONSTRAINTS = {'CS_FNLT', 'CS_MEOB', 'CS_MFO', 'CS_MEO',
+                          'CS_MANDFIN', 'CS_MANDEND'}
+
+# Near-critical threshold in working hours (5 working days at 8 hrs/day)
+_NEAR_CRITICAL_HR = 40
+
+
+def _path_task_summary(t, task_id):
+    """Compact dict for a task in a path chain."""
+    tf_hr = _safe_float(t.get('total_float_hr_cnt', 0))
+    return {
+        'id': t.get('task_code', '') or task_id,
+        'task_id': task_id,
+        'name': t.get('task_name', ''),
+        'early_start': (t.get('early_start_date', '') or '')[:10],
+        'early_end': (t.get('early_end_date', '') or '')[:10],
+        'total_float_days': round(tf_hr / 8, 1),
+    }
+
+
+def _build_path_maps(results, preds):
+    """Build pred/succ adjacency maps scoped to schedulable tasks."""
+    skip_types = {'TT_WBS', 'TT_LOE'}
+    tasks_by_id = {t.get('task_id', ''): t for t in results}
+    cpm_ids = {tid for tid, t in tasks_by_id.items()
+               if t.get('task_type', '') not in skip_types and tid}
+
+    pred_map = defaultdict(list)
+    succ_map = defaultdict(list)
+    for r in preds:
+        succ_id = r.get('task_id', '')
+        pred_id = r.get('pred_task_id', '')
+        if succ_id in cpm_ids and pred_id in cpm_ids:
+            pred_map[succ_id].append(pred_id)
+            succ_map[pred_id].append(succ_id)
+    return tasks_by_id, cpm_ids, pred_map, succ_map
+
+
+def _trace_back(end_id, tasks_by_id, pred_map):
+    """Walk backwards picking least-float predecessor. Returns earliest-to-end order."""
+    chain = []
+    current = end_id
+    visited = set()
+    while current and current not in visited:
+        chain.append(current)
+        visited.add(current)
+        best_pred, best_float = None, float('inf')
+        for pred_id in pred_map.get(current, []):
+            if pred_id in visited:
+                continue
+            tf = _safe_float(tasks_by_id.get(pred_id, {}).get('total_float_hr_cnt', 999))
+            if tf < best_float:
+                best_float = tf
+                best_pred = pred_id
+        current = best_pred
+    return list(reversed(chain))
+
+
+def _trace_forward(start_id, tasks_by_id, succ_map, max_steps=50):
+    """Walk forward picking least-float successor. Returns start-to-furthest order."""
+    chain = [start_id]
+    visited = {start_id}
+    current = start_id
+    while len(chain) < max_steps:
+        best_succ, best_float = None, float('inf')
+        for s in succ_map.get(current, []):
+            if s in visited:
+                continue
+            tf = _safe_float(tasks_by_id.get(s, {}).get('total_float_hr_cnt', 999))
+            if tf < best_float:
+                best_float = tf
+                best_succ = s
+        if best_succ is None:
+            break
+        chain.append(best_succ)
+        visited.add(best_succ)
+        current = best_succ
+    return chain
+
+
+def _find_parallel_branches(tasks_by_id, succ_map, cpm_ids, limit=10):
+    """Find diverge-then-converge subgraphs ranked by criticality."""
+    branches = []
+    seen_pairs = set()
+
+    for tid in cpm_ids:
+        succs = [s for s in succ_map.get(tid, []) if s in cpm_ids]
+        if len(succs) < 2:
+            continue
+        for i in range(len(succs)):
+            for j in range(i + 1, len(succs)):
+                s1, s2 = succs[i], succs[j]
+                key = (tid,) + tuple(sorted([s1, s2]))
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+
+                chain1 = _trace_forward(s1, tasks_by_id, succ_map)
+                chain2 = _trace_forward(s2, tasks_by_id, succ_map)
+                set1 = set(chain1)
+                converge = next((t for t in chain2 if t in set1), None)
+                if not converge or converge in (s1, s2):
+                    continue
+
+                idx1 = chain1.index(converge)
+                idx2 = chain2.index(converge)
+                b1 = chain1[:idx1 + 1]
+                b2 = chain2[:idx2 + 1]
+                # Need both branches to be more than just the convergence node
+                if len(b1) < 2 or len(b2) < 2:
+                    continue
+
+                all_ids = b1 + b2
+                min_float_hr = min(
+                    _safe_float(tasks_by_id.get(c, {}).get('total_float_hr_cnt', 999))
+                    for c in all_ids
+                )
+                branches.append({
+                    'diverge_at': _path_task_summary(tasks_by_id.get(tid, {}), tid),
+                    'converge_at': _path_task_summary(tasks_by_id.get(converge, {}), converge),
+                    'min_float_days': round(min_float_hr / 8, 1),
+                    'branches': [
+                        [_path_task_summary(tasks_by_id.get(c, {}), c) for c in b1],
+                        [_path_task_summary(tasks_by_id.get(c, {}), c) for c in b2],
+                    ],
+                })
+
+    branches.sort(key=lambda b: b['min_float_days'])
+    return branches[:limit]
+
+
+def extract_paths(results, metadata, preds):
+    """
+    Post-processing on schedule_forward_backward() output. Walks driving-path
+    flags backwards from key end-states (SC milestone, project_end, FNLT-
+    constrained tasks) to produce ordered chains. Identifies critical and
+    near-critical sequences and parallel branches.
+
+    Args:
+        results: list of task dicts from schedule_forward_backward
+        metadata: metadata dict from schedule_forward_backward
+        preds: list of relationship dicts (TASKPRED rows) — same input that
+               was passed to schedule_forward_backward
+
+    Returns:
+        {
+            'critical_path': [task_summary, ...],
+            'near_critical': [{float_days, length, chain}, ...],
+            'driving_paths': [{to, end_task_id, end_task_code, chain}, ...],
+            'parallel_branches': [{diverge_at, converge_at, min_float_days, branches}, ...],
+        }
+    """
+    tasks_by_id, cpm_ids, pred_map, succ_map = _build_path_maps(results, preds)
+
+    # ------------------------------------------------------------------
+    # Identify key end-states
+    # ------------------------------------------------------------------
+    end_states = []  # list of (label, task_id)
+    seen_ends = set()
+
+    sc_id = metadata.get('sc_milestone_id') if metadata else None
+    if sc_id and sc_id in tasks_by_id:
+        end_states.append(('SC milestone', sc_id))
+        seen_ends.add(sc_id)
+
+    # Project end = task with the latest early finish
+    proj_end_id, proj_end_dt = None, None
+    for tid in cpm_ids:
+        ef = _parse_date(tasks_by_id[tid].get('early_end_date', ''))
+        if ef and (proj_end_dt is None or ef > proj_end_dt):
+            proj_end_dt, proj_end_id = ef, tid
+    if proj_end_id and proj_end_id not in seen_ends:
+        end_states.append(('project_end', proj_end_id))
+        seen_ends.add(proj_end_id)
+
+    # FNLT-constrained tasks
+    for tid in cpm_ids:
+        t = tasks_by_id[tid]
+        cstr = t.get('cstr_type', '') or t.get('constraint_type', '')
+        cstr2 = t.get('cstr_type2', '')
+        if cstr in _PATH_END_CONSTRAINTS or cstr2 in _PATH_END_CONSTRAINTS:
+            if tid not in seen_ends:
+                label = f"FNLT: {t.get('task_code', '') or tid}"
+                end_states.append((label, tid))
+                seen_ends.add(tid)
+
+    # ------------------------------------------------------------------
+    # Driving paths: full trace_back from each end-state.
+    # The critical path is whichever driving path yields the longest run
+    # of TF<=0 tasks (project_end may be a punch-list / warranty tail that
+    # isn't the canonical critical chain — SC milestone is more reliable).
+    # ------------------------------------------------------------------
+    driving_paths = []
+    best_crit_chain = []  # longest TF<=0 sequence across all driving paths
+    for label, end_id in end_states:
+        chain_ids = _trace_back(end_id, tasks_by_id, pred_map)
+        if not chain_ids:
+            continue
+        end_task = tasks_by_id.get(end_id, {})
+        driving_paths.append({
+            'to': label,
+            'end_task_id': end_id,
+            'end_task_code': end_task.get('task_code', '') or end_id,
+            'end_task_name': end_task.get('task_name', ''),
+            'chain': [_path_task_summary(tasks_by_id[tid], tid) for tid in chain_ids],
+        })
+
+        # Collect contiguous TF<=0 segment for critical-path candidate
+        crit_segment = [
+            tid for tid in chain_ids
+            if _safe_float(tasks_by_id[tid].get('total_float_hr_cnt', 999)) <= 0.01
+        ]
+        if len(crit_segment) > len(best_crit_chain):
+            best_crit_chain = crit_segment
+
+    critical_path = [_path_task_summary(tasks_by_id[tid], tid) for tid in best_crit_chain]
+
+    # ------------------------------------------------------------------
+    # Near-critical chains: 0 < TF < 40 hr (5 working days), grouped
+    # ------------------------------------------------------------------
+    near_set = set()
+    for tid in cpm_ids:
+        tf = _safe_float(tasks_by_id[tid].get('total_float_hr_cnt', 999))
+        if 0 < tf < _NEAR_CRITICAL_HR:
+            near_set.add(tid)
+
+    near_chains = []
+    used = set()
+    # Order tails by latest EF first so longer downstream chains anchor first
+    def _ef_key(tid):
+        dt = _parse_date(tasks_by_id[tid].get('early_end_date', ''))
+        return dt.timestamp() if dt else 0
+
+    for tid in sorted(near_set, key=_ef_key, reverse=True):
+        if tid in used:
+            continue
+        # Only seed from a "tail" — task whose successors are not near-critical
+        if any(s in near_set for s in succ_map.get(tid, [])):
+            continue
+        chain = []
+        current = tid
+        while current and current in near_set and current not in used:
+            chain.append(current)
+            used.add(current)
+            best_pred, best_float = None, float('inf')
+            for pred_id in pred_map.get(current, []):
+                if pred_id in near_set and pred_id not in used:
+                    tf = _safe_float(tasks_by_id[pred_id].get('total_float_hr_cnt', 999))
+                    if tf < best_float:
+                        best_float = tf
+                        best_pred = pred_id
+            current = best_pred
+        if not chain:
+            continue
+        chain.reverse()
+        chain_min_hr = min(
+            _safe_float(tasks_by_id[c].get('total_float_hr_cnt', 999))
+            for c in chain
+        )
+        near_chains.append({
+            'float_days': round(chain_min_hr / 8, 1),
+            'length': len(chain),
+            'chain': [_path_task_summary(tasks_by_id[c], c) for c in chain],
+        })
+    near_chains.sort(key=lambda c: (c['float_days'], -c['length']))
+
+    # ------------------------------------------------------------------
+    # Parallel branches: diverge-then-converge subgraphs
+    # ------------------------------------------------------------------
+    parallel_branches = _find_parallel_branches(tasks_by_id, succ_map, cpm_ids)
+
+    return {
+        'critical_path': critical_path,
+        'near_critical': near_chains,
+        'driving_paths': driving_paths,
+        'parallel_branches': parallel_branches,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Activities JSON export (consumed by build_gantt_html.py)
+# ---------------------------------------------------------------------------
+
+def _wbs_lookup(wbs_rows):
+    """{wbs_id: {wbs_name, parent_wbs_id, level}} from XER PROJWBS rows."""
+    by_id = {}
+    if not wbs_rows:
+        return by_id
+    for w in wbs_rows:
+        wid = w.get('wbs_id', '')
+        if not wid:
+            continue
+        by_id[wid] = {
+            'wbs_id': wid,
+            'wbs_name': w.get('wbs_name', '') or w.get('wbs_short_name', ''),
+            'parent_wbs_id': w.get('parent_wbs_id', '') or '',
+            'seq_num': w.get('seq_num', '') or '',
+        }
+    # Compute depth via parent chain
+    def depth(wid, seen=None):
+        seen = seen or set()
+        if wid in seen or wid not in by_id:
+            return 0
+        seen.add(wid)
+        parent = by_id[wid].get('parent_wbs_id', '')
+        if not parent or parent not in by_id:
+            return 1
+        return 1 + depth(parent, seen)
+    for wid, info in by_id.items():
+        info['level'] = depth(wid)
+    return by_id
+
+
+def build_activities_json(results, metadata, preds, project_name=None,
+                           data_date=None, wbs_rows=None, default_view=None):
+    """
+    Build the schedule-activities.json structure consumed by build_gantt_html.py.
+
+    Includes the activity list with WBS hierarchy + the `paths` analytics
+    section (critical, near-critical, driving paths, parallel branches).
+
+    Args:
+        results: task list after schedule_forward_backward
+        metadata: metadata from schedule_forward_backward
+        preds: TASKPRED rows
+        project_name: optional project display name
+        data_date: optional data date string
+        wbs_rows: optional PROJWBS rows for hierarchy
+        default_view: optional dict with px_per_day / display_unit /
+            scroll_left / scroll_top / expanded_ids / table_width_px.
+            When the user clicks "Copy for Claude" with the Default-view
+            checkbox on, the pasted payload includes a `default_view`
+            block; pass it through here so the next HTML render restores
+            the same zoom, units, scroll, expand state, and splitter width.
+
+    Returns: dict ready to serialize as JSON
+    """
+    skip_types = {'TT_LOE'}  # WBS rows are emitted as summary nodes, but actual
+                              # XER WBS task-rows (TT_WBS) are excluded since
+                              # PROJWBS provides the hierarchy
+    wbs_by_id = _wbs_lookup(wbs_rows)
+
+    activities = []
+    pred_lookup = defaultdict(list)
+    for r in preds:
+        succ_id = r.get('task_id', '')
+        pred_id = r.get('pred_task_id', '')
+        ptype = r.get('pred_type', 'PR_FS')
+        lag = _safe_float(r.get('lag_hr_cnt', 0))
+        pred_lookup[succ_id].append({
+            'pred_task_id': pred_id,
+            'type': ptype,
+            'lag_hr': lag,
+        })
+
+    # Emit WBS summary rows first
+    for wid, info in wbs_by_id.items():
+        activities.append({
+            'id': wid,
+            'task_id': wid,
+            'name': info['wbs_name'],
+            'parent': info.get('parent_wbs_id') or None,
+            'wbs_level': info.get('level', 1),
+            'is_summary': True,
+            'kind': 'wbs',
+        })
+
+    # Emit task rows
+    for t in results:
+        ttype = t.get('task_type', '')
+        if ttype in skip_types:
+            continue
+        if ttype == 'TT_WBS':
+            continue  # PROJWBS provides hierarchy; these dummy rows are skipped
+        tid = t.get('task_id', '')
+        if not tid:
+            continue
+        es = _parse_date(t.get('early_start_date', ''))
+        ef = _parse_date(t.get('early_end_date', ''))
+        ls = _parse_date(t.get('late_start_date', ''))
+        lf = _parse_date(t.get('late_end_date', ''))
+        tf_hr = _safe_float(t.get('total_float_hr_cnt', 0))
+        ff_hr = _safe_float(t.get('free_float_hr_cnt', 0))
+        wbs_id = t.get('wbs_id', '') or None
+        wbs_level = wbs_by_id.get(wbs_id, {}).get('level', 0) + 1 if wbs_id else 1
+
+        is_milestone = ttype in ('TT_Mile', 'TT_FinMile')
+        progress = 100 if t.get('status_code', '') == 'TK_Complete' else (
+            50 if t.get('status_code', '') == 'TK_Active' else 0
+        )
+
+        activities.append({
+            'id': t.get('task_code', '') or tid,
+            'task_id': tid,
+            'task_code': t.get('task_code', ''),
+            'name': t.get('task_name', ''),
+            'parent': wbs_id,
+            'wbs_id': wbs_id,
+            'wbs_level': wbs_level,
+            'is_summary': False,
+            'is_milestone': is_milestone,
+            'kind': 'milestone' if is_milestone else 'task',
+            'task_type': ttype,
+            'status': t.get('status_code', ''),
+            'progress': progress,
+            'start': _format_date(es) if es else '',
+            'end': _format_date(ef) if ef else '',
+            'early_start': _format_date(es) if es else '',
+            'early_end': _format_date(ef) if ef else '',
+            'late_start': _format_date(ls) if ls else '',
+            'late_end': _format_date(lf) if lf else '',
+            'total_float_days': round(tf_hr / 8, 1),
+            'free_float_days': round(ff_hr / 8, 1),
+            'driving_path': t.get('driving_path_flag', '') == 'Y',
+            'dependencies': pred_lookup.get(tid, []),
+        })
+
+    paths = extract_paths(results, metadata or {}, preds)
+
+    sc_md = metadata or {}
+    out = {
+        'project': {
+            'name': project_name or '',
+            'data_date': (data_date if isinstance(data_date, str) else _format_date(data_date)) if data_date else '',
+            'sc_milestone_name': sc_md.get('sc_milestone_name', ''),
+            'sc_milestone_code': sc_md.get('sc_milestone_code', ''),
+            'sc_milestone_date': sc_md.get('sc_milestone_date', ''),
+            'project_end_date': sc_md.get('project_end_date', ''),
+            'project_end_source': sc_md.get('project_end_source', ''),
+        },
+        'activities': activities,
+        'paths': paths,
+        'circular_dependencies': sc_md.get('circular_dependencies', []),
+    }
+    if default_view:
+        out['default_view'] = default_view
+    return out
 
 
 # ---------------------------------------------------------------------------
