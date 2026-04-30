@@ -26,6 +26,7 @@ EXCEPTION: Explicit user instruction to generate or modify a specific file.
 | Parse / read XER | `references/xer-format.md` |
 | Modify / write back XER | `references/xer-modify.md` |
 | Run CPM, float, critical path | `references/cpm-usage.md` |
+| Render the Gantt review HTML for proposal iteration | `references/cpm-usage.md` (§ Gantt Review HTML) |
 | SC path coverage, delay impact | `references/analysis-tools.md` |
 | Generate a new XER from scratch | `references/xer-generation.md` |
 | XER table / field definitions | `references/xer-tables.md` (grep by table name) |
