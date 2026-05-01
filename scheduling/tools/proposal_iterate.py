@@ -42,14 +42,90 @@ from datetime import datetime
 from pathlib import Path
 
 from _xer_io import parse_xer, next_xer_path, write_xer_with_updates
-from _cpm_loader import load_cpm, plugin_root
+from _cpm_loader import load_cpm, plugin_root, reference_dir
 import _cpm_cache
 import _layout
+import _impact
+import importlib.util
 
 
 def _err(msg, code=1):
     print(f'ERROR: {msg}', file=sys.stderr)
     return code
+
+
+_score_module = None
+
+
+def _load_score_module():
+    """Lazy-load score_schedule from schedule-toolbox/references/."""
+    global _score_module
+    if _score_module is not None:
+        return _score_module
+    import os
+    spec = importlib.util.spec_from_file_location(
+        'score_schedule', os.path.join(reference_dir(), 'score_schedule.py'))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _score_module = mod
+    return mod
+
+
+def _score_results(results, preds, data_date):
+    """Run compute_quality_score on the post-CPM state. Returns a small
+    sidecar-shaped dict, or None on failure.
+
+    `data_date` from proposal_iterate is a string ('YYYY-MM-DD HH:MM'); the
+    scorer's internal comparisons require a datetime, so parse it here.
+    """
+    try:
+        sc = _load_score_module()
+        dd = data_date
+        if isinstance(dd, str):
+            for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
+                try:
+                    dd = datetime.strptime(dd.strip(), fmt)
+                    break
+                except (ValueError, AttributeError):
+                    continue
+        score, grade, scored, info, deductions, scope, details = sc.compute_quality_score(
+            results, preds, dd)
+    except Exception as e:
+        print(f'WARN: scoring skipped ({e})', file=sys.stderr)
+        return None
+    return {
+        'score': round(score, 1),
+        'grade': grade,
+        'deductions': dict(deductions or {}),
+        'data_date': data_date,
+    }
+
+
+def _read_score_sidecar(project, version, layout):
+    if version is None:
+        return None
+    p = _layout.scores_dir(project, layout) / f'v{version}.json'
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_score_sidecar(project, version, score_data, layout, xer_name=''):
+    out_dir = _layout.scores_dir(project, layout)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        'version': version,
+        'xer': xer_name,
+        'score': score_data['score'],
+        'grade': score_data['grade'],
+        'deductions': score_data.get('deductions', {}),
+        'data_date': score_data.get('data_date'),
+    }
+    (out_dir / f'v{version}.json').write_text(
+        json.dumps(payload, indent=2, default=str), encoding='utf-8')
 
 
 def _load_paste(path, label):
@@ -207,6 +283,10 @@ def main():
         or project.name
     )
 
+    # Snapshot the pre-CPM task state for the impact diff. Must happen BEFORE
+    # _apply_duration_changes or schedule_forward_backward mutates task dicts.
+    old_snap = _impact.snapshot_old(tasks)
+
     paste_by_id, paste_by_code = _collect_duration_changes(paste)
     if apply_payload:
         apply_by_id, apply_by_code = _collect_duration_changes(apply_payload)
@@ -249,6 +329,7 @@ def main():
         return 2
 
     # Compute target paths
+    current_version = None  # legacy path sets this; new layout doesn't need it
     if layout == _layout.LAYOUT_NEW:
         # Archive the current root XER, then write new content to root
         archive_version = _layout.latest_archived_version(project, layout) + 1
@@ -333,35 +414,64 @@ def main():
         encoding='utf-8',
     )
 
+    # ===== Parallel block: HTML render || score the new state =====
+    # HTML build is a separate process (Popen, no shared state). Score is
+    # pure Python compute on `results`. They run concurrently while we also
+    # compute the impact summary in this thread.
     html_path = _layout.html_path(project, layout)
     builder = plugin_root() / 'tools' / 'build_gantt_html.py'
-    proc = subprocess.run(
+    html_proc = subprocess.Popen(
         ['python', str(builder), str(activities_json),
          '-o', str(html_path), '--project', project_name],
-        capture_output=True, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
-    if proc.returncode != 0:
+
+    # Compute impact (cheap pure-Python; runs while HTML subprocess churns)
+    impact = _impact.compute_impact(old_snap, results, anchors)
+
+    # Score the new state (the heavy compute runs on this thread; subprocess
+    # is doing HTML in parallel)
+    score_data = _score_results(results, preds, data_date)
+
+    # Wait for HTML and check status
+    html_stdout, html_stderr = html_proc.communicate()
+    if html_proc.returncode != 0:
         if args.verbose:
             log = _layout.debug_log_path(project, layout)
             log.parent.mkdir(parents=True, exist_ok=True)
             log.write_text(
-                proc.stdout + '\n---STDERR---\n' + proc.stderr,
+                (html_stdout or '') + '\n---STDERR---\n' + (html_stderr or ''),
                 encoding='utf-8',
             )
-        return _err(f'build_gantt_html.py failed: {proc.stderr.strip()[:200]}')
+        return _err(f'build_gantt_html.py failed: {(html_stderr or "").strip()[:200]}')
+
+    # ===== Score sidecar handoff =====
+    # archive_version is set in the new-layout branch above; legacy uses
+    # current_version + 1. The new XER's implicit version is archive_version + 1
+    # in new layout (since archive_version == version of the file we just moved
+    # into Old Iterations/), or current_version + 1 in legacy.
+    if layout == _layout.LAYOUT_NEW:
+        new_version = archive_version + 1
+    else:
+        new_version = (current_version + 1) if current_version is not None else None
+    prior_version = (new_version - 1) if new_version else None
+    prior_score_data = _read_score_sidecar(project, prior_version, layout) if prior_version else None
+    if score_data and new_version:
+        _write_score_sidecar(project, new_version, score_data, layout, xer_name=new_root_path.name)
 
     # Archive paste-back
     iter_dir.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(args.paste, paste_archive)
 
-    sc_date = (metadata.get('sc_milestone_date', '') or '')[:10]
+    # ===== Print summary =====
     print(f'Wrote XER:   {new_root_path.name}')
-    print(f'Wrote JSON:  {activities_json.name}')
-    print(f'Wrote HTML:  {html_path.name}')
     if layout == _layout.LAYOUT_NEW and archived_path:
         print(f'Archived:    Old Iterations/{archived_path.name}')
-    print(f'SC date:     {sc_date}')
-    print(f'Anchor check passed ({len(anchors)} anchors, {n_changed} duration changes applied)')
+    print(f'Wrote JSON + HTML.')
+    print(f'Anchors check passed ({len(anchors)} anchors, {n_changed} duration changes applied).')
+    print('')
+    for line in _impact.render_impact(impact, prior_score_data, score_data):
+        print(line)
     return 0
 
 

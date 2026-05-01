@@ -90,16 +90,30 @@ propsched iterate --project "<project>" --paste paste.json --no-cache
 
 Behavior:
 1. Locates the current XER (project root in new layout, latest `-v{N}.xer` in legacy).
-2. Applies `duration_change` from `--paste` (and optional `--apply`) in memory.
-3. Runs what-if CPM (cached by content hash; `--no-cache` to bypass).
-4. Calls `check_anchor_dates`. If any anchor slips later than its bid-given date, prints slips + top-5 cut candidates per slip and exits with code 2. **Nothing is written.**
-5. If anchors hold:
+2. Snapshots prior task dates for the impact diff.
+3. Applies `duration_change` from `--paste` (and optional `--apply`) in memory.
+4. Runs what-if CPM (cached by content hash; `--no-cache` to bypass).
+5. Calls `check_anchor_dates`. If any anchor slips later than its bid-given date, prints slips + top-5 cut candidates per slip and exits with code 2. **Nothing is written.**
+6. If anchors hold:
    - New layout: archives the existing root XER to `Old Iterations/<Project> -v{N}.xer`, writes new XER content to root.
    - Legacy: writes `-v{N+1}.xer` in place.
    - Regenerates `schedule-activities.json` (preserves `default_view` from paste).
-   - Regenerates `schedule-review.html`.
+   - **Parallel:** renders `schedule-review.html` (subprocess) while scoring the new state.
    - Archives the paste-back to `Old Iterations/paste-{N+1}.json`.
-   - Prints a 5-line summary.
+   - Writes a score sidecar to `Old Iterations/scores/v{N+1}.json`.
+   - Prints the file-write confirmation, then an **Impact** block (only sections with non-zero changes) + **Score** block.
+
+**Impact block fields** (each shown only if it changed):
+- SC delta (anchor or absolute)
+- Critical-path end task and length (with "(was X)" if the end shifted)
+- Per-anchor drift change (old drift -> new drift, with "pulled in / pushed out" annotation)
+- Top 5 task EF shifts by absolute delta
+- Near-critical chain count delta
+
+**Score block fields**:
+- `Grade Score -> Grade Score (+/-delta)` if a prior sidecar exists; else just the new grade
+- Top 3 deductions by points lost
+- Drill-down hint to `propsched score` for full activity lists
 
 Exit codes: 0 (success), 1 (error), 2 (anchor slip).
 
