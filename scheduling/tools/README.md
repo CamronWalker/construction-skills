@@ -46,6 +46,16 @@ python scheduling/tools/proposal_iterate.py --project "<project>" \
 - `--dry-run` (optional): run the full pipeline but write no files.
 - `--verbose` (optional): write debug detail to
   `<project>/Proposal Schedule/.iterate-debug.log` on error or slip.
+- `--no-cache` (optional): skip the CPM result cache; always re-run
+  forward/backward.
+
+**CPM result cache.** CPM output is cached at
+`<project>/Proposal Schedule/.cpm-cache/<sha256>.json`, keyed by the
+post-mutation TASK + TASKPRED + data-date hash. Re-running with the same
+inputs skips the forward/backward passes. Free during dev iterations
+where you re-run for HTML regen or to smoke a flag without changing the
+schedule. Wipe the folder if you change calendars (calendars are not in
+the hash key).
 
 **Stdout target** -- agents read this directly as part of their iteration
 context.
@@ -100,6 +110,34 @@ Seasonal constraints (e.g. CS_MSOA on a curb-and-gutter task that can't
 start before spring) are NOT lifted -- they're real construction logic,
 not anchors.
 
+## postmortem_aggregate.py
+
+Closes the lessons-learned loop. Scans the Westland Proposal Schedules
+folder (or any root passed via `--root`) for
+`*/Proposal Schedule/feedback/postmortem-*.md` files, recency-weights the
+hypotheses (newer postmortems count more), optionally filters by
+`project_type`, and prints a markdown ruleset block ready to paste into
+Phase 3 recommendations of the next proposal draft.
+
+```bash
+# default: scan ~Proposal Schedules/, top 10 hypotheses, 365d half-life
+python scheduling/tools/postmortem_aggregate.py
+
+# project-type filter (substring match against the postmortem frontmatter)
+python scheduling/tools/postmortem_aggregate.py --project-type "lab-research"
+
+# machine-readable JSON
+python scheduling/tools/postmortem_aggregate.py --json
+
+# tune knobs
+python scheduling/tools/postmortem_aggregate.py --top 5 --half-life 180
+```
+
+With zero postmortems in the corpus, prints a friendly skip message --
+the Phase 1 agent proceeds with default Westland standards. With a
+populated corpus, every hypothesis is cited back to its source project +
+date so the agent (and Camron) can audit the reasoning.
+
 ## build_gantt_html.py
 
 Renders the self-contained Gantt review HTML from
@@ -137,7 +175,12 @@ python scheduling/tools/build_gantt_html.py schedule-activities.json \
   -> [final approval]
        Camron says "this is good, generate the XER"
        -> agent writes feedback/postmortem-{date}-{project-slug}.md (see SKILL.md)
+       -> agent generates the Westland-branded Plan PDF (post-approval; the PDF
+            reflects the final schedule, not the v1 draft)
        -> latest -v{N}.xer is the deliverable
+  -> [next project, Phase 1]
+       agent runs postmortem_aggregate.py to surface recency-weighted
+       hypotheses from prior cycles before recommending
 ```
 
 For the paste-back schema, anchor JSON schema, and postmortem section
@@ -161,8 +204,10 @@ scheduling/
     show_paths.py
     show_anchors.py
     anchors_from_constraints.py
+    postmortem_aggregate.py       # lessons-learned loop closer (Phase 1 of next draft)
     build_gantt_html.py
     _xer_io.py                    # shared parse/write helpers
     _cpm_loader.py                # locates cpm_engine for the CLIs
+    _cpm_cache.py                 # CPM result cache (sha256-of-modified-graph)
     README.md                     # you are here
 ```

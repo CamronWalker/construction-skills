@@ -29,6 +29,7 @@ from pathlib import Path
 
 from _xer_io import parse_xer, find_latest_xer, next_xer_path, write_xer_with_updates
 from _cpm_loader import load_cpm, plugin_root
+import _cpm_cache
 
 
 def _err(msg, code=1):
@@ -152,6 +153,8 @@ def main():
                     help='Run everything but write no files')
     ap.add_argument('--verbose', action='store_true',
                     help='Write debug detail to <project>/Proposal Schedule/.iterate-debug.log')
+    ap.add_argument('--no-cache', action='store_true',
+                    help='Skip the CPM result cache; always re-run forward/backward')
     args = ap.parse_args()
 
     project = Path(args.project)
@@ -210,8 +213,18 @@ def main():
     data_date = _pick_data_date(args, paste, project_rows)
 
     cpm = load_cpm()
-    results, metadata = cpm.schedule_forward_backward(
-        tasks, preds, calendars, data_date, schedoptions, project_rows)
+    cache_key = _cpm_cache.hash_inputs(tasks, preds, data_date)
+    cache_hit = False
+    if not args.no_cache:
+        cached = _cpm_cache.load(proposal_dir, cache_key)
+        if cached is not None:
+            results, metadata = cached
+            cache_hit = True
+    if not cache_hit:
+        results, metadata = cpm.schedule_forward_backward(
+            tasks, preds, calendars, data_date, schedoptions, project_rows)
+        if not args.no_cache:
+            _cpm_cache.store(proposal_dir, cache_key, results, metadata)
 
     slips = cpm.check_anchor_dates(results, anchors)
     # Distinguish "drifted but earlier" (negative slip = no problem) from
