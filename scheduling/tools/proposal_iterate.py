@@ -336,8 +336,9 @@ def main():
         archived_path = _layout.archived_xer_path(
             project, archive_version, layout=layout)
         new_root_path = current_xer  # stays at root
-        paste_archive = iter_dir / f'paste-{archive_version + 1}.json'
-        next_label = f'v{archive_version + 1} (current at root)'
+        new_version = archive_version + 1
+        paste_archive = iter_dir / f'paste-{new_version}.json'
+        next_label = f'v{new_version} (current at root)'
     else:
         # Legacy: write -v{N+1}.xer in place
         archived_path = None
@@ -346,7 +347,8 @@ def main():
         latest = find_latest_xer(project)
         _, current_version = latest
         new_root_path = next_xer_path(current_xer, current_version)
-        paste_archive = iter_dir / f'paste-{current_version + 1}.json'
+        new_version = current_version + 1
+        paste_archive = iter_dir / f'paste-{new_version}.json'
         next_label = new_root_path.name
         iter_dir.mkdir(parents=True, exist_ok=True)
 
@@ -408,6 +410,7 @@ def main():
         data_date=data_date,
         wbs_rows=wbs_rows,
         default_view=(paste or {}).get('default_view'),
+        version=new_version,
     )
     activities_json.write_text(
         json.dumps(activities_data, ensure_ascii=False, indent=2),
@@ -446,14 +449,8 @@ def main():
         return _err(f'build_gantt_html.py failed: {(html_stderr or "").strip()[:200]}')
 
     # ===== Score sidecar handoff =====
-    # archive_version is set in the new-layout branch above; legacy uses
-    # current_version + 1. The new XER's implicit version is archive_version + 1
-    # in new layout (since archive_version == version of the file we just moved
-    # into Old Iterations/), or current_version + 1 in legacy.
-    if layout == _layout.LAYOUT_NEW:
-        new_version = archive_version + 1
-    else:
-        new_version = (current_version + 1) if current_version is not None else None
+    # new_version is computed above (new layout: archive_version + 1; legacy:
+    # current_version + 1) so it can also flow into the activities JSON.
     prior_version = (new_version - 1) if new_version else None
     prior_score_data = _read_score_sidecar(project, prior_version, layout) if prior_version else None
     if score_data and new_version:

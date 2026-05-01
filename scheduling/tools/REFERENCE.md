@@ -9,7 +9,7 @@ with its inputs, outputs, exit codes, and a one-line example. The
 underlying scripts live in `scheduling/tools/`; you should not need to
 read them directly.
 
-## Folder layout (v4.0.0+)
+## Folder layout (v5.0.0+)
 
 ```
 <project>/
@@ -17,26 +17,39 @@ read them directly.
   Sample Schedules/                     <- reference XERs
   <Project>.xer                         <- current/working XER (no -vN suffix)
   schedule-activities.json              <- current
-  schedule-review.html                  <- current
+  schedule-review.html                  <- current (now version-aware in topbar)
   Schedule Plan.pdf                     <- final plan (post-approval)
   proposal-anchors.json                 <- anchor metadata
+  project-metadata.json                 <- v5: project context (type, sf, region, systems, ...)
   Old Iterations/
     <Project> -v1.xer ... -v{N-1}.xer  <- prior versions
     paste-*.json                        <- per-iteration paste-back archive
-    postmortem-*.md                     <- per-cycle AI postmortems
+    durations.json                      <- v5: per-activity duration knowledge (project-context-bound)
+    reviewer-feedback/                  <- v5: parked external-reviewer JSONs
+      {reviewer-slug}-{date}-v{N}.json
+    postmortems/                        <- v5: folder-style postmortems
+      {YYYY-MM-DD}-{project-slug}/
+        postmortem.md
+        project-metadata.json           <- snapshot at completion
+        durations-captured.json         <- entries added this cycle
+        reviewer-feedback/              <- copies of parked feedback
+    postmortem-*.md                     <- legacy v4.x single-file postmortem (still readable)
     scores/v{N}.json                    <- per-version score sidecars
     .cpm-cache/<sha256>.json            <- CPM result cache
     .iterate-debug.log                  <- when iterate is run with --verbose
 ```
 
-Legacy projects (v3.x and earlier, "Proposal Schedule/" subfolder) are
-auto-detected and continue to work; new projects use the layout above.
+Legacy projects (v3.x and v4.x) are auto-detected and continue to work;
+new projects use the layout above. The folder-style postmortem is
+self-contained and copyable to a master library.
 
 ## Quick reference
 
 ```bash
 # Set up a new project
 propsched init "<path>"
+propsched metadata set "<project>" --project-type k-12 --region "Utah Valley" \
+    --building-systems structural-masonry,steel-joist --square-footage 65000
 
 # After v1 is generated (via the schedule-create-proposal-schedule skill)
 propsched bootstrap-anchors "<project>"      # if v1 still has CS_MSO/CS_FNLT
@@ -48,13 +61,25 @@ propsched iterate --project "<project>" --paste paste.json
 # If it reports anchor slips, form absorption.json, then:
 propsched iterate --project "<project>" --paste paste.json --apply absorption.json
 
+# External reviewer (boss / consultant) emails their feedback JSON back
+propsched feedback ingest "<project>" --file steve-feedback.json
+propsched feedback list "<project>"            # see all parked feedback + staleness
+
 # Inspect history
 propsched diff "<project>" v3 v4              # pairwise compare
 propsched walk "<project>"                    # walk v1 -> current
 propsched score "<project>" --version 11      # score sidecar
 
+# Pull duration knowledge for the next draft
+propsched durations query --root "<proposals-root>" --task "Pour Footings" \
+    --type k-12 --region "Utah Valley"
+
 # Phase 1 of next proposal: ingest prior lessons
-propsched aggregate-postmortems --project-type lab-research
+propsched aggregate-postmortems --project-type lab-research --show-durations
+
+# Final approval -- assemble the postmortem folder, then write postmortem.md
+propsched postmortem "<project>" --slug murray-apex-center
+propsched durations extract "<project>"        # auto-pull duration insights from feedback
 ```
 
 ## Verbs
@@ -236,13 +261,18 @@ Exit codes: 0 (scored), 1 (error).
 
 ### `propsched aggregate-postmortems`
 
-Phase 1 of the next proposal: walk past `Old Iterations/postmortem-*.md`
-files across all projects, parse the Hypotheses section, recency-weight,
-print a markdown ruleset block ready to inject into recommendations.
+Phase 1 of the next proposal: walk past postmortems across every project
+(folder-style and legacy single-file), parse the Hypotheses section,
+recency-weight, print a markdown ruleset block ready to inject into
+recommendations. Filterable by project metadata (type / region /
+building system) so the next K-12 in Utah Valley pulls hypotheses from
+the same context.
 
 ```bash
 propsched aggregate-postmortems
 propsched aggregate-postmortems --project-type "lab-research"
+propsched aggregate-postmortems --region "Utah Valley" --system structural-masonry
+propsched aggregate-postmortems --show-durations         # also surface duration knowledge
 propsched aggregate-postmortems --top 5 --half-life 180
 propsched aggregate-postmortems --json
 ```
@@ -252,6 +282,125 @@ default Westland standards. With a corpus: every hypothesis is cited
 back to its source project + date for auditability.
 
 Exit codes: 0 (printed), 1 (no root found).
+
+---
+
+### `propsched feedback`
+
+Park reviewer-feedback JSONs (downloaded from `schedule-review.html` by
+external reviewers) and report drift vs the current XER. Feedback can
+arrive days or weeks after the reviewer looked at the schedule -- this
+verb does NOT auto-apply changes; it parks the JSON for the scheduler
+to read with full context (version reviewed, tasks renamed since,
+durations changed since, tasks dropped).
+
+```bash
+propsched feedback ingest "<project>" --file steve-feedback.json
+propsched feedback ingest "<project>" --file steve-feedback.json --force
+propsched feedback list "<project>"
+propsched feedback show "<project>" steve                 # prefix match
+```
+
+Storage: `Old Iterations/reviewer-feedback/{reviewer-slug}-{date}-v{N}.json`.
+
+Drift report flags:
+- `[error]` reviewer claims a future version (file probably wrong project)
+- `[warn]`  reviewer is N versions behind / task no longer exists / duration changed
+- `[info]`  task renamed since review / no version_reviewed in JSON
+
+Exit codes: 0 (no drift), 1 (error), 2 (drift warnings present).
+
+---
+
+### `propsched metadata`
+
+Read or set per-project metadata (project_type, square_footage, region,
+delivery_method, building_systems, ...). Stored as `project-metadata.json`
+at the project root. Every duration entry inherits this snapshot --
+context-free durations don't mean anything.
+
+```bash
+propsched metadata init "<project>"           # create empty stub
+propsched metadata set "<project>" \
+    --project-type k-12 --region "Utah Valley" \
+    --square-footage 65000 --difficulty medium \
+    --building-systems structural-masonry,steel-joist
+propsched metadata show "<project>"
+propsched metadata get "<project>" --field region    # one field, plain
+propsched metadata get "<project>"                    # full JSON
+```
+
+Exit codes: 0, 1.
+
+---
+
+### `propsched durations`
+
+Per-activity duration knowledge keyed by project metadata. The DB lives
+at `Old Iterations/durations.json`. Every entry carries a snapshot of
+`project-metadata.json` so future drafts can ask "what have we seen
+for pour-footings on K-12 jobs in Utah Valley with structural masonry?"
+
+```bash
+# Manual entry
+propsched durations add "<project>" \
+    --task-code APEX0040 --duration 5 \
+    --source "super:Mike" \
+    --rationale "Soil conditions in Utah Valley typically drive 5-7d for this size"
+
+# Auto-extract from parked reviewer feedback (each duration_change becomes an entry)
+propsched durations extract "<project>"
+
+# Query within one project
+propsched durations query --project "<project>" --task "Pour Footings"
+
+# Query across every project under a root
+propsched durations query --root "<proposals-root>" \
+    --task "Pour Footings" --type k-12 --region "Utah Valley"
+
+propsched durations list "<project>"          # local enumeration
+propsched durations query ... --json          # machine-readable
+```
+
+Output groups entries by task and shows min/max/avg duration with
+project-context tags inline (so the user can spot "5d on K-12 + tilt-up
+vs 8d on K-12 + structural-masonry" at a glance).
+
+Exit codes: 0, 1.
+
+---
+
+### `propsched postmortem`
+
+Assemble the post-approval postmortem folder (Tier 7+ schema). The
+agent writes the narrative; this script does the boring assembly:
+creates the folder, snapshots `project-metadata.json`, copies parked
+reviewer-feedback into the folder, and (optionally) snapshots the
+durations entries added during this cycle.
+
+```bash
+propsched postmortem "<project>" --slug murray-apex-center
+propsched postmortem "<project>" --slug ... --date 2026-04-30
+propsched postmortem "<project>" --slug ... --cycle-start 2026-04-01
+propsched postmortem "<project>" --slug ... --print-stub > postmortem.md
+propsched postmortem "<project>" --slug ... --skip-durations --skip-reviewer-feedback
+```
+
+Output folder:
+
+```
+Old Iterations/postmortems/{date}-{slug}/
+  postmortem.md                <- stub; agent fills it in
+  project-metadata.json        <- snapshot at completion
+  durations-captured.json      <- entries added this cycle (if any)
+  reviewer-feedback/           <- copies of every parked reviewer JSON
+    *.json
+```
+
+The folder is self-contained -- copy it to a master library at any time
+without losing context.
+
+Exit codes: 0, 1.
 
 ---
 
@@ -270,11 +419,49 @@ propsched iterate --project "<project>" --paste paste.json
 
 ### "He approved -- generate the deliverable"
 
-1. Write the AI postmortem to `Old Iterations/postmortem-{date}-{project-slug}.md`.
-   See `phases/02-iterate.md` for the section schema.
-2. Generate the Westland-branded plan PDF (post-approval; the PDF reflects the
-   final schedule).
-3. Final XER is the `<Project>.xer` at the project root.
+1. Auto-extract any duration knowledge captured this cycle from parked
+   reviewer feedback:
+   ```bash
+   propsched durations extract "<project>"
+   ```
+2. Assemble the postmortem folder (creates the folder + stub +
+   snapshots metadata + copies reviewer feedback):
+   ```bash
+   propsched postmortem "<project>" --slug "<project-slug>"
+   ```
+3. Open `Old Iterations/postmortems/{date}-{slug}/postmortem.md` and fill
+   in the stub sections. See `phases/02-iterate.md` for the section schema.
+4. Generate the Westland-branded plan PDF (post-approval; the PDF reflects
+   the final schedule).
+5. Final XER is the `<Project>.xer` at the project root.
+
+### "An external reviewer emailed back their feedback JSON"
+
+```bash
+propsched feedback ingest "<project>" --file path/to/steve-feedback.json
+# Drift report tells you whether they reviewed the current version
+# or one that has since changed.
+
+propsched feedback list "<project>"     # what's parked
+propsched feedback show "<project>" steve   # one reviewer in detail
+```
+
+The verb only PARKS the JSON. To act on a reviewer's duration suggestions
+or comments: read `feedback show`, decide which to keep, then either feed
+specific items back through the regular `iterate` paste-back flow or
+just adjust the XER directly via the existing iteration loop.
+
+### "Starting a new proposal -- what should I learn from prior cycles?"
+
+```bash
+# Hypotheses, recency-weighted, filtered by project context
+propsched aggregate-postmortems --project-type "<type>" \
+    --region "<region>" --system structural-masonry --show-durations
+```
+
+Cite hypotheses you act on by source project + date. Duration knowledge
+also surfaces with --show-durations -- "we have N observations of Pour
+Footings = 5-7d on K-12 + structural-masonry; using 6d as the seed".
 
 ### "What changed across all iterations of this project?"
 
@@ -288,13 +475,16 @@ For a single transition with full detail:
 propsched diff "<project>" v6 v7
 ```
 
-### "Starting a new proposal -- what should I learn from prior cycles?"
+### "Querying duration knowledge for a specific task"
 
 ```bash
-propsched aggregate-postmortems --project-type "<type>"
-```
+# Across all projects under a root
+propsched durations query --root "<proposals-root>" \
+    --task "Pour Footings" --type k-12 --region "Utah Valley"
 
-Cite hypotheses you act on by source project + date.
+# Within just one project
+propsched durations query --project "<project>" --task-code APEX0040
+```
 
 ---
 

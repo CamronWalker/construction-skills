@@ -107,6 +107,30 @@ def feedback_dir(project, layout=None):
     return project / LEGACY_PROPOSAL_DIR / 'feedback'
 
 
+def reviewer_feedback_dir(project, layout=None):
+    """Where parked reviewer-feedback JSONs live (per-reviewer artifacts)."""
+    return iterations_dir(project, layout) / 'reviewer-feedback'
+
+
+def postmortems_dir(project, layout=None):
+    """Where postmortem folders live (Tier 7+ folder-style postmortems).
+
+    Legacy single-file postmortem-{date}-{slug}.md still works for older
+    projects; new postmortems are folders under this directory.
+    """
+    return iterations_dir(project, layout) / 'postmortems'
+
+
+def metadata_path(project, layout=None):
+    """project-metadata.json at the project root (both layouts)."""
+    return Path(project) / 'project-metadata.json'
+
+
+def durations_path(project, layout=None):
+    """durations.json accumulating per-activity duration knowledge."""
+    return iterations_dir(project, layout) / 'durations.json'
+
+
 def anchors_path(project, layout=None):
     return proposal_dir(project, layout) / 'proposal-anchors.json'
 

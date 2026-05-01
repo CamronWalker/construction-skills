@@ -1518,7 +1518,8 @@ def _wbs_lookup(wbs_rows):
 
 
 def build_activities_json(results, metadata, preds, project_name=None,
-                           data_date=None, wbs_rows=None, default_view=None):
+                           data_date=None, wbs_rows=None, default_view=None,
+                           version=None):
     """
     Build the schedule-activities.json structure consumed by build_gantt_html.py.
 
@@ -1627,6 +1628,7 @@ def build_activities_json(results, metadata, preds, project_name=None,
     out = {
         'project': {
             'name': project_name or '',
+            'version': version,
             'data_date': (data_date if isinstance(data_date, str) else _format_date(data_date)) if data_date else '',
             'sc_milestone_name': sc_md.get('sc_milestone_name', ''),
             'sc_milestone_code': sc_md.get('sc_milestone_code', ''),

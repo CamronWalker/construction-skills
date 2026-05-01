@@ -1,6 +1,6 @@
 {
   "name": "scheduling",
-  "version": "4.1.0",
+  "version": "5.0.0",
   "description": "Claude Code skills for construction scheduling — schedule-toolbox (XER parsing, 31 quality checks, CPM, path analysis), proposal schedules with self-contained Gantt review HTML and Copy-for-Claude iteration loop, and the full weekly schedule update pipeline with a colleague-facing double-click launcher (Write Weekly Schedule Email.bat, Playwright MCP screenshots, Outlook draft — no Cowork, no slash commands, no Node).",
   "author": {
     "name": "Camron Walker"

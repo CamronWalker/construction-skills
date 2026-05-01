@@ -66,6 +66,22 @@ COMMANDS = {
         'init_project.py',
         'Create a new project folder with the v4.0.0 layout',
     ),
+    'feedback': (
+        'feedback_ingest.py',
+        'Park reviewer-feedback JSONs (ingest/list/show) with drift detection',
+    ),
+    'metadata': (
+        'metadata_cli.py',
+        'Set/get/show project metadata (project_type, sf, region, systems, ...)',
+    ),
+    'durations': (
+        'durations_cli.py',
+        'Add/query duration knowledge (per-activity, project-context-bound)',
+    ),
+    'postmortem': (
+        'postmortem_finalize.py',
+        'Assemble the post-approval postmortem folder (Tier 7+ schema)',
+    ),
 }
 
 # Aliases to be forgiving
@@ -75,6 +91,7 @@ ALIASES = {
     'aggregate': 'aggregate-postmortems',
     'postmortems': 'aggregate-postmortems',
     'history': 'walk',
+    'finalize': 'postmortem',
 }
 
 
