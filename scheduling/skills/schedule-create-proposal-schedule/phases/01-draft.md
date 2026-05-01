@@ -31,7 +31,7 @@ message; with a corpus, it ranks recency-weighted hypotheses by project
 type so they inform Phase 3 recommendations.
 
 ```bash
-python scheduling/tools/postmortem_aggregate.py [--project-type "<type>"]
+python scheduling/tools/propsched.py aggregate-postmortems [--project-type "<type>"]
 ```
 
 Read the output before generating recommendations; cite a hypothesis
@@ -140,7 +140,7 @@ After the recommendations and answers are locked in, generate the v1 XER directl
 2. Pass the plan structure (WBS, activities, durations, logic) as scope + sample XERs as reference schedules
 3. Apply all Westland standards during generation (from `schedule-toolbox`)
 4. Convert all durations from working days to hours (days x 8 for XER)
-5. Save to `<project-folder>/Proposal Schedule/[Project Name] -v1.xer`
+5. Save to `<project>/[Project Name].xer` at the project root (v4.0.0+ layout). For legacy projects with a `Proposal Schedule/` subfolder, save there as `[Project Name] -v1.xer`.
 
 The plan PDF is **NOT** generated yet. The PDF gets built at the end (after iteration + scoring + approval) so it reflects the final schedule, not the v1 draft. See `phases/02-iterate.md` § "Generate the Plan PDF (post-approval)" for the trigger.
 

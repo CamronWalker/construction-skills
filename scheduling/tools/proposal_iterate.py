@@ -6,17 +6,31 @@ activities JSON, or the raw XER.
 Usage (typical agent flow):
 
     # 1. Camron pastes the Copy-for-Claude payload from the Gantt HTML.
-    python proposal_iterate.py "<project>" --paste paste.json
+    python proposal_iterate.py --project "<project>" --paste paste.json
 
     # 2. If the script reports anchor slips, the agent forms an absorption
     # plan with Camron, saves it to absorption.json, then re-runs:
-    python proposal_iterate.py "<project>" --paste paste.json --apply absorption.json
+    python proposal_iterate.py --project "<project>" --paste paste.json --apply absorption.json
+
+Folder layout (v4.0.0+, "new" layout):
+    <project>/
+        <Project Name>.xer                <- current XER (no -vN suffix)
+        schedule-activities.json
+        schedule-review.html
+        proposal-anchors.json
+        Old Iterations/
+            <Project Name> -v1.xer ... -v{N-1}.xer
+            paste-*.json
+            scores/v{N}.json
+            .cpm-cache/
+
+Legacy layout (Proposal Schedule/) is auto-detected and continues to work
+with the original write-back semantics (-v{N+1}.xer in place).
 
 Exit codes:
-    0  -- changes applied, new -v{N+1}.xer + JSON + HTML written
-    1  -- error (missing files, unparseable JSON, etc.)
-    2  -- anchor slips reported; nothing written; agent + scheduler must
-          form an absorption plan and re-run with --apply
+    0  -- changes applied, new XER + JSON + HTML written
+    1  -- error
+    2  -- anchor slips reported; nothing written
 """
 
 import argparse
@@ -27,9 +41,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from _xer_io import parse_xer, find_latest_xer, next_xer_path, write_xer_with_updates
+from _xer_io import parse_xer, next_xer_path, write_xer_with_updates
 from _cpm_loader import load_cpm, plugin_root
 import _cpm_cache
+import _layout
 
 
 def _err(msg, code=1):
@@ -47,11 +62,7 @@ def _load_paste(path, label):
 
 
 def _collect_duration_changes(payload):
-    """Return {match_key: new_days} where match_key is task_id or task_code.
-
-    The paste-back uses `id` for XER task_id; some agents may emit
-    `task_code` instead. We keep both lookups.
-    """
+    """Return ({task_id: new_days}, {task_code: new_days})."""
     out_by_id = {}
     out_by_code = {}
     for a in (payload or {}).get('activities', []) or []:
@@ -87,8 +98,6 @@ def _apply_duration_changes(tasks, by_id, by_code):
             continue
         new_hr = int(round(float(new_days) * 8))
         t['target_drtn_hr_cnt'] = str(new_hr)
-        # Proposal schedules: every task is TK_NotStart so remaining == target.
-        # If a task is in-progress somehow, leave remain alone.
         if t.get('status_code', 'TK_NotStart') == 'TK_NotStart':
             t['remain_drtn_hr_cnt'] = str(new_hr)
         changed += 1
@@ -120,10 +129,9 @@ def _slip_summary(slips, results, preds, cpm):
               f"anchor {s['anchor_date']} -> computed {s['computed_date']}  "
               f"({sign}{sd}d)")
 
-    # For each slip, top-5 cut candidates from the suggester.
     for s in slips:
         if s['slip_days'] <= 0:
-            continue  # only show absorption for late slips
+            continue
         cands = cpm.suggest_anchor_absorption(results, preds, s, max_suggestions=5)
         print(f"\n  Top cut candidates for {s['task_code']} (need {s['slip_days']}d):")
         if not cands:
@@ -152,7 +160,7 @@ def main():
     ap.add_argument('--dry-run', action='store_true',
                     help='Run everything but write no files')
     ap.add_argument('--verbose', action='store_true',
-                    help='Write debug detail to <project>/Proposal Schedule/.iterate-debug.log')
+                    help='Write debug detail to .iterate-debug.log')
     ap.add_argument('--no-cache', action='store_true',
                     help='Skip the CPM result cache; always re-run forward/backward')
     args = ap.parse_args()
@@ -161,9 +169,11 @@ def main():
     if not project.is_dir():
         return _err(f'not a directory: {project}')
 
-    proposal_dir = project / 'Proposal Schedule'
-    if not proposal_dir.is_dir():
-        return _err(f'expected "{proposal_dir}" under project folder')
+    layout = _layout.detect_layout(project)
+    proposal_dir = _layout.proposal_dir(project, layout)
+    iter_dir = _layout.iterations_dir(project, layout)
+    if layout == _layout.LAYOUT_LEGACY and not proposal_dir.is_dir():
+        return _err(f'legacy layout detected but {proposal_dir} not found')
 
     try:
         paste = _load_paste(args.paste, 'paste')
@@ -171,20 +181,18 @@ def main():
     except (FileNotFoundError, json.JSONDecodeError) as e:
         return _err(str(e))
 
-    latest = find_latest_xer(project)
-    if not latest:
-        return _err(f'no -v{{N}}.xer found in {proposal_dir}')
-    xer_path, version = latest
-    new_xer_path = next_xer_path(xer_path, version)
+    current_xer = _layout.find_current_xer(project, layout)
+    if not current_xer:
+        return _err(f'no current XER found in {proposal_dir}')
 
-    anchors_path = proposal_dir / 'proposal-anchors.json'
+    anchors_path = _layout.anchors_path(project, layout)
     if not anchors_path.exists():
-        return _err(f'{anchors_path.name} not found. '
-                    'Run anchors_from_constraints.py to bootstrap.')
+        return _err(f'{anchors_path.name} not found at {anchors_path.parent}. '
+                    'Run propsched bootstrap-anchors to create it.')
     anchors_doc = json.loads(anchors_path.read_text(encoding='utf-8'))
     anchors = anchors_doc.get('anchors', [])
 
-    tables, table_fields, original_text = parse_xer(xer_path)
+    tables, table_fields, original_text = parse_xer(current_xer)
     tasks = tables.get('TASK', [])
     preds = tables.get('TASKPRED', [])
     calendars = tables.get('CALENDAR', tables.get('CLNDR', []))
@@ -199,24 +207,26 @@ def main():
         or project.name
     )
 
-    # Collect duration changes from both paste and apply payloads
     paste_by_id, paste_by_code = _collect_duration_changes(paste)
     if apply_payload:
         apply_by_id, apply_by_code = _collect_duration_changes(apply_payload)
-        # apply_* override paste_* on conflict (later instructions win)
         paste_by_id.update(apply_by_id)
         paste_by_code.update(apply_by_code)
 
-    # Apply to in-memory task rows
     n_changed = _apply_duration_changes(tasks, paste_by_id, paste_by_code)
 
     data_date = _pick_data_date(args, paste, project_rows)
 
     cpm = load_cpm()
     cache_key = _cpm_cache.hash_inputs(tasks, preds, data_date)
+    # _cpm_cache builds `<dir>/.cpm-cache/<key>.json`; the layout helper's
+    # cache_dir() returns `.../Old Iterations/.cpm-cache`, so we hand
+    # _cpm_cache its parent (the iterations folder) to keep both modules
+    # consistent.
+    cache_root = _layout.iterations_dir(project, layout)
     cache_hit = False
     if not args.no_cache:
-        cached = _cpm_cache.load(proposal_dir, cache_key)
+        cached = _cpm_cache.load(cache_root, cache_key)
         if cached is not None:
             results, metadata = cached
             cache_hit = True
@@ -224,28 +234,49 @@ def main():
         results, metadata = cpm.schedule_forward_backward(
             tasks, preds, calendars, data_date, schedoptions, project_rows)
         if not args.no_cache:
-            _cpm_cache.store(proposal_dir, cache_key, results, metadata)
+            _cpm_cache.store(cache_root, cache_key, results, metadata)
 
     slips = cpm.check_anchor_dates(results, anchors)
-    # Distinguish "drifted but earlier" (negative slip = no problem) from
-    # "drifted late" (positive slip = anchor pushed). Only late slips block.
     late_slips = [s for s in slips if s['slip_days'] > 0]
 
     if late_slips:
         _slip_summary(late_slips, results, preds, cpm)
         if args.verbose:
-            log = proposal_dir / '.iterate-debug.log'
+            log = _layout.debug_log_path(project, layout)
+            log.parent.mkdir(parents=True, exist_ok=True)
             log.write_text(json.dumps({'slips': slips, 'metadata': metadata},
-                                       indent=2), encoding='utf-8')
+                                       indent=2, default=str), encoding='utf-8')
         return 2
 
-    # No late slips -- write the new XER + JSON + HTML.
+    # Compute target paths
+    if layout == _layout.LAYOUT_NEW:
+        # Archive the current root XER, then write new content to root
+        archive_version = _layout.latest_archived_version(project, layout) + 1
+        archived_path = _layout.archived_xer_path(
+            project, archive_version, layout=layout)
+        new_root_path = current_xer  # stays at root
+        paste_archive = iter_dir / f'paste-{archive_version + 1}.json'
+        next_label = f'v{archive_version + 1} (current at root)'
+    else:
+        # Legacy: write -v{N+1}.xer in place
+        archived_path = None
+        # Derive next from filename
+        from _xer_io import find_latest_xer
+        latest = find_latest_xer(project)
+        _, current_version = latest
+        new_root_path = next_xer_path(current_xer, current_version)
+        paste_archive = iter_dir / f'paste-{current_version + 1}.json'
+        next_label = new_root_path.name
+        iter_dir.mkdir(parents=True, exist_ok=True)
+
     if args.dry_run:
         print('[dry-run] would write:')
-        print(f'  XER:    {new_xer_path.name}')
-        print(f'  JSON:   schedule-activities.json')
-        print(f'  HTML:   schedule-review.html')
-        print(f'  paste:  iterations/paste-{version + 1}.json')
+        print(f'  XER:    {next_label}')
+        print(f'  JSON:   {_layout.activities_json_path(project, layout).name}')
+        print(f'  HTML:   {_layout.html_path(project, layout).name}')
+        print(f'  paste:  {paste_archive.relative_to(project)}')
+        if layout == _layout.LAYOUT_NEW and archived_path:
+            print(f'  archive: {archived_path.name}')
         print(f'duration changes applied: {n_changed}')
         return 0
 
@@ -261,7 +292,6 @@ def main():
                   'driving_path_flag'):
             if f in t:
                 upd[f] = str(t[f])
-        # Duration fields if changed
         if tid in paste_by_id or t.get('task_code', '') in paste_by_code:
             upd['target_drtn_hr_cnt'] = str(t.get('target_drtn_hr_cnt', ''))
             if 'remain_drtn_hr_cnt' in t:
@@ -269,13 +299,28 @@ def main():
         if upd:
             task_updates[tid] = upd
 
-    write_xer_with_updates(
-        original_text, table_fields,
-        {'TASK': ('task_id', task_updates)},
-        new_xer_path,
-    )
+    if layout == _layout.LAYOUT_NEW:
+        # Archive: copy current root XER to Old Iterations/<name> -v{N}.xer
+        # (Westland immutability: we never mutate the existing XER bytes; the
+        # archive is the original file as-is.)
+        iter_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(current_xer, archived_path)
+        # Now write new content back to the root path (overwriting the
+        # already-archived original).
+        write_xer_with_updates(
+            original_text, table_fields,
+            {'TASK': ('task_id', task_updates)},
+            new_root_path,
+        )
+    else:
+        # Legacy: preserve original at -v{N}.xer, write updated -v{N+1}.xer
+        write_xer_with_updates(
+            original_text, table_fields,
+            {'TASK': ('task_id', task_updates)},
+            new_root_path,
+        )
 
-    activities_json_path = proposal_dir / 'schedule-activities.json'
+    activities_json = _layout.activities_json_path(project, layout)
     activities_data = cpm.build_activities_json(
         results, metadata, preds,
         project_name=project_name,
@@ -283,37 +328,38 @@ def main():
         wbs_rows=wbs_rows,
         default_view=(paste or {}).get('default_view'),
     )
-    activities_json_path.write_text(
+    activities_json.write_text(
         json.dumps(activities_data, ensure_ascii=False, indent=2),
         encoding='utf-8',
     )
 
-    # Render HTML via build_gantt_html.py (ASCII-only printout from this script)
-    html_path = proposal_dir / 'schedule-review.html'
+    html_path = _layout.html_path(project, layout)
     builder = plugin_root() / 'tools' / 'build_gantt_html.py'
     proc = subprocess.run(
-        ['python', str(builder), str(activities_json_path),
+        ['python', str(builder), str(activities_json),
          '-o', str(html_path), '--project', project_name],
         capture_output=True, text=True,
     )
     if proc.returncode != 0:
         if args.verbose:
-            (proposal_dir / '.iterate-debug.log').write_text(
+            log = _layout.debug_log_path(project, layout)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text(
                 proc.stdout + '\n---STDERR---\n' + proc.stderr,
                 encoding='utf-8',
             )
         return _err(f'build_gantt_html.py failed: {proc.stderr.strip()[:200]}')
 
-    # Archive the paste-back so the postmortem can reconstruct iteration history
-    iter_dir = proposal_dir / 'iterations'
-    iter_dir.mkdir(exist_ok=True)
-    archive_path = iter_dir / f'paste-{version + 1}.json'
-    shutil.copyfile(args.paste, archive_path)
+    # Archive paste-back
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(args.paste, paste_archive)
 
     sc_date = (metadata.get('sc_milestone_date', '') or '')[:10]
-    print(f'Wrote XER:   {new_xer_path.name}')
-    print(f'Wrote JSON:  schedule-activities.json')
-    print(f'Wrote HTML:  schedule-review.html')
+    print(f'Wrote XER:   {new_root_path.name}')
+    print(f'Wrote JSON:  {activities_json.name}')
+    print(f'Wrote HTML:  {html_path.name}')
+    if layout == _layout.LAYOUT_NEW and archived_path:
+        print(f'Archived:    Old Iterations/{archived_path.name}')
     print(f'SC date:     {sc_date}')
     print(f'Anchor check passed ({len(anchors)} anchors, {n_changed} duration changes applied)')
     return 0

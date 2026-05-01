@@ -20,12 +20,16 @@ _DRIVING_HEAD = 6
 
 
 def _activities_path(project):
-    proposal_dir = project / 'Proposal Schedule'
-    if not proposal_dir.is_dir():
-        proposal_dir = project
-    p = proposal_dir / 'schedule-activities.json'
-    if not p.exists() and (project / 'schedule-activities.json').exists():
-        p = project / 'schedule-activities.json'
+    import _layout
+    p = _layout.activities_json_path(project)
+    if not p.exists():
+        # Fall back to whichever location actually has the JSON
+        for cand in (
+            project / 'schedule-activities.json',
+            project / 'Proposal Schedule' / 'schedule-activities.json',
+        ):
+            if cand.exists():
+                return cand
     return p
 
 

@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from _xer_io import parse_xer, find_latest_xer, next_xer_path, write_xer_with_updates
+import _layout
 
 
 # Constraint types we lift into anchors. Seasonal / weather constraints
@@ -85,15 +86,24 @@ def main():
         else DEFAULT_ANCHOR_CONSTRAINTS
     )
 
-    latest = find_latest_xer(project)
-    if not latest:
-        print(f'ERROR: no -v{{N}}.xer found under {project}', file=sys.stderr)
-        return 1
-    xer_path, version = latest
+    layout = _layout.detect_layout(project)
+    if layout == _layout.LAYOUT_NEW:
+        # New layout: bootstrap reads the unversioned root XER and writes
+        # the cleaned XER back at root, archiving the original to
+        # Old Iterations/<name> -v{N}.xer.
+        xer_path = _layout.find_current_xer(project, layout)
+        if xer_path is None:
+            print(f'ERROR: no current XER found at project root {project}', file=sys.stderr)
+            return 1
+        version = _layout.latest_archived_version(project, layout) + 1
+    else:
+        latest = find_latest_xer(project)
+        if not latest:
+            print(f'ERROR: no -v{{N}}.xer found under {project}', file=sys.stderr)
+            return 1
+        xer_path, version = latest
 
-    anchors_path = (project / 'Proposal Schedule' / 'proposal-anchors.json'
-                    if (project / 'Proposal Schedule').is_dir()
-                    else project / 'proposal-anchors.json')
+    anchors_path = _layout.anchors_path(project, layout)
 
     tables, table_fields, original_text = parse_xer(xer_path)
     tasks = tables.get('TASK', [])
@@ -138,18 +148,37 @@ def main():
         print(f"  {a['task_code']:8s}  {a['kind_label']:30s}  "
               f"{a['anchor_kind']:6s}  {a['anchor_date']}")
 
+    if layout == _layout.LAYOUT_NEW:
+        # Archive the unversioned root XER as -v{version}.xer in Old Iterations/,
+        # then write the cleaned content back to the same root path. Use the
+        # current XER's stem for the archive name (matches the file the user
+        # actually has on disk; ignores XER-internal proj_short_name which can
+        # differ from the folder convention).
+        archived_path = _layout.archived_xer_path(project, version, layout=layout)
+        new_xer = xer_path  # stays at root
+    else:
+        archived_path = None
+        new_xer = next_xer_path(xer_path, version)
+
     if args.dry_run:
         print('\n[dry-run] would write:', anchors_path)
-        new_xer = next_xer_path(xer_path, version)
-        print(f'[dry-run] would write: {new_xer.name} (constraints cleared)')
+        if layout == _layout.LAYOUT_NEW and archived_path:
+            print(f'[dry-run] would archive: Old Iterations/{archived_path.name}')
+            print(f'[dry-run] would rewrite: {new_xer.name} (constraints cleared)')
+        else:
+            print(f'[dry-run] would write: {new_xer.name} (constraints cleared)')
         return 0
 
+    anchors_path.parent.mkdir(parents=True, exist_ok=True)
     anchors_path.write_text(
         json.dumps({'project_name': project_name, 'anchors': anchors},
                    ensure_ascii=False, indent=2),
         encoding='utf-8',
     )
-    new_xer = next_xer_path(xer_path, version)
+    if layout == _layout.LAYOUT_NEW and archived_path:
+        import shutil as _shutil
+        archived_path.parent.mkdir(parents=True, exist_ok=True)
+        _shutil.copyfile(xer_path, archived_path)
     write_xer_with_updates(
         original_text, table_fields,
         {'TASK': ('task_id', task_updates)},
@@ -158,7 +187,11 @@ def main():
 
     print()
     print(f'Wrote anchors: {anchors_path}')
-    print(f'Wrote XER:     {new_xer.name}')
+    if layout == _layout.LAYOUT_NEW and archived_path:
+        print(f'Archived:      Old Iterations/{archived_path.name}')
+        print(f'Rewrote XER:   {new_xer.name} (constraints cleared)')
+    else:
+        print(f'Wrote XER:     {new_xer.name}')
     return 0
 
 

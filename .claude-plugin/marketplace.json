@@ -13,8 +13,8 @@
     {
       "name": "scheduling",
       "source": "./scheduling",
-      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop driven by tools/proposal_iterate.py (anchor-date checks, absorption-plan suggestions, CPM result cache, postmortem aggregator that closes the lessons-learned loop), quality scoring, and full schedule update pipeline (folder setup, SmartPM screenshots, email draft, Outlook draft).",
-      "version": "3.1.0"
+      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop driven by a single propsched dispatcher (iterate, paths, anchors, diff, walk, score, init, bootstrap-anchors, aggregate-postmortems), v4.0.0 folder layout with current XER at project root and Old Iterations/ history, CPM result cache, postmortem aggregator, quality scoring, and full schedule update pipeline (folder setup, SmartPM screenshots, email draft, Outlook draft).",
+      "version": "4.0.0"
     },
     {
       "name": "estimating",

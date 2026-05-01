@@ -68,12 +68,12 @@ The HTML is the input surface. Camron edits durations inline, leaves notes on ac
 
 **Claude's iteration steps:**
 
-1. **Orient with `show_paths.py`.** Before touching anything, run `python scheduling/tools/show_paths.py "<project>"` to see which activities the proposed `activities[*].id` lie on (critical path, driving path to SC, near-critical, parallel branches). State the second-order effect of every change before applying.
+1. **Orient with `show_paths.py`.** Before touching anything, run `python scheduling/tools/propsched.py paths "<project>"` to see which activities the proposed `activities[*].id` lie on (critical path, driving path to SC, near-critical, parallel branches). State the second-order effect of every change before applying.
 2. **Save Camron's paste-back to `paste.json`** in the project folder (or wherever you like; the path is just a CLI argument).
 3. **Apply each `comment`** that needs a sequence change, constraint addition, parent move, or new activity. Comments are free-form; for simple ones edit directly via the XER write-back pattern, for ambiguous ones reply with a clarifying question before editing.
 4. **Run the iterate CLI:**
     ```bash
-    python scheduling/tools/proposal_iterate.py --project "<project>" --paste paste.json
+    python scheduling/tools/propsched.py iterate --project "<project>" --paste paste.json
     ```
    Behavior:
    - Loads the latest `-v{N}.xer`, applies in-memory `duration_change` from `paste.json`, runs what-if CPM (cached by hash of the modified task graph; `--no-cache` to force).
@@ -81,7 +81,7 @@ The HTML is the input surface. Camron edits durations inline, leaves notes on ac
    - If anchors hold, writes `-v{N+1}.xer`, regenerates `schedule-activities.json` (preserving `default_view` from the paste-back so zoom/scroll/expand state survive), regenerates `schedule-review.html`, archives the paste-back to `iterations/paste-{N+1}.json`, and prints a 5-line summary.
 5. **If the CLI reported slips**, formulate an absorption plan WITH Camron (cut candidates from the CLI output + any logic changes), save the plan as `absorption.json` (same schema as paste -- list of `activities` with `duration_change`), then re-run:
     ```bash
-    python scheduling/tools/proposal_iterate.py --project "<project>" --paste paste.json --apply absorption.json
+    python scheduling/tools/propsched.py iterate --project "<project>" --paste paste.json --apply absorption.json
     ```
 6. **Camron refreshes** the HTML and verifies. Loop.
 7. **On approval ("this is good, generate the XER")**, write the AI self-postmortem BEFORE producing the final XER. See § "Postmortem on final approval" below.
@@ -139,7 +139,7 @@ Capture anchors during Phase 1 as project metadata, written to `<project>/Propos
 
 You then formulate an absorption plan with the scheduler -- pick a subset whose cuts add up to (or exceed) the slip, mix in any logic changes (FS -> SS, parallelize) that make sense -- save the plan as `absorption.json`, and re-run `proposal_iterate.py` with `--apply absorption.json`.
 
-To re-check anchor status without running a full iteration, use `python scheduling/tools/show_anchors.py "<project>"` (reads `proposal-anchors.json` + `schedule-activities.json`, no XER parse, no CPM run).
+To re-check anchor status without running a full iteration, use `python scheduling/tools/propsched.py anchors "<project>"` (reads `proposal-anchors.json` + `schedule-activities.json`, no XER parse, no CPM run).
 
 Reply pattern:
 
@@ -152,20 +152,21 @@ Reply pattern:
 
 Wait for Camron's reply. Apply what he confirms (his version may differ) by writing `absorption.json` with the agreed `duration_change` items, then re-run `proposal_iterate.py --paste paste.json --apply absorption.json`. The CLI re-checks anchors and only writes the new XER + JSON + HTML when they hold.
 
-**If a previous version of the XER carries hard constraints on anchor tasks**, that's a Phase 1 hygiene issue: run `python scheduling/tools/anchors_from_constraints.py "<project>"` once to lift CS_MSO / CS_FNLT / CS_MANDSTART / CS_MANDFIN / CS_MEOB / CS_MFO into `proposal-anchors.json` and emit a sibling `-v{N+1}.xer` with the constraint fields cleared. Westland's anchor-via-logic rule -- the new XER carries no anchor constraints; the bid dates live in `proposal-anchors.json` and are enforced by `proposal_iterate.py` on every iteration. Note the cleanup in the iteration log.
+**If a previous version of the XER carries hard constraints on anchor tasks**, that's a Phase 1 hygiene issue: run `python scheduling/tools/propsched.py bootstrap-anchors "<project>"` once to lift CS_MSO / CS_FNLT / CS_MANDSTART / CS_MANDFIN / CS_MEOB / CS_MFO into `proposal-anchors.json` and emit a sibling `-v{N+1}.xer` with the constraint fields cleared. Westland's anchor-via-logic rule -- the new XER carries no anchor constraints; the bid dates live in `proposal-anchors.json` and are enforced by `proposal_iterate.py` on every iteration. Note the cleanup in the iteration log.
 
 ### Postmortem on final approval
 
 When Camron approves the schedule ("this is good, generate the XER"), Claude writes a self-reflection artifact **before** producing the final XER. This is one postmortem per proposal cycle (proposals ship once at GMP), date-stamped so a future aggregator can weight newer postmortems more heavily.
 
-**Path:** `<project-folder>/Proposal Schedule/feedback/postmortem-{YYYY-MM-DD}-{project-slug}.md`
+**Path (v4.0.0+ layout):** `<project>/Old Iterations/postmortem-{YYYY-MM-DD}-{project-slug}.md`
+**Path (legacy v3.x):** `<project>/Proposal Schedule/feedback/postmortem-{YYYY-MM-DD}-{project-slug}.md`
 
 - Date prefix -> sortable chronologically across projects.
 - Project slug in filename -> vault-wide grep finds all postmortems on the same project type.
 - `feedback/` subfolder -> separates postmortems from the iteration artifacts.
 
 **Source data:**
-- `iterations/paste-*.json` (the per-iteration paste-back archive that `proposal_iterate.py` writes on every successful apply -- this is the durable record of every change Camron asked for, in order).
+- `Old Iterations/paste-*.json` (v4) or `Proposal Schedule/iterations/paste-*.json` (legacy) (the per-iteration paste-back archive that `proposal_iterate.py` writes on every successful apply -- this is the durable record of every change Camron asked for, in order).
 - The v1 XER (Westland's immutability rule preserves it).
 - The final v{N} XER.
 - Session memory if the agent is the same one that drafted v1; otherwise reconstruct from the paste archive.
@@ -209,7 +210,7 @@ Numbered, first-person AI voice, scoped to project type. Format that future-me c
 2. **One postmortem per proposal cycle.** Generally one per project. Don't overwrite an existing postmortem; if one exists for the same project + date, append a `-2` suffix.
 3. **Write the postmortem BEFORE producing the final XER.** Iteration history is freshest in memory at approval time.
 
-After writing the postmortem, the next proposal draft (a different project) can pull a recency-weighted ruleset from the accumulated corpus via `python scheduling/tools/postmortem_aggregate.py [--project-type <type>]`. That CLI is what closes the lessons-learned loop -- the postmortem you write today informs the next draft tomorrow.
+After writing the postmortem, the next proposal draft (a different project) can pull a recency-weighted ruleset from the accumulated corpus via `python scheduling/tools/propsched.py aggregate-postmortems [--project-type <type>]`. That CLI is what closes the lessons-learned loop -- the postmortem you write today informs the next draft tomorrow.
 
 ### Generate the Plan PDF (post-approval)
 
