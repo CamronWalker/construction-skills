@@ -46,13 +46,40 @@ The iteration loop (`02-iterate.md`) is the most common case. Resist the urge to
 
 ## Iteration tools (Phase 6+)
 
-| Tool | When to use |
-|------|-------------|
-| `tools/proposal_iterate.py` | Every paste-back. Applies `duration_change` items, runs CPM (cached by content hash), checks anchors, writes -v{N+1}.xer + JSON + HTML, archives the paste-back. Exit 0 on success, 2 on anchor slip. |
-| `tools/show_paths.py` | Re-orient before proposing a change. Reads `schedule-activities.json` only -- no XER parse, no CPM. |
-| `tools/show_anchors.py` | Re-check anchor status without running an iteration. Reads `proposal-anchors.json` + `schedule-activities.json`. |
-| `tools/anchors_from_constraints.py` | One-shot bootstrap on a project that still carries CS_MSO / CS_FNLT / CS_MANDSTART / CS_MANDFIN / CS_MEOB / CS_MFO on anchor tasks. Lifts those into `proposal-anchors.json` and emits a sibling -v{N+1}.xer with the constraint fields cleared. |
-| `tools/postmortem_aggregate.py` | Phase 1 of the next proposal. Scans existing `*/Proposal Schedule/feedback/postmortem-*.md`, recency-weights hypotheses, optionally filters by project type, prints a ruleset block to inject into recommendations. |
+All operations route through one CLI: **`python scheduling/tools/propsched.py <verb>`**. The full reference for every verb (inputs, outputs, exit codes, examples) lives in `scheduling/tools/REFERENCE.md` -- load that file when you need the menu; do not read the individual `tools/*.py` scripts.
+
+| Verb | Use |
+|------|-----|
+| `propsched init "<path>"` | Create a new project folder with the v4.0.0 layout |
+| `propsched iterate --project "<p>" --paste paste.json` | Apply a paste-back: CPM, anchor check, write next XER + JSON + HTML, archive paste-back. Exit 2 on anchor slip with cut suggestions |
+| `propsched paths "<p>"` | Print critical / driving / near-critical paths (no CPM, no XER parse) |
+| `propsched anchors "<p>"` | Print anchor status / drift |
+| `propsched bootstrap-anchors "<p>"` | One-shot: lift hard-constraint anchors into `proposal-anchors.json` |
+| `propsched diff "<p>" vA vB` | Pairwise XER diff with classification + reassignment flag |
+| `propsched walk "<p>"` | Walk v1 -> current with per-iteration narrative |
+| `propsched score "<p>" --version N` | DCMA / Westland score; writes sidecar JSON |
+| `propsched aggregate-postmortems` | Phase 1 of next proposal: recency-weighted hypotheses from past postmortems |
+
+## Folder layout (v4.0.0+)
+
+```
+<project>/
+  Bid Documents/
+  Sample Schedules/
+  <Project>.xer                         <- current/working XER
+  schedule-activities.json
+  schedule-review.html
+  Schedule Plan.pdf                     <- final plan (post-approval)
+  proposal-anchors.json
+  Old Iterations/
+    <Project> -v1.xer ... -v{N-1}.xer
+    paste-*.json
+    postmortem-*.md
+    scores/v{N}.json
+    .cpm-cache/
+```
+
+Legacy projects (Proposal Schedule/ subfolder) auto-detected and supported.
 
 ## After the Project: Lessons Learned Loop
 
@@ -64,9 +91,10 @@ The complementary mechanism is the per-project AI postmortem written at final ap
 
 | File | When to Load |
 |------|-------------|
-| `phases/01-draft.md` | Drafting from bid docs (Phase 1-6) |
-| `phases/02-iterate.md` | Paste-back iteration (Phase 6.5+) -- the high-frequency loop |
+| `phases/01-draft.md` | Drafting from bid docs (Phase 1-5) |
+| `phases/02-iterate.md` | Paste-back iteration (Phase 6+) -- the high-frequency loop |
 | `phases/03-score.md` | Schedule quality scoring (Phase 7) |
+| `tools/REFERENCE.md` | Single-page API reference for `propsched` -- load when you need the CLI menu |
 | `references/wbs-patterns.md` | WBS pattern selection (A/B/C) -- load in Phase 2/3 when deciding top-level structure |
 | `references/westland-procedures-summary.md` | Distilled Westland procedure for proposal schedules -- load in Phase 2 before recommendations |
 | `references/westland-procedures.md` | Full Westland procedures text -- load only when the summary doesn't answer the question |

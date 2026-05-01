@@ -19,18 +19,12 @@ from _cpm_loader import load_cpm
 
 
 def _resolve_paths(project):
-    proposal_dir = project / 'Proposal Schedule'
-    if not proposal_dir.is_dir():
-        proposal_dir = project
-    activities = proposal_dir / 'schedule-activities.json'
-    # Legacy fallback: older projects emitted schedule-activities.json at the
-    # project root rather than under Proposal Schedule/.
+    import _layout
+    anchors = _layout.anchors_path(project)
+    activities = _layout.activities_json_path(project)
     if not activities.exists() and (project / 'schedule-activities.json').exists():
         activities = project / 'schedule-activities.json'
-    return (
-        proposal_dir / 'proposal-anchors.json',
-        activities,
-    )
+    return (anchors, activities)
 
 
 def main():
