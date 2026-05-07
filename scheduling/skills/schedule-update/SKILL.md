@@ -29,6 +29,27 @@ Enforced at the tool layer by the `westland` plugin's PreToolUse hook (`westland
 
 ---
 
+## ⚠️ Absolute rule — HTML artifacts go through their parse/generate scripts
+
+**Every editable HTML artifact in this pipeline is read via its parser and written via its generator.** Applies to every sub-command below:
+
+- **READ** via the parser. Never `Read` / `Grep` / `cat` the HTML directly.
+- **WRITE** via the generator. Never `Edit` / `Write` / `MultiEdit` / `sed` / hand-typed HTML patches.
+- Even one-line changes (a checkbox flip, an attachment add, a recipient swap) round-trip through **parse → mutate dict → generate**.
+
+| Artifact | Lives at | Read with | Write with |
+|----------|----------|-----------|------------|
+| `project-context.html` | Schedules root | `parse_project_context_html.parse_project_context_html(path)` | `generate_project_context_html.generate_project_context_html(path, ctx)` |
+| `{YYYY-MM-DD}-email-preview.html` | dated folder | `parse_email_html.parse_preview_html(path)` | `generate_email_preview_html.generate_email_preview_html(...)` |
+
+**Why:** the email preview is 100–160 KB and carries rich state — per-item cards with `active / new / removed / archived` semantics, WYSIWYG narrative blocks (bold/italic/priority), attachments picker, custom closing paragraphs, week-over-week diff outlines, and a `changes_report` toggle. Reading it directly often exceeds 30K tokens for one look; editing by hand silently corrupts the `contenteditable` state machine and breaks the parser. `project-context.html` is ~47 KB with an embedded base64 logo that has historically corrupted mid-payload during direct tool I/O (W1177 Lubumbashi, 2026-05-07). Different files, same class of problem — keep all HTML I/O inside the script pair.
+
+If you find yourself reaching for `Edit` on one of these files, stop and ask: what changed? Parse, mutate that key in the dict, regenerate. The parsers return both the email-ready filtered shape (strings ready for `generate_email_msg.py`) and the carry-forward dict shape (full status/date_archived metadata) — there's no field worth changing that you can't change through the dict.
+
+**Cowork note:** when the Schedules / dated folder lives on a non-`C:\` drive (e.g. `\\orem-fs\Common\Westland Project Files` mounted as `G:\`), the bash sandbox may not see it. The discipline still holds. Run the generator with `output_path` pointing at the real destination if reachable; otherwise hand the invocation to a local Claude Code session — never round-trip the HTML through `Write` to "deliver" it.
+
+---
+
 Unified skill for the Westland weekly schedule update workflow. One entry point covers the full
 post-meeting pipeline: folder setup, SmartPM screenshots, email draft, and Outlook draft creation.
 
