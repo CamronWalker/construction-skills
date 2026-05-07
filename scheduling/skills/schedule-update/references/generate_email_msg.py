@@ -103,15 +103,22 @@ def _esc(text):
 def _md_to_html(text):
     """Convert markdown formatting to HTML.
 
-    Three levels for list items:
-        ==highlighted== → bold + red (highest priority)
-        **bold**        → red only
+    Two priority levels for list items (both render bold + red — the
+    distinction kept in the return value lets future styling diverge):
+        ==highlighted== → bold + red
+        **bold**        → bold + red
         plain text      → normal
 
     Returns (html_string, priority) where priority is:
-        'highlight' — entire item wrapped in ==...== (bold + red)
-        'bold'      — entire item wrapped in **...** (red only)
+        'highlight' — entire item wrapped in ==...==
+        'bold'      — entire item wrapped in **...**
         None        — normal item (may contain inline markers)
+
+    The preview HTML treats `**...**` and `==...==` interchangeably as
+    bold-red priority items, so the email must too. Earlier the email
+    rendered `**bold**` as red-only without the `<b>` tag, breaking
+    parity between the review surface and the sent email (post-mortem
+    W1177 2026-05-07 #14).
     """
     stripped = text.strip()
 
@@ -344,10 +351,14 @@ def _build_html_body(
 
     # --- Section 4: Successes ---
     parts.append(f'<p style="{heading} margin:12pt 0 4pt 0;">Successes:</p>')
-    if successes:
+    rendered_successes = _filter_list_items(successes)
+    if rendered_successes:
         parts.append('<ul style="margin:0 0 6pt 0;">')
-        for s in successes:
-            parts.append(f'<li style="{font} color:#000000;">{_esc(s)}</li>')
+        for s in rendered_successes:
+            # Same priority handling as the ordered lists below — keeps
+            # `**...**` and `==...==` rendering consistently across all
+            # four lists in the email.
+            parts.append(_format_list_item(s, font))
         parts.append('</ul>')
 
     # --- Section 5: Gain / Loss (heading + value on same line) ---
@@ -509,22 +520,29 @@ def _build_html_body(
     return '\n'.join(parts)
 
 
-def _build_list(items, font):
-    """Build an HTML ordered list with markdown bold → bold + red.
+def _format_list_item(item_text, font):
+    """Return one `<li>` HTML string with markdown priority applied.
 
-    Three priority levels:
-        ==highlighted== → bold + red (highest priority)
-        **bold**        → red only
-        plain text      → normal
-
-    Accepts list items as plain strings OR as dicts (from the preview HTML
-    parser with {text, checked, status}). Dict items that are unchecked or
-    archived are skipped.
+    Used by both the ordered lists (red flags, stalled tasks, key items)
+    and the unordered Successes list — keeps formatting in lockstep so
+    `**bold**` lands the same way everywhere in the email.
     """
-    if not items:
-        return ''
+    html_text, priority = _md_to_html(item_text)
+    if priority in ('highlight', 'bold'):
+        # Bold + red: <b> tag is explicit because Outlook's Word renderer
+        # ignores CSS font-weight on <li>.
+        return (
+            f'<li style="{font} color:{RED};">'
+            f'<b>{html_text}</b></li>'
+        )
+    return f'<li style="{font}">{html_text}</li>'
+
+
+def _filter_list_items(items):
+    """Normalize items (strings or {text,checked,status} dicts) into a
+    list of plain strings, dropping unchecked / archived entries."""
     rendered = []
-    for item in items:
+    for item in items or []:
         if isinstance(item, dict):
             if not item.get('checked', True):
                 continue
@@ -533,22 +551,27 @@ def _build_list(items, font):
             rendered.append(item.get('text', ''))
         else:
             rendered.append(str(item))
+    return rendered
+
+
+def _build_list(items, font):
+    """Build an HTML ordered list with markdown bold → bold + red.
+
+    Two priority levels (see `_md_to_html`):
+        ==highlighted== → bold + red
+        **bold**        → bold + red
+        plain text      → normal
+
+    Accepts list items as plain strings OR as dicts (from the preview
+    parser with {text, checked, status}). Dict items that are unchecked
+    or archived are skipped.
+    """
+    rendered = _filter_list_items(items)
     if not rendered:
         return ''
     lines = ['<ol style="margin:0 0 6pt 0;">']
     for item in rendered:
-        html_text, priority = _md_to_html(item)
-        if priority == 'highlight':
-            # Bold + red: use <b> tag explicitly (Outlook ignores font-weight on <li>)
-            lines.append(
-                f'<li style="{font} color:{RED};">'
-                f'<b>{html_text}</b></li>'
-            )
-        elif priority == 'bold':
-            # Red only, no bold
-            lines.append(f'<li style="{font} color:{RED};">{html_text}</li>')
-        else:
-            lines.append(f'<li style="{font}">{html_text}</li>')
+        lines.append(_format_list_item(item, font))
     lines.append('</ol>')
     return '\n'.join(lines)
 

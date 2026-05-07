@@ -495,7 +495,7 @@ If the parsed preview has `changes_report.include=True`, the `draft` workflow (a
    - The same lists (with `previous_text` carried via the parser), narratives, and attachments passed to the preview.
    - `previous_narratives` = dict of last week's narrative values (so the report renders narrative-level diffs).
    - `changed_narrative_fields` = same set passed to the generator.
-2. Append the resulting PDF's absolute path to `attachment_paths` before calling `generate_email_msg.generate_update_email_msg(...)`.
+2. Append the resulting PDF's absolute path to `attachment_paths` before calling either `generate_email_eml.generate_update_email_eml(...)` (default `.eml` path) or `generate_email_msg.generate_update_email_msg(...)` (COM Outlook alternative). Both functions accept the same `attachment_paths` kwarg.
 3. Pre-flight: if `references/node_modules/playwright` is missing, run `npm install` in `references/` first (same pre-flight as `screenshots`). On PDF-conversion failure (missing Node, no Chromium, timeout), fall back to attaching the `.html` alongside — the HTML is still saved, and a warning is surfaced to the user.
 
 The PDF uses the same visual vocabulary as the preview — green for new, red strikethrough for removed, amber dashed outline on edited items with inline word-level diff that preserves bold/italic/priority formatting. It's read-only, paginated Letter-size, and safe to forward.
@@ -580,9 +580,11 @@ If the colleague has already iterated on the content in their head and just want
 
 ### Step 7: Wait For "done", Then Draft
 
-When the colleague says `done`, read the edited HTML via `references/parse_email_html.py`, call `references/generate_email_msg.py` to create the Outlook draft, write the archive markdown (`{dated_folder}/{YYYY-MM-DD}-update-email.md`), and report:
+When the colleague says `done`, read the edited HTML via `references/parse_email_html.py`, call `references/generate_email_eml.py:generate_update_email_eml()` to write the `.eml` to `{dated_folder}/{YYYY-MM-DD}-update-email.eml`, write the archive markdown (`{dated_folder}/{YYYY-MM-DD}-update-email.md`), and report:
 
-> "Draft saved to Outlook Drafts — open Drafts in classic or new Outlook, review one more time, and click Send."
+> "Draft written to `{path}`. Double-click the file to open in Outlook (classic or new) — review, then Send."
+
+If the colleague asks for the COM Outlook path instead (e.g., "save it straight to Drafts"), call `generate_email_msg.py` instead — see the `draft` command's Step 2 alternative above.
 
 If the HTML file looks unchanged (no edits detected) or fails to parse, surface the problem and ask whether to proceed with the unedited draft.
 
@@ -590,7 +592,9 @@ If the HTML file looks unchanged (no edits detected) or fails to parse, surface 
 
 ## `draft` -- Create Outlook Draft
 
-Creates the Outlook draft from the approved email content. Requires the edited HTML preview (and/or the archive markdown) for the current dated folder to already exist (run `email` or `report` first).
+Turns the approved email content into a draft the user opens, reviews, and sends from Outlook. Requires the edited HTML preview (and/or the archive markdown) for the current dated folder to already exist (run `email` or `report` first).
+
+Two output formats are supported. **`.eml` is the default** because it works everywhere — including cowork and any session that can't reach a local Outlook. The COM Outlook draft is an alternative for users who'd rather have the message land directly in Exchange Drafts without a double-click.
 
 ### Step 1: Locate Source File
 
@@ -599,24 +603,37 @@ Prefer the edited HTML preview: `{dated_folder}/{YYYY-MM-DD}-email-preview.html`
 If the HTML preview is missing, fall back to `{dated_folder}/{YYYY-MM-DD}-update-email.md` (the archive markdown). If both are missing:
 > "No update email file found for today's folder. Run `/schedule-update email` or `/schedule-update report` first."
 
-### Step 2: Generate Draft
+### Step 2: Generate the draft (default: `.eml` on disk)
 
-Read `{skill_dir}/references/generate_email_msg.py`. The script:
-- Builds an HTML email body (Arial font, inline styles, Outlook Word-renderer compatible)
-- Embeds screenshots as inline CID images hyperlinked to SmartPM URLs
-- Attaches the files listed in the preview's Attachments card (parser returns `attachment_paths` — checked & non-archived only)
-- Includes the Westland email signature (logo, name, title, office phone, optional mobile)
-- Saves the draft to Outlook Drafts via COM automation
+Default path — `references/generate_email_eml.py:generate_update_email_eml()`. The function:
+- Builds the HTML body with the canonical `_build_html_body` from `generate_email_msg.py` so the rendered email is byte-identical to the COM path.
+- Encodes the body as base64 (NOT quoted-printable — Outlook's compose-mode loader corrupts QP soft line breaks, post-mortem W1177 #15.1).
+- Attaches inline screenshots as `multipart/related` parts with `Content-ID` only and no `filename=` (so Outlook shows them inline only, not in the attachment pane — post-mortem W1177 #15.2).
+- Attaches the files listed in the preview's Attachments card (parser returns `attachment_paths` — checked & non-archived only). Skips Office temp lock files (`~$Foo.xlsm`).
+- Includes the Westland email signature (inline logo, name, title, office phone, optional mobile).
+- Sets `X-Unsent: 1` so opening the file lands the user in compose mode with editable To/Cc/Subject and a real Send button.
 
-**Pre-conditions:**
-- Classic Outlook must be open (not just installed -- open it from Start menu for Exchange sync)
+Output: `{dated_folder}/{YYYY-MM-DD}-update-email.eml`.
+
+No external dependencies — everything is stdlib (`email.message.EmailMessage`).
+
+### Step 2 (alternative): COM Outlook draft
+
+If the user explicitly asks to skip the `.eml` ("save it straight to Outlook Drafts" / "use the Outlook draft path"), call `references/generate_email_msg.py:generate_update_email_msg()` instead. Same kwargs, same body — just writes via Outlook COM automation rather than to disk.
+
+**Pre-conditions for COM path:**
+- Classic Outlook must be open (not just installed — open it from Start menu so it syncs to Exchange and the draft shows up in new Outlook)
 - `pywin32` must be installed (`pip install pywin32`)
 
-Run the script. If `pywin32` is missing, prompt: "Install pywin32 with `pip install pywin32`, then retry." If COM fails entirely, fall back to `generate_email_docx.py` and inform the user.
+If `pywin32` is missing, prompt: "Install pywin32 with `pip install pywin32`, then retry." If Outlook COM fails entirely, fall back to the `.eml` path automatically and tell the user.
 
 ### Step 3: Confirm
 
-Tell the user: "Draft saved to your Outlook Drafts folder -- open Drafts in new Outlook, review, and click Send."
+For the `.eml` path:
+> "Draft written to `{path}`. Double-click the file to open in Outlook (classic or new) — review, then Send."
+
+For the COM path:
+> "Draft saved to your Outlook Drafts folder — open Drafts in classic or new Outlook, review one more time, and click Send."
 
 ---
 
@@ -634,7 +651,8 @@ Shows where the project is in the weekly update pipeline based on what files exi
 | `{dated_folder}/screenshots/` has all required PNGs | Screenshots done (step 10) |
 | `{dated_folder}/YYYY-MM-DD-email-preview.html` exists | Email preview generated (step 11) |
 | `{dated_folder}/YYYY-MM-DD-update-email.md` exists | Email archived after review |
-| Outlook draft exists | Draft created (step 13) |
+| `{dated_folder}/YYYY-MM-DD-update-email.eml` exists | `.eml` draft created (step 13, default path) |
+| Outlook draft exists in Drafts folder | COM draft created (step 13, alternative path — only detectable while Outlook is open) |
 
 Report each phase as DONE / PENDING / NOT STARTED, and name the recommended next step.
 
@@ -652,8 +670,8 @@ When invoked without a command:
    - If folder exists but no XER → "Folder is set up. Export the schedule and drop the XER in `{path}`."
    - If XER exists but no screenshots → "XER is here. Run `/schedule-update screenshots` to capture SmartPM graphs."
    - If screenshots exist but no email → "Screenshots are ready. Run `/schedule-update email` to generate the markdown draft, or `/schedule-update report` for the guided colleague flow with an editable HTML preview."
-   - If email exists but no Outlook draft → "Email draft is saved. Run `/schedule-update draft` to create the Outlook draft."
-   - If draft created → "Draft is in Outlook. Send when ready."
+   - If preview exists but no `.eml` → "Preview is ready. Run `/schedule-update draft` to write the `.eml` for review and send."
+   - If `.eml` exists → "Draft is at `{path}`. Double-click it in Explorer to open in Outlook, review one more time, and click Send."
 
 ---
 
@@ -687,8 +705,9 @@ All reference files live in `references/` within this skill directory.
 | File | Purpose |
 |------|---------|
 | `references/email-template.md` | Full email template -- 12 sections, formatting rules, attachment list |
-| `references/generate_email_msg.py` | Outlook draft via COM automation. Requires `pywin32` and classic Outlook open. |
-| `references/generate_email_docx.py` | Fallback: .docx output if Outlook unavailable. Requires `python-docx`. |
+| `references/generate_email_eml.py` | **Default draft path.** Writes a `.eml` file via `email.message.EmailMessage` (stdlib only — works in cowork). Body via the shared `_build_html_body` so output is byte-identical to the COM path. Base64-encoded HTML, inline-only screenshot parts, `X-Unsent: 1` so double-click lands in Outlook compose mode. |
+| `references/generate_email_msg.py` | **Alternative draft path.** Same body via `_build_html_body`, written into Outlook Drafts via COM automation. Requires `pywin32` and classic Outlook open. Also exports the shared list-formatting helpers (`_md_to_html`, `_format_list_item`) used by the `.eml` path. |
+| `references/generate_email_docx.py` | Last-resort fallback: `.docx` output if both Outlook and the `.eml` path are unavailable. Requires `python-docx`. |
 | `references/generate_email_preview_html.py` | Builds the **editable HTML preview**. Self-contained file with per-item cards (git-diff states), attachments picker, custom closing paragraphs, WYSIWYG toolbar, Save Edits download, Copy for Claude clipboard export. Includes an HTML-aware live diff on blur so bold/italic/priority formatting survives edits. |
 | `references/parse_email_html.py` | Reads an edited preview HTML back into a Python dict. Returns both filtered (email-ready strings) and full (carry-forward dicts with status/date_archived) shapes. Also extracts the `changes_report` option (include + filename). |
 | `references/carry_forward.py` | Helpers `transition_items()`, `transition_attachments()`, and `reconcile_items()` — apply week-over-week state transitions (active → removed → archived, etc.) and compute previous_text for edited items via fuzzy match. |
