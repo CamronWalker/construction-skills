@@ -30,6 +30,16 @@ import html as html_mod
 import os
 import re
 import subprocess
+from pathlib import Path
+
+
+def _file_uri(abs_path):
+    # Path.as_uri emits RFC 8089 file URLs that work for UNC, drive, and
+    # POSIX. Manual `'file:///' + p.replace('\\','/').lstrip('/')` mangled
+    # UNC roots (\\orem-fs\Common\... became file:///orem-fs/... which
+    # Chromium 404s on, blocking changes-report PDF on every project that
+    # lives on the share). See post-mortem 2026-05-07 W1177 #1+#2.
+    return Path(abs_path).as_uri()
 
 # Westland brand colors (match generate_email_msg.py)
 RED = '#C94444'
@@ -509,7 +519,7 @@ def _build_diff_email_body(*,
 
     # --- Section 3: SmartPM Summary Report screenshot ---
     if summary_screenshot_abs and os.path.isfile(summary_screenshot_abs):
-        src = 'file:///' + summary_screenshot_abs.replace('\\', '/').lstrip('/')
+        src = _file_uri(summary_screenshot_abs)
         img_tag = (
             f'<img src="{_esc(src)}" '
             'style="display:block; border:0; width:100%; '
@@ -610,7 +620,7 @@ def _build_diff_email_body(*,
     for gp in (graph_screenshot_abs or []):
         if not (gp and os.path.isfile(gp)):
             continue
-        src = 'file:///' + gp.replace('\\', '/').lstrip('/')
+        src = _file_uri(gp)
         img_tag = (
             f'<img src="{_esc(src)}" '
             'style="display:block; border:0; width:100%; '
