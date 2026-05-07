@@ -1,9 +1,9 @@
 {
-  "description": "XER immutability hook — blocks in-place edits, overwrites, and deletes of .xer files in Westland scheduling projects. New versioned files (-v2.xer, -v3.xer) are allowed.",
+  "description": "Westland Project Files hook — three-rule policy on the Westland share: (1) modify-prompt on any existing file (auto-mode cannot auto-approve); (2) version-controlled types (.xer, ...) hard-denied for in-place changes (force -vN versioning); (3) delete hard-denied (move to _Archive / _to_delete instead). Files outside the share are not affected.",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
