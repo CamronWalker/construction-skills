@@ -23,6 +23,11 @@ SRC_DIR = ROOT / "src"
 
 PLUGINS = ["westland", "scheduling", "estimating", "project-management", "site-operations", "safety"]
 
+# Claude Code rejects plugin installs whose description exceeds 500 chars.
+# Validated for both the plugin's own plugin.json and its entry in the
+# repo-root marketplace.json before any zip is built.
+DESCRIPTION_MAX_LEN = 500
+
 EXCLUDE_DIRS = {
     "__pycache__",
     "node_modules",
@@ -46,6 +51,49 @@ def should_skip(path: Path) -> bool:
     if path.suffix in EXCLUDE_SUFFIXES:
         return True
     return False
+
+
+def _check_description(label: str, description: str) -> str | None:
+    """Return an error message if `description` exceeds the limit, else None."""
+    n = len(description)
+    if n > DESCRIPTION_MAX_LEN:
+        return f"{label}: description is {n} chars (max {DESCRIPTION_MAX_LEN}, over by {n - DESCRIPTION_MAX_LEN})"
+    return None
+
+
+def validate_descriptions(targets: list[str]) -> list[str]:
+    """Validate plugin.json + matching marketplace.json descriptions for each
+    target plugin. Returns a list of human-readable violation messages."""
+    errors: list[str] = []
+
+    marketplace_path = ROOT / ".claude-plugin" / "marketplace.json"
+    marketplace_entries: dict[str, dict] = {}
+    if marketplace_path.exists():
+        marketplace = json.loads(marketplace_path.read_text(encoding="utf-8"))
+        marketplace_entries = {p["name"]: p for p in marketplace.get("plugins", [])}
+
+    for name in targets:
+        if name not in PLUGINS:
+            continue
+        manifest_path = ROOT / name / ".claude-plugin" / "plugin.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            err = _check_description(
+                f"{name}/.claude-plugin/plugin.json",
+                manifest.get("description", ""),
+            )
+            if err:
+                errors.append(err)
+        entry = marketplace_entries.get(name)
+        if entry is not None:
+            err = _check_description(
+                f".claude-plugin/marketplace.json[{name}]",
+                entry.get("description", ""),
+            )
+            if err:
+                errors.append(err)
+
+    return errors
 
 
 def read_version(plugin_dir: Path) -> str:
@@ -87,6 +135,15 @@ def build_plugin(plugin: str) -> Path:
 
 def main() -> int:
     targets = sys.argv[1:] if len(sys.argv) > 1 else PLUGINS
+
+    errors = validate_descriptions(targets)
+    if errors:
+        print(f"Description length check failed (max {DESCRIPTION_MAX_LEN} chars):", file=sys.stderr)
+        for err in errors:
+            print(f"  {err}", file=sys.stderr)
+        print("Trim the offending descriptions before building.", file=sys.stderr)
+        return 1
+
     print("Building plugin zips...")
     for name in targets:
         if name not in PLUGINS:
