@@ -309,6 +309,72 @@ html, body { height: 100%; }
 }
 .wl-default-view:hover { background: #f0f5f7; }
 
+/* Reviewer feedback download (secondary action) */
+.wl-btn-feedback {
+  background: #fff; border: 1px solid #0B4F66;
+  color: #0B4F66; font-size: 11px; padding: 5px 10px;
+  border-radius: 4px; cursor: pointer; font-family: inherit;
+  font-weight: bold; display: inline-flex; align-items: center; gap: 4px;
+}
+.wl-btn-feedback:hover { background: #f0f5f7; }
+.wl-btn-feedback[disabled] { opacity: 0.55; cursor: not-allowed; }
+.wl-btn-feedback .wl-cnt-pill {
+  display: inline-block; min-width: 16px; padding: 0 5px;
+  background: #0B4F66; color: #fff;
+  border-radius: 8px; font-size: 10px; line-height: 14px;
+  text-align: center;
+}
+
+/* Modal for reviewer attribution */
+.wl-modal-backdrop {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45); z-index: 9999;
+  align-items: center; justify-content: center;
+}
+.wl-modal-backdrop.show { display: flex; }
+.wl-modal {
+  background: #fff; border-radius: 6px;
+  padding: 22px 26px; min-width: 360px; max-width: 480px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+  font-family: inherit;
+}
+.wl-modal h2 {
+  margin: 0 0 4px 0; color: #0B4F66; font-size: 13pt;
+  font-weight: bold;
+}
+.wl-modal .wl-modal-sub {
+  margin: 0 0 14px 0; font-size: 9.5pt; color: #555; line-height: 1.4;
+}
+.wl-modal label {
+  display: block; font-size: 10pt; font-weight: bold;
+  color: #0B4F66; margin: 10px 0 3px 0;
+}
+.wl-modal input[type="text"], .wl-modal input[type="email"] {
+  width: 100%; box-sizing: border-box;
+  font-family: inherit; font-size: 11pt; padding: 6px 8px;
+  border: 1px solid #ccc; border-radius: 3px; background: #fbfbfb;
+}
+.wl-modal input:focus { outline: 2px solid #0B4F66; background: #fffde7; }
+.wl-modal-context {
+  margin-top: 12px; padding: 8px 10px;
+  background: #f7f9fa; border: 1px solid #e1e8eb;
+  border-radius: 3px; font-size: 9pt; color: #555;
+}
+.wl-modal-context .wl-mc-label { color: #0B4F66; font-weight: bold; }
+.wl-modal-instructions {
+  margin: 14px 0 0 0; padding: 10px 12px;
+  background: #f0f5f7; border-left: 3px solid #0B4F66;
+  font-size: 9.5pt; color: #333; line-height: 1.45;
+}
+.wl-modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  margin-top: 16px;
+}
+.wl-modal .wl-btn-secondary {
+  background: #fff; border: 1px solid #999; color: #333;
+}
+.wl-modal .wl-btn-secondary:hover { background: #f0f0f0; }
+
 /* Toast */
 .wl-toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
@@ -533,6 +599,7 @@ html, body { height: 100%; }
   </div>
   <div class="wl-tb-divider"></div>
   <div class="wl-tb-meta">
+    <div class="wl-meta-row"><span class="wl-meta-label">Version:</span> <span id="meta-version">--</span></div>
     <div class="wl-meta-row"><span class="wl-meta-label">Data Date:</span> <span id="meta-data-date">--</span></div>
     <div class="wl-meta-row"><span class="wl-meta-label">SC:</span> <span id="meta-sc">--</span></div>
     <div class="wl-meta-row"><span class="wl-meta-label">Project End:</span> <span id="meta-end">--</span></div>
@@ -547,6 +614,11 @@ html, body { height: 100%; }
   <label class="wl-default-view" title="When checked, the copied JSON includes the current zoom, units, scroll position, and expand/collapse state. Claude bakes that into default_view on the next render so this exact view becomes the page's default.">
     <input type="checkbox" id="chk-default-view"> Default view
   </label>
+  <button id="btn-download-feedback" class="wl-btn-feedback" type="button" disabled
+          title="Download your edits + comments as an attribution-tagged JSON file to email back to the scheduler">
+    Download Feedback
+    <span id="download-pill" class="wl-cnt-pill">0</span>
+  </button>
   <div class="wl-tb-divider"></div>
   <div class="wl-tb-stats">
     <div class="wl-stat"><div class="wl-num" id="stat-total">--</div><div class="wl-lbl">Activities</div></div>
@@ -606,6 +678,30 @@ html, body { height: 100%; }
 </section>
 
 </div><!-- /.wl-page -->
+
+<div id="wl-feedback-modal" class="wl-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="wl-fb-modal-title">
+  <div class="wl-modal">
+    <h2 id="wl-fb-modal-title">Download Feedback</h2>
+    <p class="wl-modal-sub">Your name is attached to the JSON so the scheduler knows whose comments these are.</p>
+    <label for="wl-fb-name">Your name</label>
+    <input type="text" id="wl-fb-name" autocomplete="name" placeholder="e.g. Steve Westover">
+    <label for="wl-fb-email">Your email <span style="font-weight:normal;color:#888">(optional)</span></label>
+    <input type="email" id="wl-fb-email" autocomplete="email" placeholder="steve@example.com">
+    <div class="wl-modal-context">
+      <span class="wl-mc-label">Reviewing:</span> <span id="wl-fb-ctx-project">--</span>
+      &nbsp;<span class="wl-mc-label">Version:</span> <span id="wl-fb-ctx-version">--</span>
+      &nbsp;<span class="wl-mc-label">Items:</span> <span id="wl-fb-ctx-count">0</span>
+    </div>
+    <div class="wl-modal-instructions">
+      After download, email the JSON file to your scheduler. They will ingest it into the project's feedback record.
+      Your name and email are saved in this browser so you do not need to retype them next time.
+    </div>
+    <div class="wl-modal-actions">
+      <button type="button" class="wl-btn wl-btn-secondary" id="wl-fb-cancel">Cancel</button>
+      <button type="button" class="wl-btn" id="wl-fb-submit">Download JSON</button>
+    </div>
+  </div>
+</div>
 
 <script><<<FRAPPE_GANTT_JS>>></script>
 <script id="schedule-data" type="application/json"><<<ACTIVITIES_JSON>>></script>
@@ -1527,6 +1623,12 @@ html, body { height: 100%; }
       if (feedbackCount > 0) btn.classList.add('has-changes');
       else btn.classList.remove('has-changes');
     }
+    // Reviewer Download button mirrors the feedback count (default-view
+    // alone is not enough -- reviewers must have an actual comment or edit).
+    var dlBtn = document.getElementById('btn-download-feedback');
+    var dlPill = document.getElementById('download-pill');
+    if (dlPill) dlPill.textContent = feedbackCount;
+    if (dlBtn) dlBtn.disabled = feedbackCount === 0;
   }
 
   function copyForClaude() {
@@ -1555,6 +1657,137 @@ html, body { height: 100%; }
     } else {
       if (fallbackCopy(text)) done(); else fail();
     }
+  }
+
+  // --------------------------------------------------------------
+  // Reviewer-feedback download. Same comment + edit data as Copy-for-
+  // Claude, wrapped with attribution metadata + a per-activity
+  // task_snapshot so the scheduler can detect when feedback is for an
+  // older XER version (task may have been renamed, re-duration'd, or
+  // dropped between review time and ingest).
+  // --------------------------------------------------------------
+  var REVIEWER_NAME_KEY = 'wl-reviewer-name';
+  var REVIEWER_EMAIL_KEY = 'wl-reviewer-email';
+
+  function readReviewerCache() {
+    var name = '', email = '';
+    try {
+      name = window.localStorage.getItem(REVIEWER_NAME_KEY) || '';
+      email = window.localStorage.getItem(REVIEWER_EMAIL_KEY) || '';
+    } catch (e) { /* private mode / disabled storage */ }
+    return { name: name, email: email };
+  }
+
+  function saveReviewerCache(name, email) {
+    try {
+      window.localStorage.setItem(REVIEWER_NAME_KEY, name || '');
+      window.localStorage.setItem(REVIEWER_EMAIL_KEY, email || '');
+    } catch (e) { /* swallow */ }
+  }
+
+  function slugify(s) {
+    return String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+  }
+
+  function buildReviewerFeedbackPayload(name, email) {
+    var inner = buildFeedbackPayload();
+    // Attach a task_snapshot to every activity so the ingest verb can
+    // detect task drift (rename, re-duration, deletion) between the
+    // version reviewed and the current XER. The snapshot captures what
+    // the reviewer actually saw at the moment they clicked download.
+    var snapshotted = (inner.activities || []).map(function (item) {
+      var src = byId[item.id] || {};
+      return Object.assign({}, item, {
+        task_snapshot: {
+          name: src.name || item.name || '',
+          duration_days: (src.duration_days != null) ? src.duration_days : null,
+          early_start: src.early_start || null,
+          early_end: src.early_end || null,
+          total_float_days: (src.total_float_days != null) ? src.total_float_days : null
+        }
+      });
+    });
+    var dateStr = new Date().toISOString().slice(0, 10);
+    return {
+      schema: 'westland-reviewer-feedback',
+      schema_version: 1,
+      reviewer: { name: name, email: email || '' },
+      review_date: dateStr,
+      project: project.name || inner.project || '',
+      project_data_date: project.data_date || inner.data_date,
+      version_reviewed: project.version != null ? project.version : null,
+      generated_at: inner.generated_at,
+      change_count: inner.change_count,
+      comment_count: inner.comment_count,
+      activities: snapshotted,
+      default_view: inner.default_view || null
+    };
+  }
+
+  function triggerJsonDownload(filename, jsonText) {
+    var blob = new Blob([jsonText], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+
+  function openFeedbackModal() {
+    var modal = document.getElementById('wl-feedback-modal');
+    if (!modal) return;
+    var cache = readReviewerCache();
+    document.getElementById('wl-fb-name').value = cache.name;
+    document.getElementById('wl-fb-email').value = cache.email;
+    document.getElementById('wl-fb-ctx-project').textContent = project.name || '--';
+    document.getElementById('wl-fb-ctx-version').textContent =
+      (project.version != null ? ('v' + project.version) : '--');
+    document.getElementById('wl-fb-ctx-count').textContent =
+      (Object.keys(edits).length + Object.keys(comments).length);
+    modal.classList.add('show');
+    var nameEl = document.getElementById('wl-fb-name');
+    nameEl.style.borderColor = '';
+    setTimeout(function () { nameEl.focus(); nameEl.select(); }, 30);
+  }
+
+  function closeFeedbackModal() {
+    var modal = document.getElementById('wl-feedback-modal');
+    if (modal) modal.classList.remove('show');
+  }
+
+  function submitFeedbackDownload() {
+    var nameEl = document.getElementById('wl-fb-name');
+    var emailEl = document.getElementById('wl-fb-email');
+    var name = (nameEl.value || '').trim();
+    var email = (emailEl.value || '').trim();
+    if (!name) {
+      nameEl.style.borderColor = '#C94444';
+      nameEl.focus();
+      return;
+    }
+    saveReviewerCache(name, email);
+    var payload = buildReviewerFeedbackPayload(name, email);
+    if (!payload.activities || payload.activities.length === 0) {
+      showToast('Nothing to send -- add a comment or duration edit first.', true);
+      closeFeedbackModal();
+      return;
+    }
+    var projSlug = slugify(payload.project) || 'project';
+    var revSlug = slugify(name) || 'reviewer';
+    var ver = payload.version_reviewed != null ? ('-v' + payload.version_reviewed) : '';
+    var filename = projSlug + ver + '-feedback-' + revSlug + '-' + payload.review_date + '.json';
+    triggerJsonDownload(filename, JSON.stringify(payload, null, 2));
+    closeFeedbackModal();
+    var n = payload.activities.length;
+    showToast('Downloaded ' + n + ' item' + (n === 1 ? '' : 's')
+              + '. Email the JSON file to your scheduler.');
   }
 
   function fallbackCopy(text) {
@@ -1621,6 +1854,10 @@ html, body { height: 100%; }
     document.getElementById('stat-near').textContent = near.length;
     document.getElementById('stat-paths').textContent = (paths.driving_paths || []).length;
 
+    var verEl = document.getElementById('meta-version');
+    if (verEl) {
+      verEl.textContent = (project.version != null ? ('v' + project.version) : '--');
+    }
     document.getElementById('meta-data-date').textContent = project.data_date || '--';
     document.getElementById('meta-sc').textContent = project.sc_milestone_name
       ? (project.sc_milestone_name + ' -- ' + dateOnly(project.sc_milestone_date))
@@ -1724,6 +1961,24 @@ html, body { height: 100%; }
     alignDataDateNearLeft();
   });
   document.getElementById('btn-copy-for-claude').addEventListener('click', copyForClaude);
+  document.getElementById('btn-download-feedback').addEventListener('click', openFeedbackModal);
+  document.getElementById('wl-fb-cancel').addEventListener('click', closeFeedbackModal);
+  document.getElementById('wl-fb-submit').addEventListener('click', submitFeedbackDownload);
+  document.getElementById('wl-feedback-modal').addEventListener('click', function (ev) {
+    if (ev.target.id === 'wl-feedback-modal') closeFeedbackModal();
+  });
+  document.getElementById('wl-fb-name').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); submitFeedbackDownload(); }
+  });
+  document.getElementById('wl-fb-email').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); submitFeedbackDownload(); }
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      var m = document.getElementById('wl-feedback-modal');
+      if (m && m.classList.contains('show')) closeFeedbackModal();
+    }
+  });
   document.getElementById('chk-default-view').addEventListener('change', updateCopyButton);
 
   // -------------------------------------------------------------------
