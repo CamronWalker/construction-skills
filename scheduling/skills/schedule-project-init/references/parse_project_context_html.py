@@ -34,7 +34,13 @@ VOID_ELEMENTS = {'img', 'br', 'hr', 'input', 'meta', 'link', 'area',
 
 
 def _parse_attrs(s):
-    d = {m.group(1).lower(): m.group(2) for m in _RE_ATTR.finditer(s or '')}
+    # html.unescape on every attribute value -- the generator escapes user
+    # text via html.escape on write, so the parser must decode entities on
+    # read or values containing &, <, >, ", ' come back encoded.
+    d = {
+        m.group(1).lower(): html_mod.unescape(m.group(2))
+        for m in _RE_ATTR.finditer(s or '')
+    }
     # Capture valueless attrs (e.g. `readonly`)
     for m in re.finditer(r'(?:^|\s)([a-zA-Z][-a-zA-Z0-9_:.]*)(?=\s|/>|>|$)', s or ''):
         k = m.group(1).lower()
