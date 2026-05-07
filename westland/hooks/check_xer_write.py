@@ -22,6 +22,12 @@ Westland-root path AND a delete verb (rm, del, erase, Remove-Item,
 rmdir, unlink, find -delete) is hard-denied. Move the file or folder
 into an _Archive or _to_delete folder for human review instead.
 
+Allowlist: working-artifact extensions in _ALLOWED_EXTENSIONS
+(.html, .md, .json) are exempt from rules 1 and 3. They can be edited,
+overwritten, and deleted in the share without prompting -- they're
+regenerated artifacts (HTML reports, markdown notes, JSON configs)
+rather than audit-trail records.
+
 Files outside the Westland Project Files share (different drive, the
 user's home, OneDrive personal sync, /tmp, etc.) are not protected by
 any rule -- the hook returns allow.
@@ -48,6 +54,14 @@ RELEVANT_FILE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # original. Add more extensions here as the company adopts versioning
 # discipline for them.
 _VERSIONED_EXTENSIONS: frozenset[str] = frozenset({".xer"})
+
+# Working-artifact extensions exempt from rules 1 and 3. Files of these
+# types can be freely edited, overwritten, or deleted in the Westland
+# share -- they're regenerated from source data (HTML reports, markdown
+# notes, JSON configs) and don't carry the audit-trail weight that
+# drawings, contracts, and schedules do. Allowlist takes precedence over
+# both the modify-prompt and the delete-deny.
+_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".html", ".md", ".json"})
 
 # Westland Project Files roots -- the protected zone. Only files under
 # one of these prefixes are subject to the three rules. The prefix list
@@ -87,6 +101,46 @@ def _in_westland_root(path_or_command: str) -> bool:
 
 def _is_versioned(path: Path) -> bool:
     return path.suffix.lower() in _VERSIONED_EXTENSIONS
+
+
+def _is_allowed_ext(path_or_str) -> bool:
+    """True if the given Path or path-like string has an extension in the
+    allowlist. Used to short-circuit both the modify-prompt rule and the
+    delete-deny rule for working artifacts (.html, .md, .json)."""
+    if isinstance(path_or_str, Path):
+        return path_or_str.suffix.lower() in _ALLOWED_EXTENSIONS
+    return Path(path_or_str).suffix.lower() in _ALLOWED_EXTENSIONS
+
+
+def _delete_targets_all_allowed_ext(command: str) -> bool:
+    """For a delete command that touches the Westland share, return True if
+    every file-like target argument has an extension in _ALLOWED_EXTENSIONS.
+
+    Conservative -- returns False for forms we can't enumerate confidently
+    (find -delete, recursive folder removes, bare unquoted globs that
+    don't include a path prefix). Those keep the deny.
+    """
+    # find -delete walks the tree at runtime; we can't know what gets matched.
+    if re.search(r"\bfind\b[^|]*-delete\b", command, re.IGNORECASE):
+        return False
+
+    targets: list[str] = []
+
+    # Quoted paths (single or double quotes). The most reliable signal of
+    # "here's a path argument."
+    targets.extend(re.findall(r"""['"]([^'"]+)['"]""", command))
+
+    # Unquoted tokens that begin with a drive letter (C:\) or leading slash
+    # (/g/ or /Users/) AND end with a .ext. Catches `rm /g/path/file.md`
+    # without forcing the user to quote.
+    targets.extend(
+        re.findall(r"""(?:[A-Za-z]:|/)[^\s'"]*\.[A-Za-z0-9]+""", command)
+    )
+
+    if not targets:
+        return False
+
+    return all(_is_allowed_ext(t) for t in targets)
 
 
 # Bash / PowerShell delete-verb patterns. The path-scope filter (the
@@ -138,6 +192,8 @@ DENY_DELETE_MESSAGE = """⚠️ Westland Project Files: deleting files in the We
 
 Files in the Westland Project Files share are project records — drawings, schedules, contracts, claims evidence. Deletes can't be reversed and may erase audit trail. Camron's policy: deletes must go through human review.
 
+Exception: deletes whose targets all carry a working-artifact extension (.html, .md, .json) are allowed without prompting.
+
 Instead of deleting:
   Move the file or folder into an _Archive or _to_delete folder so a human can review and remove it later.
 
@@ -165,6 +221,12 @@ def check_file_tool(tool_name: str, tool_input: dict) -> tuple[str, str]:
 
     # Path-scope filter: only Westland Project Files are protected.
     if not _in_westland_root(file_path):
+        return "allow", ""
+
+    # Allowlist: working-artifact extensions are freely editable and
+    # overwritable. Bypasses both rule 1 (modify-prompt) and rule 2
+    # (versioned-deny) -- though no allowlisted ext is currently versioned.
+    if _is_allowed_ext(path):
         return "allow", ""
 
     # Rule 2: version-controlled types are hard-denied for in-place
@@ -213,11 +275,17 @@ def check_bash(tool_input: dict) -> tuple[str, str]:
     if not _in_westland_root(command):
         return "allow", ""
 
-    for pattern in _BASH_DELETE_PATTERNS:
-        if pattern.search(command):
-            return "deny", DENY_DELETE_MESSAGE.format(command=command)
+    is_delete = any(p.search(command) for p in _BASH_DELETE_PATTERNS)
+    if not is_delete:
+        return "allow", ""
 
-    return "allow", ""
+    # Allowlist: a delete that targets only working-artifact extensions
+    # (.html, .md, .json) is permitted. Anything that isn't clearly
+    # restricted to those extensions falls through to the deny.
+    if _delete_targets_all_allowed_ext(command):
+        return "allow", ""
+
+    return "deny", DENY_DELETE_MESSAGE.format(command=command)
 
 
 def check(tool_name: str, tool_input: dict) -> tuple[str, str]:
@@ -334,6 +402,92 @@ def self_test() -> int:
         case("allow Write brand-new .txt (creating new content)", "Write", {"file_path": str(tmp / "new.txt")}, "allow")
         case("allow Write brand-new .pdf", "Write", {"file_path": str(tmp / "new.pdf")}, "allow")
         case("allow Edit with no file_path", "Edit", {}, "allow")
+
+        # ------------------------------------------------------------------
+        print("Allowlist cases (file tools on .html / .md / .json inside Westland root):")
+        existing_html = tmp / "report.html"
+        existing_html.write_text("X", encoding="utf-8")
+        existing_md = tmp / "notes.md"
+        existing_md.write_text("X", encoding="utf-8")
+        existing_json = tmp / "config.json"
+        existing_json.write_text("X", encoding="utf-8")
+
+        case("allow Edit on existing .html in Westland root", "Edit", {"file_path": str(existing_html)}, "allow")
+        case("allow Edit on existing .md in Westland root", "Edit", {"file_path": str(existing_md)}, "allow")
+        case("allow Edit on existing .json in Westland root", "Edit", {"file_path": str(existing_json)}, "allow")
+        case("allow MultiEdit on existing .md in Westland root", "MultiEdit", {"file_path": str(existing_md)}, "allow")
+        case("allow Write overwriting existing .html in Westland root", "Write", {"file_path": str(existing_html)}, "allow")
+        case("allow Write overwriting existing .json in Westland root", "Write", {"file_path": str(existing_json)}, "allow")
+        case("allow Write brand-new .md in Westland root", "Write", {"file_path": str(tmp / "new.md")}, "allow")
+        case(
+            "allow Edit on G:\\Westland Project Files\\ .md (literal path)",
+            "Edit",
+            {"file_path": r"G:\Westland Project Files\Job\notes.md"},
+            "allow",
+        )
+        case(
+            "allow Edit on UNC orem-fs Westland share .json",
+            "Edit",
+            {"file_path": r"\\orem-fs\Common\Westland Project Files\Job\config.json"},
+            "allow",
+        )
+
+        # ------------------------------------------------------------------
+        print("Allowlist cases (delete commands on .html / .md / .json inside Westland root):")
+        case(
+            "allow rm of .md in Westland root",
+            "Bash",
+            {"command": f"rm -f '{existing_md}'"},
+            "allow",
+        )
+        case(
+            "allow rm of .html in Westland root",
+            "Bash",
+            {"command": f"rm '{existing_html}'"},
+            "allow",
+        )
+        case(
+            "allow Remove-Item of .json in Westland root",
+            "PowerShell",
+            {"command": f"Remove-Item '{existing_json}'"},
+            "allow",
+        )
+        case(
+            "allow del of .html in literal G:\\Westland Project Files",
+            "Bash",
+            {"command": r"del 'G:\Westland Project Files\Job\report.html'"},
+            "allow",
+        )
+        case(
+            "allow rm of two allowlisted files (mixed .md + .json)",
+            "Bash",
+            {"command": f"rm '{existing_md}' '{existing_json}'"},
+            "allow",
+        )
+        case(
+            "deny rm of mixed allowlisted + .xer (any non-allowlisted target re-arms deny)",
+            "Bash",
+            {"command": f"rm '{existing_md}' '{record}'"},
+            "deny",
+        )
+        case(
+            "deny Remove-Item -Recurse of folder in Westland root (no extension)",
+            "PowerShell",
+            {"command": f"Remove-Item -Recurse '{tmp}/Job'"},
+            "deny",
+        )
+        case(
+            "deny find -delete in Westland root even with .md filter (we can't enumerate)",
+            "Bash",
+            {"command": f"find '{tmp}' -name '*.md' -delete"},
+            "deny",
+        )
+        case(
+            "allow rm of unquoted MSYS-style /g/.../file.md",
+            "Bash",
+            {"command": "rm -f /g/Westland Project Files/Job/notes.md"},
+            "allow",
+        )
 
         # ------------------------------------------------------------------
         print("File-tool cases (outside Westland root -- false-positive scope regression):")
