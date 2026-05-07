@@ -1,7 +1,7 @@
 {
   "name": "westland",
-  "version": "1.2.1",
-  "description": "Westland Construction organizational plugin — always-loaded safety hooks and progressively-disclosed house-style references. Install first on every Westland machine; required dependency of domain plugins (scheduling, estimating, etc.). Contains: Westland Project Files PreToolUse hook (modify-prompt on existing files, hard-deny .xer in-place changes and any deletes — move to _Archive) plus the westland-house-style skill.",
+  "version": "1.3.0",
+  "description": "Westland Construction organizational plugin — always-loaded safety hooks and progressively-disclosed house-style references. Install first on every Westland machine; required dependency of domain plugins (scheduling, estimating, etc.). Contains: Westland Project Files PreToolUse hook (modify-prompt on existing files, hard-deny .xer in-place changes and any deletes — move to _Archive; .html / .md / .json are allowlisted as working artifacts and freely editable / deletable) plus the westland-house-style skill.",
   "author": {
     "name": "Camron Walker"
   },
