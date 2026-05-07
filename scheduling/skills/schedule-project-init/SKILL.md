@@ -27,6 +27,22 @@ All scheduling skills share this logic to find the Schedules root:
 
 **Validate:** the parent of the resolved root should match the pattern `W\d+ - .+` (e.g., `W1134 - Neiafu Tonga Temple Construction`). The resolved folder itself should be named `Schedules`.
 
+## CRUD discipline — never touch project-context.html directly
+
+Before any step below: every read of `project-context.html` goes through `references/parse_project_context_html.py`. Every write goes through `references/generate_project_context_html.py`. No exceptions.
+
+Forbidden: `Read` / `Edit` / `Write` / `MultiEdit` / shell `sed` / shell `cat >` / hand-typed HTML patches against the file. Even one-line scalar changes (signer name, a date, a `window.TODAY` value) must round-trip through `parse → mutate dict → generate`.
+
+**Why:** the file embeds a ~17KB base64 PNG logo. Direct `Read`/`Write` round-trips through tool I/O have silently truncated bytes mid-payload (W1177 Lubumbashi, 2026-05-07), producing a file that opens but renders a broken logo. The generate/parse pair never moves the logo bytes through Claude's context — generate writes them straight to disk from `references/westland-logo.png`, parse ignores them. The unit tests in `tests/test_project_context_html.py` pin this contract.
+
+If you find yourself reaching for `Edit` on this file, stop and ask: what field changed? Parse, mutate that key in the dict, re-generate. The tests guarantee the roundtrip is lossless for every documented field.
+
+**Cowork environment note:** when the Schedules folder lives on a non-`C:\` drive (e.g. the `\\orem-fs\Common\Westland Project Files` share mounted as `G:\`), the bash sandbox may not see that path directly. The discipline still holds — **never** patch the file by hand to work around it. Options, in order of preference:
+
+1. Run `generate_project_context_html.generate_project_context_html(output_path=...)` with `output_path` pointing at the real destination if the sandbox can reach it.
+2. If the sandbox can't reach the destination, run the script in a local Claude Code session opened in the project folder (the colleague-facing `Write Weekly Schedule Email.bat` pattern works the same way — locally launched, full filesystem access).
+3. Tell the user the destination is unreachable and ask them to run `python -m generate_project_context_html ...` themselves. Don't try to round-trip the HTML through `Write` to "deliver" it — the embedded ~17KB base64 PNG has historically corrupted mid-payload that way.
+
 ## Workflow
 
 ### Step 1 — resolve Schedules root and check state
@@ -145,9 +161,9 @@ When `project-context.html` already exists, this skill acts as an editor:
 1. Call `parse_project_context_html.parse_project_context_html(path)` — returns current values.
 2. Display what's there and ask which fields to change.
 3. Walk through only the affected fields.
-4. Re-generate the HTML with the updated dict.
+4. Re-generate the HTML with the updated dict via `generate_project_context_html(...)`.
 
-This is the intended way to update project config (recipient changes, signer change, graph reordering, project log entries, etc.).
+This is the intended way to update project config (recipient changes, signer change, graph reordering, project log entries, etc.). The CRUD discipline above governs **every** edit, including this one — parse → mutate → generate, never `Edit`.
 
 ## Writing to the Project Log during weekly updates
 
@@ -170,6 +186,7 @@ All reference files live in `references/` within this skill directory.
 | `references/westland-logo.png` | Signature/header logo, base64-embedded into the HTML so the file is self-contained. |
 | `references/Write Weekly Schedule Email.bat` | Colleague-facing double-click launcher. Copied into the Schedules root on init — uses `start` to spawn a new PowerShell window running the sibling .ps1. |
 | `references/Write Weekly Schedule Email.ps1` | Actual launcher logic. Clears inherited Claude env vars, discovers `claude` robustly (PATH + known install locations), then runs `claude --permission-mode auto "/write-weekly-schedule-email"` from the Schedules root. |
+| `tests/test_project_context_html.py` | Unit tests pinning the generate/parse contract — full-field roundtrip, empty-context defaults, recipient-string normalization, HTML special-char survival, today-vs-past log lock semantics, deterministic output, embedded-logo presence, and a Python 3.10 f-string compatibility guard. Run with `python tests/test_project_context_html.py -v`. |
 
 ## Folder structure reference
 

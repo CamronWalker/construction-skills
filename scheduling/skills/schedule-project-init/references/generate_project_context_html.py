@@ -207,12 +207,23 @@ def _render_log_entry(date, body, is_today):
     ce = 'true' if is_today else 'false'
     # Preserve line breaks in body as <br> for display
     body_html = _esc(body).replace('\n', '<br>')
+    # Hoist these out of the f-string so the backslash-escaped quotes
+    # parse on Python 3.10 (3.12+ relaxed the rule, but cowork ships 3.10).
+    lock_html = (
+        '<span class="log-lock" title="Locked">🔒</span>'
+        if not is_today else ''
+    )
+    remove_html = (
+        '<button type="button" class="remove-btn no-print" '
+        'onclick="removeLogEntry(this)" title="Remove">×</button>'
+        if is_today else ''
+    )
     return (
         f'<div class="log-entry{lock_class}" data-date="{_esc(date)}">'
         f'<div class="log-entry-header">'
         f'<span class="log-date">{_esc(date)}</span>'
-        f'{"<span class=\"log-lock\" title=\"Locked\">🔒</span>" if not is_today else ""}'
-        f'{"<button type=\"button\" class=\"remove-btn no-print\" onclick=\"removeLogEntry(this)\" title=\"Remove\">×</button>" if is_today else ""}'
+        f'{lock_html}'
+        f'{remove_html}'
         f'</div>'
         f'<div class="log-body" contenteditable="{ce}" '
         f'data-field="log_body">{body_html}</div>'

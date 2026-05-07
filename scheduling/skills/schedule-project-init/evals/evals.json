@@ -1,0 +1,50 @@
+{
+  "skill_name": "scheduling:schedule-project-init",
+  "evals": [
+    {
+      "id": 0,
+      "name": "init-project",
+      "prompt": "I just opened up the Schedules folder for a new project — W9990 Salt Flats Test Temple — and want to set it up. Initialize the project context with: contractual completion 2028-03-15, SmartPM workspace https://live.smartpmtech.com/projects/saltflats/workspace, signer Camron Walker (Scheduler), Procore project ID 5550000. TO recipients: Morne Wilken <mwilken@westlandconstruction.com>; Trent Christensen <tchristensen@westlandconstruction.com>. CC: Camron Walker <camron@westlandconstruction.com>. Use the Westland default graph list. The Schedules folder is at {SCHEDULES_PATH}.",
+      "expected_output": "A project-context.html file written into the Schedules folder with all the supplied values. The file must be created via generate_project_context_html.py — never via Write/Edit on raw HTML.",
+      "expectations": [
+        "project-context.html exists in the Schedules folder",
+        "The agent invoked generate_project_context_html (the canonical generator)",
+        "The agent did NOT use the Edit tool on project-context.html",
+        "The agent did NOT use the Write tool to author project-context.html directly (Write is fine if the agent saves a Python script, just not the HTML itself)",
+        "The final HTML round-trips cleanly through parse_project_context_html",
+        "The signer name 'Camron Walker' appears in the parsed values",
+        "The Procore project ID '5550000' appears in the parsed values"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "update-signer",
+      "prompt": "Update the signer on this project's context to Camron Walker, Scheduler. Mobile is +1 801.555.0199. The Schedules folder is at {SCHEDULES_PATH}. project-context.html already exists there.",
+      "expected_output": "project-context.html with signer_name='Camron Walker', signer_title='Scheduler', signer_mobile='+1 801.555.0199'. All other fields preserved exactly. The change must go through parse → mutate dict → generate. No direct Edit/Write on the HTML file.",
+      "expectations": [
+        "The agent invoked parse_project_context_html (read-side of CRUD)",
+        "The agent invoked generate_project_context_html (write-side of CRUD)",
+        "The agent did NOT use the Edit tool on project-context.html",
+        "The agent did NOT use the Read tool on project-context.html",
+        "The signer_name in the resulting file equals 'Camron Walker'",
+        "The signer_title in the resulting file equals 'Scheduler'",
+        "Recipients, SmartPM URLs, and graph list are preserved unchanged from the seed"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "fix-context",
+      "prompt": "The contractual completion date in this project's context is wrong. It says 2026-12-01 but should be 2027-06-30. Fix it. The Schedules folder is at {SCHEDULES_PATH}.",
+      "expected_output": "project-context.html with contractual_completion='2027-06-30'. All other fields untouched. CRUD discipline strictly enforced.",
+      "expectations": [
+        "The agent invoked parse_project_context_html",
+        "The agent invoked generate_project_context_html",
+        "The agent did NOT use the Edit tool on project-context.html",
+        "The agent did NOT use the Read tool on project-context.html",
+        "The contractual_completion in the resulting file equals '2027-06-30'",
+        "The signer_name 'Camron Walker' is preserved unchanged from the seed",
+        "Recipients are preserved unchanged from the seed"
+      ]
+    }
+  ]
+}
