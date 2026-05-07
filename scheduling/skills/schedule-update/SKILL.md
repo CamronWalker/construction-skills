@@ -77,6 +77,14 @@ Every command reads `project-context.html` first. If it is missing, stop with:
 
 ## Shared Setup
 
+### Common pitfalls on UNC shares
+
+Every Westland project lives on `\\orem-fs\Common\Westland Project Files\...` (mapped to `G:\` on most machines). A few traps are worth flagging up front:
+
+- **Opening a file on the share from a shell.** `start "" "\\orem-fs\..."` from `cmd` errors with "UNC paths are not supported." Use PowerShell `Invoke-Item "\\orem-fs\..."` or shell out to `explorer.exe "\\orem-fs\..."` from Bash — both handle UNC cleanly.
+- **`file://` URLs for local files.** Prefer `pathlib.Path(abs).as_uri()` in Python and `pathToFileURL(abs).href` in Node. Manual `'file:///' + path.replace('\\','/')` mangles UNC roots into `file:///orem-fs/...` (drive-root form), which Chromium 404s on. The change-report PDF used to break this way before v5.1.4.
+- **Cowork sandbox + non-`C:\` drives.** Cowork's bash sandbox doesn't see `G:\` or UNC paths. If a workflow needs to read/write on the share, run the underlying script in a local Claude Code session opened in the project folder (the `Write Weekly Schedule Email.bat` launcher pattern), or stage files in `%TEMP%` and copy back.
+
 ### Folder Resolution
 
 All commands use this logic to find the Schedules root:
@@ -564,7 +572,11 @@ These populate the colored status lines in the email. They come from the XER —
 Run the shared preview generation step — same as `email` Step 7. Output: `{dated_folder}/{YYYY-MM-DD}-email-preview.html`.
 
 Tell the colleague:
-> "Preview at `{path}`. Open it in your browser, edit any section in place, and when you're happy click **Save Edits** → save the download on top of the file (same name, same folder) → tell me `done`. I'll then create the Outlook draft. Tip: wrap a list item in `**double asterisks**` to make it bold + red in the email."
+> "Preview at `{path}`. Open it in your browser, edit any section in place, and when you're happy click **Save Edits** → save the download on top of the file (same name, same folder) → tell me `done`. I'll then create the Outlook draft. Tip: wrap a list item in `**double asterisks**` to make it bold + red in the email. If you already had the preview open in another tab, **hard-refresh (Ctrl+F5)** — Chrome caches it aggressively."
+
+#### JSON-paste regeneration (escape hatch)
+
+If the colleague has already iterated on the content in their head and just wants the preview rendered to match, they may paste a JSON snapshot — same shape as the preview's "Copy for Claude" button output, or what `parse_preview_html()` returns. Pipe that JSON straight back through `generate_preview_html(output_path, **kwargs)` — do not re-run carry-forward, the JSON is already the curated state. This is also the right path when the user is correcting a regeneration mistake or has compiled the desired content offline. After regenerating, point them at the same file with a Ctrl+F5 reminder.
 
 ### Step 7: Wait For "done", Then Draft
 

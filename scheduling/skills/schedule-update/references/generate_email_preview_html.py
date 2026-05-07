@@ -244,36 +244,68 @@ def _editable_list(field, items, ordered=True):
     return '\n'.join(out)
 
 
-def _days_line_html(days_behind):
+def _format_days_value(days_behind):
     if days_behind > 0:
-        color, label, value = RED, 'Days Behind Schedule', f'{days_behind} Days'
-    elif days_behind < 0:
-        color, label, value = GREEN, 'Days Ahead of Schedule', f'{abs(days_behind)} Days'
-    else:
-        color, label, value = GREEN, 'Days Ahead/Behind Schedule', 'On Schedule'
+        return RED, 'Days Behind Schedule', f'{days_behind} Days'
+    if days_behind < 0:
+        return GREEN, 'Days Ahead of Schedule', f'{abs(days_behind)} Days'
+    return GREEN, 'Days Ahead/Behind Schedule', 'On Schedule'
+
+
+def _format_gain_loss_value(gain_loss):
+    if gain_loss > 0:
+        return GREEN, f'{gain_loss} Day Gain'
+    if gain_loss < 0:
+        return RED, f'{abs(gain_loss)} Day Loss'
+    return GREEN, 'No change since last update.'
+
+
+def _days_line_html(days_behind, previous_days_behind=None):
+    color, label, value = _format_days_value(days_behind)
+    prev_html = ''
+    if previous_days_behind is not None and previous_days_behind != days_behind:
+        # Render last week's value as a small grey strikethrough prefix
+        # so the reviewer sees week-over-week movement at a glance.
+        _, _, prev_value = _format_days_value(previous_days_behind)
+        prev_html = (
+            f'<span class="prev-metric" '
+            f'data-field="previous_days_behind" '
+            f'data-value="{previous_days_behind}" '
+            f'style="color:#888; text-decoration:line-through; '
+            f'margin-right:0.5em; font-weight:normal;">'
+            f'{_esc(prev_value)}</span>'
+        )
     return (
         f'<p class="days-line" data-metric="days_behind" '
         f'data-value="{days_behind}">'
         f'<span contenteditable="true" data-field="days_line_label" '
         f'style="color:{TEAL};">{_esc(label)}</span>'
         f'<span style="color:{TEAL};">: </span>'
+        f'{prev_html}'
         f'<span contenteditable="true" data-field="days_line_value" '
         f'style="color:{color};">{_esc(value)}</span>'
         f'</p>'
     )
 
 
-def _gain_loss_line_html(gain_loss):
-    if gain_loss > 0:
-        color, value = GREEN, f'{gain_loss} Day Gain'
-    elif gain_loss < 0:
-        color, value = RED, f'{abs(gain_loss)} Day Loss'
-    else:
-        color, value = GREEN, 'No change since last update.'
+def _gain_loss_line_html(gain_loss, previous_gain_loss=None):
+    color, value = _format_gain_loss_value(gain_loss)
+    prev_html = ''
+    if previous_gain_loss is not None and previous_gain_loss != gain_loss:
+        _, prev_value = _format_gain_loss_value(previous_gain_loss)
+        prev_html = (
+            f'<span class="prev-metric" '
+            f'data-field="previous_gain_loss" '
+            f'data-value="{previous_gain_loss}" '
+            f'style="color:#888; text-decoration:line-through; '
+            f'margin-right:0.5em; font-weight:normal;">'
+            f'{_esc(prev_value)}</span>'
+        )
     return (
         f'<p class="section-label" data-metric="gain_loss" '
         f'data-value="{gain_loss}">'
         'Schedule Gain / Loss Since The Last Update: '
+        f'{prev_html}'
         f'<span contenteditable="true" data-field="gain_loss_value" '
         f'style="color:{color};">{_esc(value)}</span>'
         f'</p>'
@@ -482,6 +514,8 @@ def _build_preview_html(**kw):
     project_info = kw.get('project_info') or {}
     days_behind = kw.get('days_behind', 0)
     gain_loss = kw.get('gain_loss', 0)
+    previous_days_behind = kw.get('previous_days_behind')
+    previous_gain_loss = kw.get('previous_gain_loss')
     successes = kw.get('successes') or []
     gain_loss_narrative = kw.get('gain_loss_narrative', '')
     eot_recovery = kw.get('eot_recovery', '')
@@ -517,6 +551,11 @@ def _build_preview_html(**kw):
     parts = []
     parts.append('<!DOCTYPE html>')
     parts.append('<html><head><meta charset="utf-8">')
+    # Tell Chrome to stop serving the old preview after a regenerate. Without
+    # this, "the html file looks the same" reports come in until the user
+    # hard-refreshes (Ctrl+F5). Belt + suspenders: the user-facing message
+    # also reminds about Ctrl+F5 in case the page is already open.
+    parts.append('<meta http-equiv="cache-control" content="no-store">')
     parts.append(f'<title>{_esc(title)}</title>')
     parts.append('<style>')
     parts.append(_css())
@@ -578,7 +617,7 @@ def _build_preview_html(**kw):
     parts.append('</p>')
 
     # Section 2: Days behind/ahead
-    parts.append(_days_line_html(days_behind))
+    parts.append(_days_line_html(days_behind, previous_days_behind))
 
     # Section 3: Summary screenshot
     if summary_rel:
@@ -605,7 +644,7 @@ def _build_preview_html(**kw):
     parts.append(_editable_list('successes', successes, ordered=False))
 
     # Section 5: Gain/Loss
-    parts.append(_gain_loss_line_html(gain_loss))
+    parts.append(_gain_loss_line_html(gain_loss, previous_gain_loss))
     parts.append(_editable_block(
         'gain_loss_narrative', gain_loss_narrative, 'p',
         changed='gain_loss_narrative' in changed_fields,

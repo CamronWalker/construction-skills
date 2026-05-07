@@ -12,6 +12,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const { chromium } = require('playwright');
 
 (async () => {
@@ -30,8 +31,12 @@ const { chromium } = require('playwright');
   const fmt = process.env.PDF_FORMAT || 'Letter';
   const margin = process.env.PDF_MARGIN || '0.5in';
 
-  // Convert Windows path to file:// URL
-  const fileUrl = 'file:///' + absIn.replace(/\\/g, '/').replace(/^\/+/, '');
+  // Convert local path to file:// URL. pathToFileURL handles UNC, drive,
+  // and POSIX paths uniformly — manual `'file:///' + path.replace(...)`
+  // mangled UNC roots (\\orem-fs\Common\... became file:///orem-fs/...
+  // which Chromium 404s on, blocking changes-report PDF on every Westland
+  // project).
+  const fileUrl = pathToFileURL(absIn).href;
 
   const browser = await chromium.launch({ args: ['--disable-web-security'] });
   try {
