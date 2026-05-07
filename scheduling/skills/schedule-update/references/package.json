@@ -1,9 +1,19 @@
 {
   "name": "schedule-screenshots",
-  "version": "1.0.0",
-  "description": "SmartPM screenshot capture for Westland schedule update emails via Playwright CDP",
+  "version": "2.0.0",
+  "description": "SmartPM v2 screenshot capture for Westland schedule update emails. Auto-login headless via Playwright; tests with @playwright/test.",
   "private": true,
+  "scripts": {
+    "capture": "node smartpm/capture-smartpm.js",
+    "setup": "node smartpm/env-loader.js setup",
+    "test": "playwright test --config=tests/playwright.config.js",
+    "test:headed": "playwright test --config=tests/playwright.config.js --headed"
+  },
   "dependencies": {
-    "playwright": "^1.52.0"
+    "playwright": "^1.52.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
   }
 }

@@ -106,7 +106,7 @@ Within steps 6-10, your work interleaves with the colleague's:
 
 | # | Owner | What happens |
 |---|-------|-------------|
-| 6 | **You** | Capture SmartPM graphs via Playwright MCP |
+| 6 | **You** | Capture SmartPM graphs via the bundled headless Playwright script (auto-login from ``~/.claude/.env``) |
 | 7 | **You** | Draft the update email (mine transcript + compare XERs) |
 | 8 | Colleague | Review the editable HTML preview |
 | 9 | **You** | Create the Outlook draft from the approved preview |
@@ -146,8 +146,9 @@ and ask the colleague. You've misunderstood the workflow.
 ## How to start
 
 Run the ``/write-weekly-schedule-email`` slash command. It will read
-``project-context.html``, verify preflights (Playwright MCP, today's
-dated folder), and walk the colleague through the guided flow.
+``project-context.html``, verify preflights (SmartPM credentials in
+``~/.claude/.env``, Node availability, today's dated folder), and walk
+the colleague through the guided flow.
 
 ## If the slash command is not recognized
 

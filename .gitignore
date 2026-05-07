@@ -5,3 +5,8 @@ src/
 *-workspace/
 *.xer
 *.XER
+
+# Playwright test artifacts
+**/test-results/
+**/tests/results.json
+playwright-report/

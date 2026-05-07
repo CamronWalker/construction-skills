@@ -1,5 +1,5 @@
 ---
-description: Steps 6–10 of the weekly schedule update — SmartPM screenshots, email generation, editable HTML preview, Outlook draft. Invoked by the `Write Weekly Schedule Email.bat` launcher at the Schedules root; drives the browser via Playwright MCP so colleagues don't need Node.
+description: Steps 6–10 of the weekly schedule update — SmartPM screenshots, email generation, editable HTML preview, Outlook draft. Invoked by the `Write Weekly Schedule Email.bat` launcher at the Schedules root; runs the bundled headless Node script (`smartpm/capture-smartpm.js`) for screenshots, with auto-login from `~/.claude/.env`.
 ---
 
 # Write Weekly Schedule Email
@@ -46,15 +46,33 @@ Check for `./project-context.html`. If it's missing, **stop** and tell the user:
 
 Do not try to proceed without it.
 
-### 2. Playwright MCP must be installed
+### 2. SmartPM credentials must be in `~/.claude/.env`
 
-Browser automation for SmartPM screenshots runs through the Playwright MCP (centralized org-wide install, not a per-project `npm install`). Check for MCP tools with the prefix `mcp__*playwright*__browser_*` (e.g. `browser_navigate`, `browser_take_screenshot`, `browser_snapshot`). If none are present, **stop** and tell the user:
+The screenshots step auto-logs into SmartPM v2 via headless Playwright using credentials from `~/.claude/.env`:
 
-> "Playwright MCP isn't available in this Claude Code session. It should be installed org-wide on the CLI — ping Camron to enable it. (Do **not** fall back to the local Node/Playwright install; colleague machines don't have Node.)"
+- `SMARTPM_EMAIL` — required
+- `SMARTPM_PASSWORD` — required
+- `SMARTPM_PROJECTS_URL` — optional (defaults to Westland's org cards URL)
 
-In this colleague flow, do not fall back to the `references/capture-smartpm.js` Node path — that path exists for Camron's workstation, not for colleagues.
+Check by running:
 
-### 3. Today's dated folder must exist
+```bash
+node "{schedule-update-skill-dir}/references/smartpm/env-loader.js" show
+```
+
+If either key reports `<missing>`, ask the colleague for them via `AskUserQuestion` (header: "SmartPM creds"; ask for email and password as separate questions). Once you have both values, write them to the env file:
+
+```bash
+node -e "require('{...}/references/smartpm/env-loader.js').upsertEnvFile({SMARTPM_EMAIL:'…', SMARTPM_PASSWORD:'…'})"
+```
+
+Never echo the password back to chat. Once seeded, this is one-time — subsequent projects on the same machine reuse it.
+
+### 3. Node + Playwright must be available
+
+The capture script requires Node.js (any 18+) and the bundled Playwright Chromium. The first run on a machine auto-installs the npm dependencies into `references/node_modules/`. If `node --version` fails, install Node from https://nodejs.org and retry.
+
+### 4. Today's dated folder must exist
 
 List `YYYY-MM-DD/` subdirectories. If there is no folder for today's date, show the most recent 2–3 dated folders and ask whether this week's update is in one of those or whether they skipped the `copy` step. Do not auto-create it — that's a pre-meeting human step.
 
@@ -62,7 +80,7 @@ List `YYYY-MM-DD/` subdirectories. If there is no folder for today's date, show 
 
 Once the preflight passes, run the **`report`** flow from the `schedule-update` skill. That flow is designed for exactly this hand-off and covers:
 
-- **Step 6 (agent):** Capture SmartPM graphs (17 screenshots) **via Playwright MCP** — see the `screenshots` section of the schedule-update skill (Step 3a, MCP path). Skip this if the `screenshots/` folder is already populated and complete for today.
+- **Step 6 (agent):** Capture SmartPM graphs (17 screenshots) **via the bundled Node script** at `references/smartpm/capture-smartpm.js`. Auto-logs in headless using the credentials from preflight #2. Skip if the `screenshots/` folder is already populated and complete for today.
 - **Step 7 (agent):** Generate the update email content — mine the meeting transcript if present, otherwise run the XER-driven Q&A comparing this week's XER to last week's.
 - **Step 8 (human):** Editable HTML preview — wait for the colleague to review and say `done`.
 - **Step 9 (agent):** Create the Outlook draft from the edited preview; write the archive markdown.
@@ -71,7 +89,7 @@ Once the preflight passes, run the **`report`** flow from the `schedule-update` 
 ## Notes
 
 - **SmartPM processing warning:** If the XER was uploaded within the last ~30 minutes, SmartPM may still be processing the trends — offer to wait before capturing graphs.
-- **SmartPM login:** The Playwright MCP typically launches a fresh browser context, so expect a login prompt on the first screenshot step each session. Pause the workflow and ask the colleague to log in, then resume when they say `logged in`.
+- **SmartPM login:** Auto-login is headless via stored credentials. If it fails (bad creds, MFA, captcha), the script exits with `ENV_MISSING` or a redirect-timeout error — re-prompt for credentials and re-seed the env file. There is no manual-login fallback.
 - **Classic Outlook must be open** on the colleague's machine (not just installed) for the `draft` step to succeed — COM automation needs a running instance. If Outlook isn't open, tell them to launch it from the Start menu first.
 - Don't re-prompt the user for things already covered by the template (folder is set up, XER is exported, transcript is in place) — just get to work.
 - Keep the conversation tight. Ask 2–4 questions per turn, confirm each answer, and generate the editable HTML preview as the review artifact (not markdown in chat).
