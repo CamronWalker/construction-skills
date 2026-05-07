@@ -23,20 +23,59 @@ Ask the user for the project folder path. Expected structure:
 
 List all files found and confirm before proceeding.
 
-### Pull past-project hypotheses (if any)
+### Capture project metadata up front
 
-Run the postmortem aggregator to surface lessons from prior proposal
-cycles. With zero postmortems available it returns a friendly skip
-message; with a corpus, it ranks recency-weighted hypotheses by project
-type so they inform Phase 3 recommendations.
+Before any analysis runs, record what kind of project this is so future
+postmortems and duration-knowledge entries inherit the context:
 
 ```bash
-python scheduling/tools/propsched.py aggregate-postmortems [--project-type "<type>"]
+python scheduling/tools/propsched.py metadata set "<project>" \
+    --project-type k-12 \
+    --region "Utah Valley" \
+    --square-footage 65000 \
+    --building-systems structural-masonry,steel-joist \
+    --difficulty medium
 ```
+
+If you only know some fields, set what you know -- you can revise later
+via `propsched metadata set` (it merges).
+
+### Pull past-project hypotheses (if any)
+
+Run the postmortem aggregator filtered by THIS project's metadata so the
+hypotheses surfaced come from comparable past cycles -- a K-12 in Utah
+Valley with structural masonry should learn from prior K-12s, not from
+a tilt-up warehouse:
+
+```bash
+python scheduling/tools/propsched.py aggregate-postmortems \
+    --project-type "<type>" --region "<region>" --system "<building-system>" \
+    --show-durations
+```
+
+With zero postmortems available it returns a friendly skip message;
+with a corpus, it ranks recency-weighted hypotheses by project metadata
+match so they inform Phase 3 recommendations. `--show-durations` also
+surfaces per-activity duration knowledge captured in past cycles.
 
 Read the output before generating recommendations; cite a hypothesis
 explicitly if you act on it ("postmortem 2026-04 from Spanish Fork
 flagged Pour -> Place; using Place here").
+
+### Query duration knowledge for headline activities
+
+For the activities you know will dominate the critical path (foundations,
+structure, weather-dependent work), query the duration DB before picking
+durations:
+
+```bash
+python scheduling/tools/propsched.py durations query \
+    --root "<proposals-root>" --task "Pour Footings" \
+    --type "<project-type>" --region "<region>"
+```
+
+Output groups observations by task with min/max/avg + project context.
+Use it as a Westland-internal benchmark, not as a rule.
 
 ## Phase 2: Auto-Parse & Analyze
 

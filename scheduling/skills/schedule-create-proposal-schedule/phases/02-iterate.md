@@ -154,29 +154,59 @@ Wait for Camron's reply. Apply what he confirms (his version may differ) by writ
 
 **If a previous version of the XER carries hard constraints on anchor tasks**, that's a Phase 1 hygiene issue: run `python scheduling/tools/propsched.py bootstrap-anchors "<project>"` once to lift CS_MSO / CS_FNLT / CS_MANDSTART / CS_MANDFIN / CS_MEOB / CS_MFO into `proposal-anchors.json` and emit a sibling `-v{N+1}.xer` with the constraint fields cleared. Westland's anchor-via-logic rule -- the new XER carries no anchor constraints; the bid dates live in `proposal-anchors.json` and are enforced by `proposal_iterate.py` on every iteration. Note the cleanup in the iteration log.
 
-### Postmortem on final approval
+### Postmortem on final approval (Tier 7+ folder schema)
 
-When Camron approves the schedule ("this is good, generate the XER"), Claude writes a self-reflection artifact **before** producing the final XER. This is one postmortem per proposal cycle (proposals ship once at GMP), date-stamped so a future aggregator can weight newer postmortems more heavily.
+When Camron approves the schedule ("this is good, generate the XER"),
+Claude writes a self-reflection artifact **before** producing the final
+XER. The artifact is now a self-contained folder, not a single file --
+copyable to a master postmortems library without losing context.
 
-**Path (v4.0.0+ layout):** `<project>/Old Iterations/postmortem-{YYYY-MM-DD}-{project-slug}.md`
-**Path (legacy v3.x):** `<project>/Proposal Schedule/feedback/postmortem-{YYYY-MM-DD}-{project-slug}.md`
+**Path:** `<project>/Old Iterations/postmortems/{YYYY-MM-DD}-{project-slug}/`
 
-- Date prefix -> sortable chronologically across projects.
-- Project slug in filename -> vault-wide grep finds all postmortems on the same project type.
-- `feedback/` subfolder -> separates postmortems from the iteration artifacts.
+```
+{date}-{slug}/
+  postmortem.md             <- the narrative (you write this)
+  project-metadata.json     <- snapshot of project-metadata.json at completion
+  durations-captured.json   <- duration entries added this cycle (if any)
+  reviewer-feedback/        <- copies of every parked reviewer JSON
+    *.json
+```
 
-**Source data:**
-- `Old Iterations/paste-*.json` (v4) or `Proposal Schedule/iterations/paste-*.json` (legacy) (the per-iteration paste-back archive that `proposal_iterate.py` writes on every successful apply -- this is the durable record of every change Camron asked for, in order).
-- The v1 XER (Westland's immutability rule preserves it).
-- The final v{N} XER.
-- Session memory if the agent is the same one that drafted v1; otherwise reconstruct from the paste archive.
+(Legacy single-file postmortems at `Old Iterations/postmortem-*.md` and
+`Proposal Schedule/feedback/postmortem-*.md` continue to be readable
+by the aggregator -- old projects don't need migration.)
 
-**Sections (write all six):**
+**Step-by-step:**
+
+1. **Auto-extract duration knowledge from this cycle's reviewer feedback** so the durations DB carries forward:
+   ```bash
+   python scheduling/tools/propsched.py durations extract "<project>"
+   ```
+2. **Assemble the postmortem folder** (creates the folder + writes a stub postmortem.md + snapshots metadata + copies reviewer feedback):
+   ```bash
+   python scheduling/tools/propsched.py postmortem "<project>" --slug "<project-slug>"
+   ```
+3. **Open `postmortem.md` and fill in the stub sections** (schema below).
+4. **Optionally add manual duration entries** that came up during the cycle but were not captured in formal feedback:
+   ```bash
+   python scheduling/tools/propsched.py durations add "<project>" \
+       --task-code APEX0040 --duration 5 --source "super:Mike" \
+       --rationale "Soil conditions in Utah Valley typically drive 5-7d"
+   ```
+
+**Source data while writing the narrative:**
+- `Old Iterations/paste-*.json` -- every paste-back the scheduler sent, in order
+- The v1 XER (Westland's immutability rule preserves it)
+- The final v{N} XER and `schedule-activities.json`
+- The folder's own `reviewer-feedback/` -- external reviewer comments to summarize
+- Session memory if the agent is the same one that drafted v1
+
+**postmortem.md sections (the stub writes the headers; fill them in):**
 
 ```markdown
 ---
 project: "Murray City Apex Center"
-project_type: "office-tenant-improvement"   # informal taxonomy, freeform
+project_type: "office-tenant-improvement"   # mirrored from project-metadata.json
 proposal_data_date: "2026-04-29"
 draft_version: 1
 final_version: 7
@@ -197,6 +227,12 @@ Per substantive correction, write three lines:
 - **Signal I should have caught** -- bid doc page reference, similar-project XER, Westland convention, or other concrete signal that should have produced a better v1
 - **Hypothesis I am extracting** -- first-person, scoped to this project type, NOT crowned a rule
 
+## Reviewer feedback received
+Summarize external-reviewer JSONs in this folder's reviewer-feedback/. For each
+material insight kept, cite reviewer + date and note whether the feedback was
+on the version that shipped or an earlier one (drift report from
+`propsched feedback ingest` already showed you).
+
 ## Themes within this project
 Patterns that recurred across multiple corrections in this single cycle. Caveat: still hypotheses, not rules.
 
@@ -207,10 +243,19 @@ Numbered, first-person AI voice, scoped to project type. Format that future-me c
 **Constraints:**
 
 1. **No rules from a single postmortem.** Each is observation + hypothesis. Promotion to rules happens later, at aggregation time across N postmortems.
-2. **One postmortem per proposal cycle.** Generally one per project. Don't overwrite an existing postmortem; if one exists for the same project + date, append a `-2` suffix.
+2. **One postmortem per proposal cycle.** Generally one per project. Don't overwrite an existing folder; pass `--force` only if you intend to.
 3. **Write the postmortem BEFORE producing the final XER.** Iteration history is freshest in memory at approval time.
 
-After writing the postmortem, the next proposal draft (a different project) can pull a recency-weighted ruleset from the accumulated corpus via `python scheduling/tools/propsched.py aggregate-postmortems [--project-type <type>]`. That CLI is what closes the lessons-learned loop -- the postmortem you write today informs the next draft tomorrow.
+After writing the postmortem, the next proposal draft (a different project) can pull a recency-weighted ruleset from the accumulated corpus filtered to comparable projects:
+
+```bash
+python scheduling/tools/propsched.py aggregate-postmortems \
+    --project-type "<type>" --region "<region>" --system "<building-system>" \
+    --show-durations
+```
+
+That closes the lessons-learned loop -- the postmortem you write today
+informs the next draft tomorrow, with full project-metadata context.
 
 ### Generate the Plan PDF (post-approval)
 

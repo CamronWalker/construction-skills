@@ -2,12 +2,29 @@
 and emit a recency-weighted ruleset block for Phase 1 of the next proposal
 draft.
 
-A postmortem at `<project>/Proposal Schedule/feedback/postmortem-*.md`
-captures one proposal cycle's "what I missed" + numbered hypotheses (see
-`phases/02-iterate.md` § "Postmortem on final approval"). This CLI walks
-the configured root, parses each postmortem's frontmatter + Hypotheses
-section, weights by recency (newer counts more), and prints a markdown
-block ready for the agent to inject into Phase 3 recommendations.
+A postmortem captures one proposal cycle's "what I missed" + numbered
+hypotheses (see `phases/02-iterate.md` § "Postmortem on final approval").
+This CLI walks the configured root, parses each postmortem's frontmatter
++ Hypotheses section, weights by recency, and prints a markdown block
+ready for the agent to inject into Phase 1 recommendations.
+
+Three postmortem layouts are supported (in priority order):
+
+  1. Tier 7+ folder:
+       <project>/Old Iterations/postmortems/{date}-{slug}/postmortem.md
+     plus optional siblings: project-metadata.json, durations-captured.json,
+     reviewer-feedback/*.json. Folder scope = full context.
+
+  2. v4.x single-file (new layout):
+       <project>/Old Iterations/postmortem-{date}-{slug}.md
+
+  3. v3.x single-file (legacy):
+       <project>/Proposal Schedule/feedback/postmortem-{date}-{slug}.md
+
+Filtering supports any project_metadata field (project_type, region,
+square_footage range, building_systems, ...). With --show-durations,
+matched postmortems' durations-captured.json entries are surfaced for
+Phase-1 reuse.
 
 With zero postmortems in the corpus, prints a friendly skip message; the
 draft just proceeds with default Westland standards. With a small corpus,
@@ -19,6 +36,9 @@ Usage:
     python postmortem_aggregate.py
     python postmortem_aggregate.py --root "<dir>"
     python postmortem_aggregate.py --project-type "office-tenant-improvement"
+    python postmortem_aggregate.py --region "Utah Valley"
+    python postmortem_aggregate.py --system structural-masonry
+    python postmortem_aggregate.py --show-durations
     python postmortem_aggregate.py --top 5
     python postmortem_aggregate.py --json     # machine-readable output
 """
@@ -110,12 +130,26 @@ def _recency_weight(postmortem_date_str, today, half_life_days):
     return math.pow(0.5, age_days / half_life_days)
 
 
-def _scan(root):
-    """Yield Path objects for every postmortem-*.md under */Proposal Schedule/feedback/."""
+def _scan_legacy_files(root):
+    """Yield (path, kind) tuples for legacy single-file postmortems.
+
+    Kinds:
+      - 'legacy-v3'   : <project>/Proposal Schedule/feedback/postmortem-*.md
+      - 'legacy-v4'   : <project>/Old Iterations/postmortem-*.md
+    """
     for p in root.rglob('feedback/postmortem-*.md'):
-        # Skip dotfiles and non-files
         if p.is_file() and not p.name.startswith('.'):
-            yield p
+            yield p, 'legacy-v3'
+    for p in root.rglob('Old Iterations/postmortem-*.md'):
+        if p.is_file() and not p.name.startswith('.'):
+            yield p, 'legacy-v4'
+
+
+def _scan_folder_postmortems(root):
+    """Yield (folder_path, postmortem_md_path) for Tier 7 folder postmortems."""
+    for p in root.rglob('postmortems/*/postmortem.md'):
+        if p.is_file():
+            yield p.parent, p
 
 
 def _slug_from_filename(name):
@@ -124,12 +158,51 @@ def _slug_from_filename(name):
     return m.group(1) if m else name
 
 
+def _slug_from_folder(folder_name):
+    # 2026-04-30-murray-apex-center -> murray-apex-center
+    m = re.match(r'^\d{4}-\d{2}-\d{2}-(.+)$', folder_name)
+    return m.group(1) if m else folder_name
+
+
+def _read_json_safe(path):
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _matches_metadata(metadata_dict, args):
+    """Return True if the metadata dict satisfies all the metadata filter args."""
+    if args.project_type:
+        ptype = metadata_dict.get('project_type', '') or ''
+        if args.project_type.lower() not in str(ptype).lower():
+            return False
+    if args.region:
+        r = metadata_dict.get('region', '') or ''
+        if args.region.lower() not in str(r).lower():
+            return False
+    if args.system:
+        systems = metadata_dict.get('building_systems') or []
+        if isinstance(systems, str):
+            systems = [s.strip() for s in systems.split(',') if s.strip()]
+        if args.system.lower() not in [s.lower() for s in systems]:
+            return False
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default=None,
-                    help='Folder to scan recursively for feedback/postmortem-*.md')
+                    help='Folder to scan recursively for postmortems')
     ap.add_argument('--project-type', default=None,
                     help='Filter postmortems whose project_type contains this substring')
+    ap.add_argument('--region', default=None,
+                    help='Filter postmortems whose project metadata region contains this substring')
+    ap.add_argument('--system', default=None,
+                    help='Filter postmortems whose building_systems contains this entry '
+                         '(e.g. structural-masonry)')
+    ap.add_argument('--show-durations', action='store_true',
+                    help='Surface durations-captured.json entries from matched postmortems')
     ap.add_argument('--top', type=int, default=10,
                     help='Limit the ruleset to the top N hypotheses by weight (default 10)')
     ap.add_argument('--half-life', type=int, default=DEFAULT_HALF_LIFE_DAYS,
@@ -150,26 +223,78 @@ def main():
 
     today = datetime.now().date()
     postmortems = []
-    for path in _scan(root):
+    seen_paths = set()  # de-dup if a folder postmortem also has a legacy file
+
+    # Pass 1: Tier 7 folder postmortems (richer metadata)
+    for folder, md_path in _scan_folder_postmortems(root):
+        if str(md_path) in seen_paths:
+            continue
+        try:
+            text = md_path.read_text(encoding='utf-8')
+        except OSError:
+            continue
+        fm, body = _parse_frontmatter(text)
+        # Folder may carry project-metadata.json snapshot -- merge into the
+        # filter context; frontmatter wins for 'project'/'project_type', but
+        # region / building_systems usually live in the metadata file.
+        meta_snapshot = _read_json_safe(folder / 'project-metadata.json') or {}
+        merged_meta = dict(meta_snapshot)
+        for k, v in fm.items():
+            if v not in (None, ''):
+                merged_meta[k] = v
+        if not _matches_metadata(merged_meta, args):
+            continue
+        weight = _recency_weight(fm.get('postmortem_date', ''), today,
+                                 args.half_life)
+        hypotheses = _extract_hypotheses(body)
+        durations_data = None
+        if args.show_durations:
+            d = _read_json_safe(folder / 'durations-captured.json')
+            if d and (d.get('entries') or []):
+                durations_data = d['entries']
+        postmortems.append({
+            'path': str(md_path),
+            'folder': str(folder),
+            'kind': 'folder',
+            'project': fm.get('project',
+                              merged_meta.get('project_name')
+                              or _slug_from_folder(folder.name)),
+            'project_type': merged_meta.get('project_type', ''),
+            'project_metadata': meta_snapshot,
+            'postmortem_date': fm.get('postmortem_date', ''),
+            'weight': round(weight, 3),
+            'hypotheses': hypotheses,
+            'durations': durations_data,
+        })
+        seen_paths.add(str(md_path))
+
+    # Pass 2: legacy single-file postmortems (v3.x + v4.x). Skip if we already
+    # captured a folder version of the same project+date.
+    for path, kind in _scan_legacy_files(root):
+        if str(path) in seen_paths:
+            continue
         try:
             text = path.read_text(encoding='utf-8')
         except OSError:
             continue
         fm, body = _parse_frontmatter(text)
-        ptype = fm.get('project_type', '')
-        if args.project_type and args.project_type.lower() not in ptype.lower():
+        if not _matches_metadata(fm, args):
             continue
         weight = _recency_weight(fm.get('postmortem_date', ''), today,
                                  args.half_life)
         hypotheses = _extract_hypotheses(body)
         postmortems.append({
             'path': str(path),
+            'kind': kind,
             'project': fm.get('project', _slug_from_filename(path.name)),
-            'project_type': ptype,
+            'project_type': fm.get('project_type', ''),
+            'project_metadata': {},
             'postmortem_date': fm.get('postmortem_date', ''),
             'weight': round(weight, 3),
             'hypotheses': hypotheses,
+            'durations': None,
         })
+        seen_paths.add(str(path))
 
     if not postmortems:
         if args.json:
@@ -212,9 +337,16 @@ def main():
         }, indent=2))
         return 0
 
-    # Markdown ruleset block ready to inject into a Phase 3 recommendation
-    type_filter = f' (project_type ~= {args.project_type})' if args.project_type else ''
-    print(f'# Hypotheses from prior postmortems{type_filter}')
+    # Markdown ruleset block ready to inject into a Phase 1 recommendation
+    filters = []
+    if args.project_type:
+        filters.append(f'project_type ~= {args.project_type}')
+    if args.region:
+        filters.append(f'region ~= {args.region}')
+    if args.system:
+        filters.append(f'building_system has {args.system}')
+    filt_str = f' ({", ".join(filters)})' if filters else ''
+    print(f'# Hypotheses from prior postmortems{filt_str}')
     print(f'# Corpus: {len(postmortems)} postmortem(s) under {root}')
     print(f'# Recency half-life: {args.half_life}d. Top {len(top)} by weight.')
     print('# These are observations from past cycles, not crowned rules. Cite')
@@ -224,6 +356,33 @@ def main():
     for i, h in enumerate(top, 1):
         meta = f"[{h['source_project']}, {h['source_date']}, weight {h['weight']}]"
         print(f'{i}. {h["hypothesis"]}  {meta}')
+
+    if args.show_durations:
+        rows = []
+        for pm in postmortems:
+            if not pm.get('durations'):
+                continue
+            for e in pm['durations']:
+                rows.append((pm, e))
+        if rows:
+            print()
+            print('# Duration knowledge from matched postmortems')
+            print(f'# {len(rows)} entr{"y" if len(rows) == 1 else "ies"} '
+                  f'across {sum(1 for pm in postmortems if pm.get("durations"))} '
+                  f'postmortem(s).')
+            print()
+            for pm, e in rows:
+                code = e.get('task_code') or '?'
+                name = e.get('task_name') or ''
+                dur = e.get('final_duration_days')
+                src = e.get('source') or '?'
+                rationale = (e.get('rationale') or '').replace('\n', ' ').strip()
+                if len(rationale) > 100:
+                    rationale = rationale[:97] + '...'
+                tail = f' -- {rationale}' if rationale else ''
+                print(f'- [{code}] {name} = {dur}d  [{src}, '
+                      f'{pm["source_project"] if "source_project" in pm else pm["project"]}, '
+                      f'{pm["postmortem_date"]}]{tail}')
     return 0
 
 
