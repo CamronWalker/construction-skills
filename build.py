@@ -23,7 +23,13 @@ SRC_DIR = ROOT / "src"
 
 PLUGINS = ["westland", "scheduling", "estimating", "project-management", "site-operations", "safety"]
 
-EXCLUDE_DIRS = {"__pycache__", "node_modules", ".git"}
+EXCLUDE_DIRS = {
+    "__pycache__",
+    "node_modules",
+    ".git",
+    "test-results",      # Playwright test artifacts (gitignored, debug only)
+    "playwright-report",
+}
 EXCLUDE_FILES = {".DS_Store", "Thumbs.db"}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 EXCLUDE_DIR_SUFFIXES = ("-workspace",)
