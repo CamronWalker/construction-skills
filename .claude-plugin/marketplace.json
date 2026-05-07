@@ -8,7 +8,7 @@
       "name": "westland",
       "source": "./westland",
       "description": "Westland Construction organizational plugin — always-loaded safety hooks and progressively-disclosed company style references. Install first on every Westland machine; required dependency of the domain plugins (scheduling, estimating, etc.). Contains: Westland Project Files PreToolUse hook (three-rule policy on the Westland share — modify-prompt, version-controlled-deny, delete-deny) and the westland-house-style skill.",
-      "version": "1.2.0"
+      "version": "1.2.1"
     },
     {
       "name": "scheduling",
