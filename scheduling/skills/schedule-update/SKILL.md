@@ -140,68 +140,63 @@ List the created folder and its contents. Tell the user what's next:
 
 ## `screenshots` -- Capture SmartPM Graphs
 
-Captures 17 screenshots from SmartPM: 1 Summary Report + 16 individual trend graphs.
+Captures 17 screenshots from SmartPM v2: 1 Summary Report + 16 individual trend graphs. **Fully headless and auto-authenticated** — no manual login, no MCP, no visible browser.
 
-### Step 0: Pre-Flight — pick a browser backend
+### Step 0: Pre-Flight — credentials + Node setup
 
-Two supported paths; **prefer the MCP path**. The Node path stays as a fallback for environments (e.g., Camron's workstation) where the MCP isn't available but Node is.
+The script reads SmartPM credentials from `~/.claude/.env`:
 
-**MCP path (preferred — no local dependencies):**
+| Key | Required | Purpose |
+|-----|----------|---------|
+| `SMARTPM_EMAIL` | yes | Auto-login email |
+| `SMARTPM_PASSWORD` | yes | Auto-login password |
+| `SMARTPM_PROJECTS_URL` | no | v2 projects/cards URL (defaults to Westland's org URL) |
+| `SMARTPM_BASE_URL` | no | Defaults to `https://live.smartpmtech.com` |
 
-Check for Playwright MCP tools in this session — look for `mcp__*playwright*__browser_navigate`, `browser_take_screenshot`, `browser_snapshot`, etc. If present, use them directly. This is the only supported path when invoked via `/write-weekly-schedule-email` (the colleague-facing flow — colleagues won't have Node).
+**If credentials are missing**, the script throws `ENV_MISSING`. To set them up:
 
-**Node fallback:**
+```bash
+node "{skill_dir}/references/smartpm/env-loader.js" setup
+```
 
-If the MCP tools aren't available, fall back to the bundled script:
-1. Verify Node.js: `node --version`.
-2. Check `node_modules/playwright` in `{skill_dir}/references/`. If missing, run `npm install` in `{skill_dir}/references/`.
-3. If Chromium is missing, run `npx playwright install chromium` in `{skill_dir}/references/`.
+Or ask the colleague for them via `AskUserQuestion` (header: "SmartPM creds", with email and password questions) and write them yourself by calling `upsertEnvFile({SMARTPM_EMAIL, SMARTPM_PASSWORD})` from `references/smartpm/env-loader.js`. Never log the password back to the user.
+
+**Node + Playwright pre-flight:**
+1. Verify Node.js: `node --version` (any 18+).
+2. Check `node_modules/` exists in `{skill_dir}/references/`. If missing, run `npm install` in that folder. The capture script will auto-install on first run too.
+3. Chromium binary is installed via `npx playwright install chromium` (the script handles this).
 
 ### Step 1: Read Project Context
 
 Apply folder resolution. Read `project-context.html`. Extract:
-- `smartpm_url` (Workspace URL, ends with `/workspace`)
-- Derive Trends URL: replace `/workspace` with `/trends?tab=Graphs`
+- `smartpm_project_name` — exact title shown on SmartPM v2 `/projects/cards`. **Falls back to `project_name`** if blank. This is what the script types into the search filter.
 
-Determine the output directory: `{dated_folder}/screenshots/`
+Determine the output directory: `{dated_folder}/screenshots/`.
 
-If `project-context.html` is missing, stop with the error above.
-If the user provides a SmartPM URL directly, use it and proceed without project-context.html.
+If `project-context.html` is missing, stop with the standard error.
 
 ### Step 2: Write Checklist
 
-Create `{dated_folder}/screenshots/` if it does not exist.
+Create `{dated_folder}/screenshots/` if it doesn't exist.
 Write `screenshots/checklist.md` from the template at `{skill_dir}/references/checklist-template.md`,
-filling in project name, date, and SmartPM URLs.
+filling in project name, date, and the v2 cards URL.
 
 Print the checklist.
 
-### Step 3a: Capture via Playwright MCP (preferred)
-
-Drive the browser through the MCP tools. Target the same 17 files the Node script produces (table below). Sequence:
-
-1. **Navigate to Workspace.** `browser_navigate({workspace_url})`. Resize to a desktop viewport (e.g., `browser_resize(1920, 1080)`) so charts render at full width.
-2. **Handle login if needed.** The first run each session will land on SmartPM's login page. Call `browser_snapshot` — if you see login fields, stop and tell the user:
-   > "SmartPM wants you to log in. Complete the login in the browser window, then tell me `logged in` and I'll continue." Resume on that signal. Subsequent captures in the same session should reuse the login.
-3. **Summary Report.** On the Workspace page, find the "View Summary" button via `browser_snapshot` and `browser_click` it. Wait for the modal (`browser_wait_for`). Take a screenshot **of the modal content only** (use the `element`/`ref` form of `browser_take_screenshot` so you don't capture the dimmed overlay edges) and save as `{dated_folder}/screenshots/smartpm-summary-report.png`. Close the modal (press Escape or click the close button).
-4. **Trends graphs.** `browser_navigate({trends_url})`. Wait for the first `APP-CHART-*` element to render. For each of the 16 components in the order below, scroll the element into view, snapshot it, and save to the listed filename via element-scoped `browser_take_screenshot`. If an element isn't returned by `browser_snapshot` (lazy-rendered), use `browser_evaluate` to scroll it into view first — `document.querySelector('APP-CHART-SPI-OVER-TIME').scrollIntoView({behavior: 'instant', block: 'center'})`.
-5. **Wide charts.** `APP-DELAY-WATERFALL` and `APP-END-DATE-VARIANCE` extend past the viewport — scroll the chart's internal container to the right-most position before capturing so the latest data points are visible. `browser_evaluate` with `el.scrollLeft = el.scrollWidth` on the chart's inner scroll container handles this.
-6. **Verify after each capture.** Between screenshots, re-check `browser_snapshot` to confirm the chart actually loaded (no spinner, no "no data" empty state). If empty, wait a few seconds and retry once before moving on.
-
-### Step 3b: Capture via Node fallback
-
-Only when MCP tools are absent:
+### Step 3: Capture via Node script
 
 ```bash
-node "{skill_dir}/references/capture-smartpm.js" \
-  "{workspace_url}" "{trends_url}" "{dated_folder}/screenshots"
+node "{skill_dir}/references/smartpm/capture-smartpm.js" \
+  "{smartpm_project_name or project_name}" "{dated_folder}/screenshots"
 ```
 
 The script:
-- Launches Chromium with a persistent profile at `~/.smartpm-playwright-profile/`
-- On first run: opens a browser window, waits up to 5 min for manual SmartPM login
-- Summary Report: navigates to Workspace, opens "View Summary" modal, captures as `smartpm-summary-report.png`
-- Trend graphs: navigates to Trends > Graphs tab, captures each `.highcharts-container` individually:
+- Loads credentials from `~/.claude/.env`
+- Launches headless Chromium with a persistent profile at `~/.smartpm-playwright-profile/`
+- Auto-logs in via the v2 two-step Auth0-style flow (email page → password page)
+- Navigates to `<projects_url>?search=<encoded project name>` — SmartPM v2 reads the `search` query param and renders only the matching card. **The first card is always the right one** because the URL filter is exact.
+- Clicks **Run Summary Report** on that card → captures the report → saves as `smartpm-summary-report.png`
+- Re-navigates to the same search URL, clicks **View Trends** → captures each `<spm-card-container>` (which includes the chart title row) for the 16 graphs:
 
 | # | File | Chart |
 |---|------|-------|
@@ -222,13 +217,25 @@ The script:
 | 15 | `15-high-total-float.png` | High Total Float |
 | 16 | `16-critical-path-percentage.png` | Critical Path Percentage |
 
-Angular component tags (DOM order): `APP-CHART-PROGRESS-CURVE`, `APP-CHART-SCHEDULE-QUALITY-OVER-TIME`,
-`APP-CHART-PROJECT-HEALTH`, `APP-CHART-SCHEDULE-CHANGES`, `APP-DELAY-WATERFALL`, `APP-END-DATE-VARIANCE`,
-`APP-CHART-SCHEDULE-COMPRESSION`, `APP-CHART-VELOCITY`, `APP-CHART-SPI-OVER-TIME`, `APP-CHART-HIT-RATE`,
-`APP-CHART-WINDOW-START-ACCURACY`, `APP-CHART-WINDOW-FINISH-ACCURACY`, `APP-MISSING-LOGIC`,
-`APP-AVERAGE-TOTAL-FLOAT`, `APP-HIGH-TOTAL-FLOAT`, `APP-CRITICAL-PATH`
+For wide charts (#5 and #6), the script scrolls `.highcharts-scrolling` and `.highcharts-inner-container` to the right before capture so the latest data is visible.
 
-**Errors:** Timeout = network or wrong URL. 0 charts = page didn't render fully (retry). Missing Playwright = run `npx playwright install chromium` in references/.
+**stdout:** JSON shape `{ status, total, screenshots: [{name, file, path, size}, ...], urls }`.
+
+**Errors:**
+- `ENV_MISSING` → run the setup command (Step 0) or ask the user for credentials.
+- Login redirect timeout → bad creds, MFA challenge, or captcha. Surface the error and ask the user to log in manually once via `node smartpm/capture-smartpm.js` with `headless: false` (debug helper) and confirm the credentials are right.
+- "No chart cards found" → trends page didn't render. Likely an upload-still-processing or stale cache; retry after 30 seconds.
+- Sign in button stuck disabled → Angular form validation rejected the email. Confirm `SMARTPM_EMAIL` is the exact login email.
+
+### Step 3b: Tests
+
+Smoke tests live at `{skill_dir}/references/tests/smartpm.spec.js` (uses `@playwright/test`). Run:
+
+```bash
+cd "{skill_dir}/references" && npx playwright test --config=tests/playwright.config.js
+```
+
+Tests verify: env-loader returns creds, navigation auto-logs in, the test project card is found via URL search, the Summary Report is captured, and all 16 trend graphs are captured (file existence + size sanity). Default test project is "Anchorage Alaska Temple" — override via `TEST_PROJECT_NAME=...`.
 
 ### Step 4: Verify
 
@@ -653,10 +660,14 @@ All reference files live in `references/` within this skill directory.
 | `references/parse_email_html.py` | Reads an edited preview HTML back into a Python dict. Returns both filtered (email-ready strings) and full (carry-forward dicts with status/date_archived) shapes. Also extracts the `changes_report` option (include + filename). |
 | `references/carry_forward.py` | Helpers `transition_items()`, `transition_attachments()`, and `reconcile_items()` — apply week-over-week state transitions (active → removed → archived, etc.) and compute previous_text for edited items via fuzzy match. |
 | `references/generate_changes_report_html.py` | Builds the **Schedule Update Email Changelog** as HTML (metrics + narrative diffs + list diffs with inline word-level diff + attachment deltas). Entrypoint `generate_changes_report_attachment(output_path, ...)` handles both `.html` and `.pdf` outputs — the latter triggers `html-to-pdf.js` for Chromium-based conversion. Attached to the Outlook draft when `changes_report.include=True`. |
-| `references/html-to-pdf.js` | Playwright/Node script that renders a local HTML file as a Letter-size PDF with `print` CSS media emulated. Reuses the same `node_modules/playwright` install as `capture-smartpm.js`. |
+| `references/html-to-pdf.js` | Playwright/Node script that renders a local HTML file as a Letter-size PDF with `print` CSS media emulated. Reuses the same `node_modules/playwright` install as the SmartPM capture. |
 | `references/westland-logo.png` | Email signature logo (229x108 RGBA) |
-| `references/capture-smartpm.js` | Playwright script -- captures 17 SmartPM screenshots. Run with Node.js. |
-| `references/package.json` | Node.js dependencies for Playwright. Run `npm install` in `references/` on first use. |
+| `references/smartpm/capture-smartpm.js` | CLI entry — headless v2 capture. Args: `"<project name>" "<output dir>"`. Reads creds from `~/.claude/.env`. |
+| `references/smartpm/smartpm-client.js` | Library — exports `launchContext`, `loginIfNeeded`, `findProjectCard` (URL-search), `captureSummaryReport`, `captureTrendGraphs`, `captureAll`. Reused by the smoke tests. |
+| `references/smartpm/env-loader.js` | Module + CLI — reads/writes `~/.claude/.env`. Run `node smartpm/env-loader.js setup` to seed credentials. |
+| `references/tests/smartpm.spec.js` | `@playwright/test` smoke suite — login, project lookup, summary capture, 16 trend graph capture against a real project (default: Anchorage Alaska Temple). |
+| `references/tests/playwright.config.js` | Test runner config — headless, single worker, JSON + list reporters. |
+| `references/package.json` | Node deps (`playwright`, `@playwright/test`). Run `npm install` in `references/` on first use. |
 | `references/checklist-template.md` | Template for the progress checklist written to each project's screenshots/ folder. |
 | `references/Master Schedule Update Email Example.docx` | Original Westland email example (Neiafu Tonga Temple) for reference |
 | `references/Schedule Update Email Procedure.docx` | Original Westland procedure document for reference |

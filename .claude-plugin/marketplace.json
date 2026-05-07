@@ -13,8 +13,8 @@
     {
       "name": "scheduling",
       "source": "./scheduling",
-      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop, reviewer-feedback download for external reviewers (attribution-tagged JSON), and a single propsched dispatcher (iterate, paths, anchors, diff, walk, score, init, bootstrap-anchors, aggregate-postmortems, feedback, metadata, durations). v5.0.0 layout: current XER at project root, Old Iterations/ for history, project-metadata.json for context, durations.json keyed by project metadata, postmortem-as-folder artifacts copyable to a master library.",
-      "version": "5.0.0"
+      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop, reviewer-feedback download for external reviewers (attribution-tagged JSON), and a single propsched dispatcher (iterate, paths, anchors, diff, walk, score, init, bootstrap-anchors, aggregate-postmortems, feedback, metadata, durations). v5.1.0: SmartPM v2 headless auto-login screenshots (replaces v1 + Playwright MCP), URL-search project lookup, smartpm_project_name field in project-context, @playwright/test smoke suite.",
+      "version": "5.1.0"
     },
     {
       "name": "estimating",

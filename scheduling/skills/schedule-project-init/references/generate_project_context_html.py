@@ -229,6 +229,7 @@ def _build_html(ctx, today_iso, logo_path):
     smartpm_url = ctx.get('smartpm_url', '')
     smartpm_trends_url = ctx.get('smartpm_trends_url', '')
     smartpm_changelog_url = ctx.get('smartpm_changelog_url', '')
+    smartpm_project_name = ctx.get('smartpm_project_name', '')
     to_recipients = ctx.get('to_recipients', [])
     cc_recipients = ctx.get('cc_recipients', [])
     signer_name = ctx.get('signer_name', '')
@@ -302,6 +303,12 @@ def _build_html(ctx, today_iso, logo_path):
     # --- SmartPM URLs ---
     parts.append(_card_open('SmartPM'))
     parts.append('<div class="field-grid">')
+    parts.append(_field_row(
+        'Project Name (SmartPM)',
+        _editable_text('smartpm_project_name', smartpm_project_name,
+                       placeholder='Exact card title on SmartPM v2 (defaults to project name above)'),
+        note='Used by the screenshots script to find the right card on the v2 /projects/cards page. Leave blank to fall back to the project name above.',
+    ))
     parts.append(_field_row(
         'Workspace URL',
         _editable_text('smartpm_url', smartpm_url,

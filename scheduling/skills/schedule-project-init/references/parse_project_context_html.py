@@ -4,6 +4,7 @@ Parse an edited project-context.html back into a Python dict.
 Returns:
     project_name, job_number, contractual_completion,
     smartpm_url, smartpm_trends_url, smartpm_changelog_url,
+    smartpm_project_name,  # SmartPM v2 card title (falls back to project_name)
     signer_name, signer_title, signer_mobile,
     procore_company_id, procore_project_id,
     graph_screenshots: list[str],
@@ -109,6 +110,7 @@ def parse_project_context_html(path):
         'smartpm_url': '',
         'smartpm_trends_url': '',
         'smartpm_changelog_url': '',
+        'smartpm_project_name': '',
         'signer_name': '',
         'signer_title': '',
         'signer_mobile': '',
