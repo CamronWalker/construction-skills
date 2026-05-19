@@ -44,6 +44,7 @@ import re
 RED = '#C94444'
 GREEN = '#3A9E6B'
 TEAL = '#0B4F66'
+AMBER = '#E6A817'
 
 
 def _esc(text):
@@ -362,13 +363,16 @@ def _render_custom_paragraph(p):
     ])
 
 
-def _attachments_html(attachments, changes_report=None, date_label=''):
+def _attachments_html(attachments, changes_report=None, date_label='', skip_procore=False):
     """attachments: list of {filename, checked, status, date_archived} dicts.
 
     changes_report: optional dict {include: bool, filename: str} controlling
     whether a "Schedule Update Email Changelog" PDF should be attached. The
     skill generates the HTML + converts to PDF at draft time; the preview
     just captures the user's intent (on/off) and preferred filename.
+
+    skip_procore: if True, the master "Skip Procore this week" toggle renders
+    checked, suppressing XER import + Documents upload while still sending email.
     """
     items = attachments or []
     active = [a for a in items if _item_fields(a)['status'] != 'archived']
@@ -386,16 +390,26 @@ def _attachments_html(attachments, changes_report=None, date_label=''):
     )
     cr_filename = cr.get('filename', '') or default_name
     cr_checked_attr = 'checked' if cr_include else ''
+    skip_procore_attr = 'checked' if skip_procore else ''           # NEW
 
     out = [
         '<div class="attachments-section" data-field="attachments">',
         '<h4 class="no-print">Attachments</h4>',
         '<p class="section-hint no-print">Files attached to the Outlook draft. '
-        'Uncheck to skip (item stays in the list, carries forward to next week). '
-        'Use <b>+ Browse</b> to pick files from this dated folder, or '
-        '<b>+ Add by name</b> to type a filename. New additions stay for next '
-        'week, so a one-time custom attachment becomes a default if you leave it.'
-        '</p>',
+        'Uncheck the leftmost ☐ to skip from the email. '
+        'Tick the <span style="color:#0B4F66;font-weight:bold">P</span> on a row '
+        'to publish that file to Procore. The folder is public — only check files '
+        'safe to share publicly.</p>',
+        # NEW — master skip-Procore toggle (sits BEFORE changes-report-option)
+        '<div class="skip-procore-option" data-field="skip_procore_option">',
+        '  <label class="skip-procore-toggle">',
+        f'    <input type="checkbox" data-field="skip_procore" {skip_procore_attr}>',
+        '    <span class="skip-procore-label">⏭ Skip Procore this week</span>',
+        '  </label>',
+        '  <span class="skip-procore-hint">Suppresses XER import + Documents '
+        'upload. Email still sends.</span>',
+        '</div>',
+        # END NEW
         # Weekly Changes Report option — styled like an attachment row but lives
         # above the list since it's a generated artifact, not a file on disk.
         '<div class="changes-report-option" data-field="changes_report">',
@@ -451,19 +465,27 @@ def _render_attachment_item(item):
     checked = f['checked']
     status = f['status']
     date_archived = f['date_archived']
+    share_to_procore = bool(item.get('share_to_procore', False)) if isinstance(item, dict) else False  # NEW
     checked_class = 'true' if checked else 'false'
     checked_attr = 'checked' if checked else ''
+    procore_class = 'true' if share_to_procore else 'false'        # NEW
+    procore_attr = 'checked' if share_to_procore else ''           # NEW
     archived_attr = (
         f' data-archived="{_esc(date_archived)}"' if date_archived else ''
     )
     return (
         f'<li class="attachment-item" data-checked="{checked_class}" '
-        f'data-status="{_esc(status)}"{archived_attr}>'
+        f'data-status="{_esc(status)}" '
+        f'data-share-procore="{procore_class}"{archived_attr}>'         # MODIFIED
         '<span class="drag-handle" draggable="true" title="Drag to reorder" '
         'aria-label="Drag handle">⋮⋮</span>'
-        '<label class="attach-toggle">'
+        '<label class="attach-toggle" title="Include in email">'
         f'<input type="checkbox" data-item-checked {checked_attr}>'
         '</label>'
+        '<label class="attach-procore-toggle" title="Share to Procore">'  # NEW
+        f'<input type="checkbox" data-procore-checked {procore_attr}>'    # NEW
+        '<span class="procore-badge">P</span>'                            # NEW
+        '</label>'                                                        # NEW
         '<span class="attachment-status-icon" aria-hidden="true"></span>'
         f'<span class="attachment-name" contenteditable="true" '
         f'data-field="attachment_name">{_esc(filename)}</span>'
@@ -533,6 +555,7 @@ def _build_preview_html(**kw):
     attachments = kw.get('attachments') or []
     changes_report = kw.get('changes_report') or None
     date_label = kw.get('date_label', '')
+    skip_procore = bool(kw.get('skip_procore', False))             # NEW
     changed_fields = set(kw.get('changed_narrative_fields') or [])
     summary_rel = kw.get('summary_screenshot_rel') or ''
     graph_rels = kw.get('graph_screenshot_rels') or []
@@ -737,6 +760,7 @@ def _build_preview_html(**kw):
     # Attachments card — outside email-body, visually a control panel
     parts.append(_attachments_html(
         attachments, changes_report=changes_report, date_label=date_label,
+        skip_procore=skip_procore,
     ))
 
     parts.append('<script>')
@@ -1188,6 +1212,39 @@ li.attachment-item[data-status="archived"] .note-archived {{ display: inline; }}
 }}
 .attachment-controls .remove-btn {{ color: {RED}; font-weight: bold; }}
 .attachment-actions {{ margin-top: 6px; }}
+
+/* Procore toggle on each attachment row */
+.attach-procore-toggle {{
+  display: inline-flex; align-items: center; gap: 3px;
+  cursor: pointer; user-select: none;
+}}
+.attach-procore-toggle input[type="checkbox"] {{
+  width: 13px; height: 13px;
+}}
+.procore-badge {{
+  display: inline-block; background: {TEAL}; color: #fff;
+  font-size: 9pt; font-weight: bold;
+  padding: 0 4px; border-radius: 2px;
+  font-family: Arial, sans-serif;
+}}
+li.attachment-item[data-share-procore="true"] {{
+  border-left: 3px solid {TEAL};
+}}
+
+/* Skip Procore master toggle */
+.skip-procore-option {{
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; margin: 4px 0 8px 0;
+  background: #fff8e1; border: 1px dashed {AMBER};
+  border-radius: 4px;
+}}
+.skip-procore-toggle {{
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; font-weight: bold; color: #6b4f0e;
+}}
+.skip-procore-hint {{
+  font-size: 11px; color: #555; font-style: italic;
+}}
 
 /* Changes-report toggle — generated artifact, not a disk file */
 .changes-report-option {{
@@ -1760,9 +1817,10 @@ function moveParagraph(btn, dir) {
 
 // ---------- Attachments ----------
 const ATTACHMENT_TEMPLATE = `
-<li class="attachment-item" data-checked="true" data-status="new">
+<li class="attachment-item" data-checked="true" data-status="new" data-share-procore="false">
   <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag handle">⋮⋮</span>
-  <label class="attach-toggle"><input type="checkbox" data-item-checked checked></label>
+  <label class="attach-toggle" title="Include in email"><input type="checkbox" data-item-checked checked></label>
+  <label class="attach-procore-toggle" title="Share to Procore"><input type="checkbox" data-procore-checked><span class="procore-badge">P</span></label>
   <span class="attachment-status-icon" aria-hidden="true"></span>
   <span class="attachment-name" contenteditable="true" data-field="attachment_name">FILENAME</span>
   <span class="attachment-meta"><span class="note-archived">📁 Archived <span class="archived-date"></span></span></span>
@@ -1808,14 +1866,23 @@ function moveAttachment(btn, dir) {
 }
 
 // ---------- Save / copy ----------
+function _syncCheckboxes() {
+  document.querySelectorAll('input[type=checkbox]').forEach(el => {
+    if (el.checked) el.setAttribute('checked', '');
+    else el.removeAttribute('checked');
+  });
+  document.querySelectorAll('li.attachment-item').forEach(li => {
+    const inc = li.querySelector('input[data-item-checked]');
+    const pro = li.querySelector('input[data-procore-checked]');
+    li.setAttribute('data-checked', (inc && inc.checked) ? 'true' : 'false');
+    li.setAttribute('data-share-procore', (pro && pro.checked) ? 'true' : 'false');
+  });
+}
+
 function _buildSnapshotHtml() {
+  _syncCheckboxes();   // NEW — keep data attributes and checkbox state aligned with reality
   document.querySelectorAll('[data-metric]').forEach(el => {
     el.setAttribute('data-value', el.dataset.value);
-  });
-  // Sync checkbox state so the saved file reflects current toggles
-  document.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    if (cb.checked) cb.setAttribute('checked', '');
-    else cb.removeAttribute('checked');
   });
   // Sync text-input values into the value attribute so they persist on save
   document.querySelectorAll('input[type=text]').forEach(el => {

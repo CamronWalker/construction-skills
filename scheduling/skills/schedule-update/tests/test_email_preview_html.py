@@ -14,6 +14,7 @@ Run:
 
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -248,6 +249,100 @@ class ProcoreFieldsParseTests(unittest.TestCase):
             f.write(html)
         parsed = parse_mod.parse_preview_html(self.path)
         self.assertFalse(parsed['skip_procore'])
+
+
+class ProcoreFieldsGenerateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name,
+                                 '2026-05-07-email-preview.html')
+
+    def _gen(self, **overrides):
+        kw = dict(FULL_KWARGS)
+        kw.update(overrides)
+        gen.generate_preview_html(self.path, **kw)
+        with open(self.path, 'r', encoding='utf-8') as f:
+            return f.read()
+
+    def test_share_to_procore_true_renders_data_attr_and_checked(self):
+        html = self._gen(attachments=[
+            {'filename': 'View 01.pdf', 'checked': True, 'status': 'active',
+             'share_to_procore': True},
+        ])
+        self.assertIn('data-share-procore="true"', html)
+        # The Procore checkbox should be checked
+        self.assertRegex(html, r'data-procore-checked[^>]*checked')
+
+    def test_share_to_procore_false_renders_data_attr_and_unchecked(self):
+        html = self._gen(attachments=[
+            {'filename': 'Notes.pdf', 'checked': True, 'status': 'active',
+             'share_to_procore': False},
+        ])
+        self.assertIn('data-share-procore="false"', html)
+        # Procore checkbox present but NOT checked
+        self.assertIn('data-procore-checked', html)
+        # Use regex to ensure the procore checkbox specifically lacks `checked`
+        m = re.search(
+            r'<input[^>]*data-procore-checked[^>]*>', html, re.IGNORECASE,
+        )
+        self.assertIsNotNone(m)
+        self.assertNotIn(' checked', m.group(0))
+
+    def test_share_to_procore_defaults_false_when_omitted(self):
+        html = self._gen(attachments=[
+            {'filename': 'Notes.pdf', 'checked': True, 'status': 'active'},
+        ])
+        self.assertIn('data-share-procore="false"', html)
+
+    def test_skip_procore_kwarg_renders_checked_master_toggle(self):
+        html = self._gen(skip_procore=True)
+        # Master toggle present and checked
+        m = re.search(
+            r'<input[^>]*data-field="skip_procore"[^>]*>', html, re.IGNORECASE,
+        )
+        self.assertIsNotNone(m)
+        self.assertIn('checked', m.group(0))
+
+    def test_skip_procore_default_renders_unchecked_master_toggle(self):
+        html = self._gen()  # no skip_procore kwarg
+        m = re.search(
+            r'<input[^>]*data-field="skip_procore"[^>]*>', html, re.IGNORECASE,
+        )
+        self.assertIsNotNone(m)
+        self.assertNotIn(' checked', m.group(0))
+
+    def test_round_trip_preserves_procore_fields(self):
+        gen.generate_preview_html(
+            self.path,
+            **dict(FULL_KWARGS,
+                   skip_procore=True,
+                   attachments=[
+                       {'filename': 'View 01.pdf', 'checked': True,
+                        'status': 'active', 'share_to_procore': True},
+                       {'filename': 'Summary.pdf', 'checked': True,
+                        'status': 'active', 'share_to_procore': False},
+                   ]),
+        )
+        parsed = parse_mod.parse_preview_html(self.path)
+        self.assertTrue(parsed['skip_procore'])
+        self.assertEqual(len(parsed['attachments']), 2)
+        self.assertTrue(parsed['attachments'][0]['share_to_procore'])
+        self.assertFalse(parsed['attachments'][1]['share_to_procore'])
+
+    def test_attachment_template_js_includes_procore_checkbox(self):
+        # The JS template used by + Browse files / + Add by name spawns new
+        # rows. New rows must default share_to_procore=false (off) and include
+        # the procore checkbox so users can opt in.
+        html = self._gen()
+        # Find the ATTACHMENT_TEMPLATE block in the generated JS
+        m = re.search(
+            r'const ATTACHMENT_TEMPLATE\s*=\s*`([^`]*)`', html, re.DOTALL,
+        )
+        self.assertIsNotNone(m, 'ATTACHMENT_TEMPLATE literal not found in JS')
+        tmpl = m.group(1)
+        self.assertIn('data-share-procore="false"', tmpl)
+        self.assertIn('data-procore-checked', tmpl)
 
 
 if __name__ == '__main__':
