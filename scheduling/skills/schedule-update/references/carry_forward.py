@@ -38,6 +38,23 @@ from datetime import date, timedelta
 # and they're explicitly curated by the user.
 MAX_ARCHIVED_DAYS = 90
 
+# Pattern-based bootstrap for share_to_procore. New attachments matching
+# these patterns default to True (publicly shareable in the Procore Documents
+# folder); everything else defaults to False (the folder is public, so
+# unfamiliar files require an explicit opt-in via the preview checkbox).
+_PROCORE_BOOTSTRAP_PATTERNS = [
+    re.compile(r'view', re.IGNORECASE),
+    re.compile(r'update[-_ ]request.*\.xlsm$', re.IGNORECASE),
+]
+
+
+def _bootstrap_share_to_procore(filename):
+    """Return True if a brand-new attachment with this filename should
+    default to share_to_procore=True."""
+    if not filename:
+        return False
+    return any(p.search(filename) for p in _PROCORE_BOOTSTRAP_PATTERNS)
+
 
 def _parse_iso(s):
     try:
@@ -401,19 +418,24 @@ def transition_attachments(last_week_attachments, fresh_filenames=None,
                 status = 'active'
                 checked = True
 
+            # NEW — share_to_procore preserved from last week
+            share_to_procore = bool(last_a.get('share_to_procore', False))
+
             result.append({
                 'filename': fn,  # fresh filename — carries this week's date
                 'checked': checked,
                 'status': status,
                 'date_archived': '',
+                'share_to_procore': share_to_procore,   # NEW
             })
         else:
-            # No match → genuinely new attachment
+            # No match → genuinely new attachment; bootstrap from filename
             result.append({
                 'filename': fn,
                 'checked': True,
                 'status': 'new',
                 'date_archived': '',
+                'share_to_procore': _bootstrap_share_to_procore(fn),   # NEW
             })
 
     # --- Drop phase: last-week items not matched this week -------------
@@ -422,6 +444,8 @@ def transition_attachments(last_week_attachments, fresh_filenames=None,
             continue
         last_status = a.get('status', 'active')
         last_checked = bool(a.get('checked', True))
+        # NEW — preserve share_to_procore on dropped items too
+        share_to_procore = bool(a.get('share_to_procore', False))
 
         if last_status in ('active', 'new'):
             new_status = 'removed'
@@ -449,6 +473,7 @@ def transition_attachments(last_week_attachments, fresh_filenames=None,
             'checked': new_checked,
             'status': new_status,
             'date_archived': new_archived,
+            'share_to_procore': share_to_procore,   # NEW
         })
 
     return result
