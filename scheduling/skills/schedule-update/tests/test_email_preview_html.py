@@ -172,5 +172,83 @@ class FileUriTests(unittest.TestCase):
         )
 
 
+class ProcoreFieldsParseTests(unittest.TestCase):
+    """Parser surface for the Procore upload workflow (added 2026-05)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name,
+                                 '2026-05-07-email-preview.html')
+
+    def test_share_to_procore_true_parsed_from_data_attribute(self):
+        html = (
+            '<!DOCTYPE html><html><body>'
+            '<div class="attachments-section" data-field="attachments">'
+            '<ul class="attachment-list">'
+            '<li class="attachment-item" data-checked="true" '
+            '    data-status="active" data-share-procore="true">'
+            '<input type="checkbox" data-item-checked checked>'
+            '<input type="checkbox" data-procore-checked checked>'
+            '<span class="attachment-name" data-field="attachment_name">'
+            'View 01.pdf</span></li>'
+            '</ul></div></body></html>'
+        )
+        with open(self.path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        parsed = parse_mod.parse_preview_html(self.path)
+        atts = parsed['attachments']
+        self.assertEqual(len(atts), 1)
+        self.assertTrue(atts[0]['share_to_procore'])
+
+    def test_share_to_procore_false_when_attribute_missing_or_false(self):
+        html = (
+            '<!DOCTYPE html><html><body>'
+            '<div class="attachments-section" data-field="attachments">'
+            '<ul class="attachment-list">'
+            '<li class="attachment-item" data-checked="true" '
+            '    data-status="active" data-share-procore="false">'
+            '<input type="checkbox" data-item-checked checked>'
+            '<span class="attachment-name" data-field="attachment_name">'
+            'SmartPM Summary.pdf</span></li>'
+            '<li class="attachment-item" data-checked="true" '
+            '    data-status="active">'  # no data-share-procore
+            '<input type="checkbox" data-item-checked checked>'
+            '<span class="attachment-name" data-field="attachment_name">'
+            'Internal Notes.pdf</span></li>'
+            '</ul></div></body></html>'
+        )
+        with open(self.path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        parsed = parse_mod.parse_preview_html(self.path)
+        atts = parsed['attachments']
+        self.assertEqual(len(atts), 2)
+        self.assertFalse(atts[0]['share_to_procore'])
+        self.assertFalse(atts[1]['share_to_procore'])
+
+    def test_skip_procore_true(self):
+        html = (
+            '<!DOCTYPE html><html><body>'
+            '<div class="attachments-section" data-field="attachments">'
+            '<input type="checkbox" data-field="skip_procore" checked>'
+            '<ul class="attachment-list"></ul></div></body></html>'
+        )
+        with open(self.path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        parsed = parse_mod.parse_preview_html(self.path)
+        self.assertTrue(parsed['skip_procore'])
+
+    def test_skip_procore_false_default(self):
+        html = (
+            '<!DOCTYPE html><html><body>'
+            '<div class="attachments-section" data-field="attachments">'
+            '<ul class="attachment-list"></ul></div></body></html>'
+        )
+        with open(self.path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        parsed = parse_mod.parse_preview_html(self.path)
+        self.assertFalse(parsed['skip_procore'])
+
+
 if __name__ == '__main__':
     unittest.main()

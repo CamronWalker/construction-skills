@@ -312,6 +312,17 @@ def parse_preview_html(path):
         for fn in attachment_names
     ]
 
+    # --- Skip-Procore master toggle -----------------------------------
+    skip_procore = False
+    m_sp = re.search(
+        r'<input\b[^>]*data-field="skip_procore"[^>]*>', raw,
+        re.IGNORECASE,
+    )
+    if m_sp:
+        skip_procore = bool(
+            re.search(r'\s+checked(\s|=|>|/)', m_sp.group(0), re.IGNORECASE)
+        )
+
     # --- Images -------------------------------------------------------
     summary_rel = ''
     for attrs, _inner, _ in _iter_elements(raw, 'img'):
@@ -363,6 +374,7 @@ def parse_preview_html(path):
         'attachment_names': attachment_names,
         'attachment_paths': attachment_paths,
         'changes_report': changes_report,
+        'skip_procore': skip_procore,                          # NEW
         'summary_screenshot_path': _rel_to_abs(summary_rel),
         'summary_screenshot_rel': summary_rel,
         'graph_screenshot_paths': [_rel_to_abs(r) for r in graph_rels],
@@ -465,6 +477,9 @@ def _extract_attachment_item(attrs, inner):
             if (iattrs.get('type') or '').lower() == 'checkbox':
                 checked = _is_checked(iattrs)
                 break
+    # NEW — share_to_procore from data attribute
+    sp = (attrs.get('data-share-procore') or '').lower()
+    share_to_procore = sp == 'true'
     filename = ''
     for sattrs, sinner, _ in _iter_elements(inner, 'span'):
         if (sattrs.get('data-field') == 'attachment_name'
@@ -478,6 +493,7 @@ def _extract_attachment_item(attrs, inner):
         'checked': checked,
         'status': status,
         'date_archived': date_archived,
+        'share_to_procore': share_to_procore,  # NEW
     }
 
 
