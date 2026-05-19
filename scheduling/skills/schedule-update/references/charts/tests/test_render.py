@@ -84,5 +84,23 @@ class TestScheduleCompressionIndex(unittest.TestCase):
         self.assertGreater(width, height * 1.8)
 
 
+class TestVelocity(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '08-velocity.png'
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_valid_png(self):
+        data = json.loads((FIXTURE_DIR / '08-velocity.json').read_text())
+        charts.render_velocity(data, str(self.output))
+        self.assertTrue(self.output.exists())
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+        width, height = img.size
+        self.assertGreater(width, height * 1.8)
+
+
 if __name__ == '__main__':
     unittest.main()

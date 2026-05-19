@@ -11,10 +11,22 @@ from datetime import date, timedelta
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.dates import DateFormatter
 
 from . import style
+
+
+# SmartPM Velocity chart palette — six bar series + average line + data-date marker.
+_VEL_CURR_START_ACTUAL   = '#7CB5EC'   # light blue
+_VEL_CURR_FINISH_ACTUAL  = '#1F4E79'   # dark blue
+_VEL_BASELINE_START      = '#D9D9D9'   # light gray
+_VEL_BASELINE_FINISH     = '#595959'   # dark gray
+_VEL_CURR_START_PLANNED  = '#A6E3A6'   # light green
+_VEL_CURR_FINISH_PLANNED = '#3F8F3F'   # dark green
+_VEL_AVERAGE_LINE        = '#E8A82E'   # orange
+_VEL_DATA_DATE_LINE      = '#222222'   # near-black
 
 
 # SmartPM Summary-style palette — used to match the look of the existing screenshots.
@@ -238,5 +250,137 @@ def render_schedule_compression_index(data, output_path):
     ax.set_axisbelow(True)
 
     fig.autofmt_xdate()
+    fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+    plt.close(fig)
+
+
+def render_velocity(data, output_path):
+    """Chart 08 — Monthly Activity Start & Finish Distribution.
+
+    Mirrors SmartPM's Velocity chart:
+      - Six bar series per month: Current Starts/Finishes split into Actual
+        (≤ data date) and Planned (> data date), plus Baseline Starts/Finishes.
+      - Orange horizontal average line (mean of current finishes where actual).
+      - Black vertical line at the project data date, with date label.
+      - Title "Monthly Activity Start & Finish Distribution", legend below.
+
+    Consumes the SmartPM MCP shape directly:
+      {
+        "velocityList": [
+          {"date": "YYYY-MM-01T00:00:00",
+           "baselineStarts": int, "baselineFinishes": int,
+           "currentStarts": int, "currentFinishes": int},
+          ...
+        ],
+        "dataDate": "YYYY-MM-DDTHH:MM:SS"   # project data date
+      }
+
+    Non-month-start entries (e.g. a special row stamped at the data date itself)
+    are skipped — they're a SmartPM marker, not a monthly bucket.
+    """
+    raw = data.get('velocityList') or []
+    # Only keep first-of-month rows; SmartPM sometimes embeds a marker row at
+    # the data date that would otherwise double-count.
+    monthly = [
+        v for v in raw
+        if v.get('date', '').endswith('T00:00:00') and v['date'][8:10] == '01'
+    ]
+    monthly.sort(key=lambda v: v['date'])
+
+    if not monthly:
+        fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+        ax.set_title('Monthly Activity Start & Finish Distribution',
+                     fontsize=style.TITLE_FONTSIZE, loc='left',
+                     pad=style.TITLE_PAD)
+        fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+        plt.close(fig)
+        return
+
+    # Window to the trailing 12 months before the data date through the end of
+    # the series (so all planned months are kept). Long projects (6+ years here)
+    # become unreadable at full width otherwise.
+    data_date_str = data.get('dataDate', '')
+    if data_date_str:
+        dd_full = date.fromisoformat(data_date_str[:10])
+        cutoff_year = dd_full.year - 1
+        cutoff_month = dd_full.month
+        cutoff = date(cutoff_year, cutoff_month, 1)
+        monthly = [
+            v for v in monthly
+            if date.fromisoformat(v['date'][:10]) >= cutoff
+        ]
+
+    months = [date.fromisoformat(v['date'][:10]) for v in monthly]
+    bl_starts   = [int(v.get('baselineStarts')   or 0) for v in monthly]
+    bl_finishes = [int(v.get('baselineFinishes') or 0) for v in monthly]
+    cur_starts   = [int(v.get('currentStarts')   or 0) for v in monthly]
+    cur_finishes = [int(v.get('currentFinishes') or 0) for v in monthly]
+
+    data_date = date.fromisoformat(data_date_str[:10]) if data_date_str else None
+    dd_month = data_date.replace(day=1) if data_date else None
+
+    # Split current series into Actual (months <= data-date month) and Planned (after).
+    def split(values):
+        actual, planned = [], []
+        for m, v in zip(months, values):
+            if dd_month is None or m <= dd_month:
+                actual.append(v); planned.append(0)
+            else:
+                actual.append(0); planned.append(v)
+        return actual, planned
+
+    cs_actual, cs_planned = split(cur_starts)
+    cf_actual, cf_planned = split(cur_finishes)
+
+    fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+
+    x = np.arange(len(months))
+    width = 0.14
+    offsets = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]
+
+    ax.bar(x + offsets[0] * width, cs_actual,   width, color=_VEL_CURR_START_ACTUAL,   label='Current Starts (Actual)')
+    ax.bar(x + offsets[1] * width, cf_actual,   width, color=_VEL_CURR_FINISH_ACTUAL,  label='Current Finishes (Actual)')
+    ax.bar(x + offsets[2] * width, bl_starts,   width, color=_VEL_BASELINE_START,      label='Baseline Starts')
+    ax.bar(x + offsets[3] * width, bl_finishes, width, color=_VEL_BASELINE_FINISH,     label='Baseline Finishes')
+    ax.bar(x + offsets[4] * width, cs_planned,  width, color=_VEL_CURR_START_PLANNED,  label='Current Starts (Planned)')
+    ax.bar(x + offsets[5] * width, cf_planned,  width, color=_VEL_CURR_FINISH_PLANNED, label='Current Finishes (Planned)')
+
+    # Average line — mean of current finishes for actual months only, skipping zeros.
+    actual_finishes = [v for v, p in zip(cur_finishes, cf_planned) if p == 0 and v > 0]
+    if actual_finishes:
+        avg = sum(actual_finishes) / len(actual_finishes)
+        ax.axhline(y=avg, color=_VEL_AVERAGE_LINE, linewidth=1.5, label='Average', zorder=3)
+
+    # Data-date vertical line + label.
+    if dd_month and dd_month in months:
+        dd_idx = months.index(dd_month)
+        # Place between the data-date month and the next month so it visually
+        # separates actual from planned.
+        line_x = dd_idx + 0.5
+        ax.axvline(x=line_x, color=_VEL_DATA_DATE_LINE, linewidth=1.2, zorder=2)
+        ymin, ymax = ax.get_ylim()
+        ax.text(line_x, ymax * 0.96,
+                data_date.strftime('%d %b-%y'),
+                rotation=90, ha='right', va='top',
+                fontsize=8, color=_VEL_DATA_DATE_LINE)
+
+    # X-ticks: every 3 months keeps labels readable across 6+ years.
+    tick_step = max(1, len(months) // 24)
+    ax.set_xticks(x[::tick_step])
+    ax.set_xticklabels([m.strftime('%b-%y') for m in months[::tick_step]],
+                       rotation=45, ha='right', fontsize=style.TICK_FONTSIZE)
+    ax.tick_params(axis='y', labelsize=style.TICK_FONTSIZE)
+    ax.set_xlim(-0.5, len(months) - 0.5)
+
+    ax.set_title('Monthly Activity Start & Finish Distribution',
+                 fontsize=style.TITLE_FONTSIZE, loc='left',
+                 pad=style.TITLE_PAD)
+
+    ax.grid(True, axis='y', linestyle=':', color=style.LIGHT_GRAY, linewidth=0.7)
+    ax.set_axisbelow(True)
+
+    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.45),
+              ncol=4, fontsize=8, frameon=False)
+
     fig.savefig(output_path, **style.SAVEFIG_KWARGS)
     plt.close(fig)
