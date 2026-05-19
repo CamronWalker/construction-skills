@@ -221,5 +221,51 @@ def _entry_block(html, date):
     return m.group(0)
 
 
+class ProcoreDocumentsFolderTests(unittest.TestCase):
+    """Field added 2026-05 for the Procore Documents upload workflow."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, 'project-context.html')
+
+    def test_parser_reads_field_from_static_html(self):
+        # Don't depend on the generator (that's Task 2). Hand-craft minimal HTML.
+        html = (
+            '<!DOCTYPE html><html><body>'
+            '<input type="text" data-field="procore_documents_folder_id" '
+            'value="4592384">'
+            '</body></html>'
+        )
+        with open(self.path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        parsed = parse_mod.parse_project_context_html(self.path)
+        self.assertEqual(parsed['procore_documents_folder_id'], '4592384')
+
+    def test_field_defaults_empty_on_missing(self):
+        # Round-trip a context that omits the field. Parser must
+        # tolerate older HTML files written before the field existed.
+        ctx = dict(FULL_CTX)
+        ctx.pop('procore_documents_folder_id', None)
+        gen.generate_project_context_html(self.path, ctx,
+                                          today_iso='2026-05-18')
+        parsed = parse_mod.parse_project_context_html(self.path)
+        self.assertEqual(parsed['procore_documents_folder_id'], '')
+
+    def test_user_blanks_field_to_re_trigger_discovery(self):
+        # The Procore phase blanks this field when the user wants to
+        # switch folders. Round-trip an empty value via static HTML.
+        html = (
+            '<!DOCTYPE html><html><body>'
+            '<input type="text" data-field="procore_documents_folder_id" '
+            'value="">'
+            '</body></html>'
+        )
+        with open(self.path, 'w', encoding='utf-8') as f:
+            f.write(html)
+        parsed = parse_mod.parse_project_context_html(self.path)
+        self.assertEqual(parsed['procore_documents_folder_id'], '')
+
+
 if __name__ == '__main__':
     unittest.main()

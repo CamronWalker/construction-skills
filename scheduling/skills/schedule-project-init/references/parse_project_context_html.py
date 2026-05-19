@@ -6,7 +6,7 @@ Returns:
     smartpm_url, smartpm_trends_url, smartpm_changelog_url,
     smartpm_project_name,  # SmartPM v2 card title (falls back to project_name)
     signer_name, signer_title, signer_mobile,
-    procore_company_id, procore_project_id,
+    procore_company_id, procore_project_id, procore_documents_folder_id,
     graph_screenshots: list[str],
     project_log: list[{date, body}],
     to_recipients: list[{name, email}],
@@ -122,6 +122,7 @@ def parse_project_context_html(path):
         'signer_mobile': '',
         'procore_company_id': '',
         'procore_project_id': '',
+        'procore_documents_folder_id': '',  # NEW — Procore Documents folder for weekly uploads
         'graph_screenshots': [],
         'project_log': [],
         'to_recipients': [],
