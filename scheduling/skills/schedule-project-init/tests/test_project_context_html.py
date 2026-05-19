@@ -205,6 +205,45 @@ class Python310CompatTests(unittest.TestCase):
         )
 
 
+class ProcoreDocumentsFolderGeneratorTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, 'project-context.html')
+
+    def test_generator_renders_field_row(self):
+        ctx = dict(FULL_CTX)
+        ctx['procore_documents_folder_id'] = '4592384'
+        gen.generate_project_context_html(self.path, ctx,
+                                          today_iso='2026-05-18')
+        with open(self.path, 'r', encoding='utf-8') as f:
+            html = f.read()
+        self.assertIn('data-field="procore_documents_folder_id"', html)
+        self.assertIn('value="4592384"', html)
+
+    def test_generator_renders_empty_when_unset(self):
+        ctx = dict(FULL_CTX)
+        ctx.pop('procore_documents_folder_id', None)
+        gen.generate_project_context_html(self.path, ctx,
+                                          today_iso='2026-05-18')
+        with open(self.path, 'r', encoding='utf-8') as f:
+            html = f.read()
+        self.assertIn('data-field="procore_documents_folder_id"', html)
+        # Empty value should render
+        self.assertRegex(
+            html,
+            r'data-field="procore_documents_folder_id"[^>]*value=""',
+        )
+
+    def test_field_round_trips_through_generator_then_parser(self):
+        ctx = dict(FULL_CTX)
+        ctx['procore_documents_folder_id'] = '7777777'
+        gen.generate_project_context_html(self.path, ctx,
+                                          today_iso='2026-05-18')
+        parsed = parse_mod.parse_project_context_html(self.path)
+        self.assertEqual(parsed['procore_documents_folder_id'], '7777777')
+
+
 # ---------- helpers ----------------------------------------------------
 
 def _entry_block(html, date):

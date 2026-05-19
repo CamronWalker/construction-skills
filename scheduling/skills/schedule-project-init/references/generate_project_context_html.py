@@ -248,6 +248,7 @@ def _build_html(ctx, today_iso, logo_path):
     signer_mobile = ctx.get('signer_mobile', '')
     procore_company_id = ctx.get('procore_company_id', '')
     procore_project_id = ctx.get('procore_project_id', '')
+    procore_documents_folder_id = ctx.get('procore_documents_folder_id', '')  # NEW
     graph_screenshots = ctx.get('graph_screenshots', [])
     project_log = ctx.get('project_log', [])
 
@@ -302,6 +303,15 @@ def _build_html(ctx, today_iso, logo_path):
         _editable_text('procore_project_id', str(procore_project_id),
                        placeholder='e.g. 2646569'),
     ))
+    parts.append(_field_row(                                          # NEW
+        'Procore Documents Folder ID',                                # NEW
+        _editable_text(                                               # NEW
+            'procore_documents_folder_id',                            # NEW
+            str(procore_documents_folder_id),                         # NEW
+            placeholder='Auto-populated on first Procore run',        # NEW
+        ),                                                            # NEW
+        note='Blank to re-trigger folder discovery next run',         # NEW
+    ))                                                                # NEW
     parts.append(_field_row(
         'Procore Company ID',
         _locked_text('procore_company_id', str(procore_company_id),
