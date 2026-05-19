@@ -1,0 +1,15 @@
+{
+  "updates": [
+    {"data_date": "2025-12-18", "projected_finish": "2027-03-11"},
+    {"data_date": "2025-12-25", "projected_finish": "2027-03-12"},
+    {"data_date": "2026-01-01", "projected_finish": "2027-03-13"},
+    {"data_date": "2026-01-08", "projected_finish": "2027-03-15"},
+    {"data_date": "2026-01-15", "projected_finish": "2027-03-20"},
+    {"data_date": "2026-01-22", "projected_finish": "2027-03-22"},
+    {"data_date": "2026-01-29", "projected_finish": "2027-03-28"},
+    {"data_date": "2026-02-05", "projected_finish": "2027-04-02"},
+    {"data_date": "2026-02-12", "projected_finish": "2027-04-05"},
+    {"data_date": "2026-02-19", "projected_finish": "2027-04-10"}
+  ],
+  "contractual_completion": "2027-03-10"
+}

@@ -13,7 +13,7 @@ GRAY      = '#6B7280'   # baseline / grid
 LIGHT_GRAY = '#E5E7EB'  # gridlines
 
 # Figure geometry — wide-and-short for the email column
-FIGSIZE        = (8, 3)
+FIGSIZE        = (12, 3)
 DPI            = 144
 FONT_FAMILY    = 'Calibri'   # falls back to mpl default if missing
 TITLE_FONTSIZE = 13

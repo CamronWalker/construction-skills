@@ -12,7 +12,7 @@ from pathlib import Path
 from . import charts  # noqa: F401 — chart functions registered below as they're added
 
 REGISTRY = {
-    # Populated by subsequent tasks: each chart task adds one entry here.
+    '06-end-date-variance': charts.render_end_date_variance,
 }
 
 
