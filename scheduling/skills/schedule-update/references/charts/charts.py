@@ -384,3 +384,98 @@ def render_velocity(data, output_path):
 
     fig.savefig(output_path, **style.SAVEFIG_KWARGS)
     plt.close(fig)
+
+
+# SPI palette — same colors as compression bands, but threshold semantics flipped
+# (higher SPI is better, lower is worse).
+_SPI_GREEN_THRESHOLD  = 0.9   # >= → GOOD (green)
+_SPI_YELLOW_THRESHOLD = 0.8   # >= → FINE (yellow); below → BAD (red)
+
+
+def _spi_color(value):
+    if value >= _SPI_GREEN_THRESHOLD:
+        return _SCI_GREEN
+    if value >= _SPI_YELLOW_THRESHOLD:
+        return _SCI_YELLOW
+    return _SCI_RED
+
+
+def render_spi_over_time(data, output_path):
+    """Chart 09 — Schedule Performance Index over time.
+
+    Mirrors SmartPM's "SPI Over Time" trend:
+      - Y-axis 0 to ~1.25, with 0.25 ticks
+      - Two dashed horizontal threshold lines: green at 0.9, yellow at 0.8
+      - Line + markers color-coded: green ≥ 0.9, yellow ≥ 0.8, red < 0.8
+        (higher is better — opposite direction from compression index)
+      - Full history view; small left/right padding so endpoints don't sit
+        on the axis edges
+      - Title "SPI Over Time"
+
+    Consumes the SmartPM MCP shape directly:
+      {"trend": [{"dataDate": "YYYY-MM-DDTHH:MM:SS", "spi": float}, ...]}
+    """
+    raw_points = data.get('trend') or []
+    # Skip any null spi entries; keep 0.0 (it's a legit "no schedule" marker
+    # that shows as a sharp dip in the SmartPM chart).
+    points = [p for p in raw_points if p.get('spi') is not None]
+
+    if not points:
+        fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+        ax.set_title('SPI Over Time', fontsize=style.TITLE_FONTSIZE,
+                     loc='left', pad=style.TITLE_PAD)
+        fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+        plt.close(fig)
+        return
+
+    xs = [date.fromisoformat(p['dataDate'][:10]) for p in points]
+    ys = [float(p['spi']) for p in points]
+    x_nums = [mdates.date2num(x) for x in xs]
+
+    fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+
+    # Dashed threshold lines.
+    ax.axhline(y=_SPI_GREEN_THRESHOLD, color=_SCI_GREEN, linestyle='--',
+               linewidth=1.2, zorder=1)
+    ax.axhline(y=_SPI_YELLOW_THRESHOLD, color=_SCI_YELLOW, linestyle='--',
+               linewidth=1.2, zorder=1)
+
+    # Color-coded line via LineCollection — segment color picks the WORST
+    # (lowest) SPI of the two endpoints. Matches the way risk shows in SmartPM.
+    pts = list(zip(x_nums, ys))
+    segments = list(zip(pts[:-1], pts[1:]))
+    severity_rank = {_SCI_RED: 2, _SCI_YELLOW: 1, _SCI_GREEN: 0}
+    seg_colors = []
+    for a, b in segments:
+        col_a, col_b = _spi_color(a[1]), _spi_color(b[1])
+        seg_colors.append(col_a if severity_rank[col_a] >= severity_rank[col_b] else col_b)
+    lc = LineCollection(segments, colors=seg_colors, linewidth=2, zorder=3)
+    ax.add_collection(lc)
+
+    # Markers colored by their own value.
+    for x_num, y in zip(x_nums, ys):
+        c = _spi_color(y)
+        ax.plot(x_num, y, marker='o', markersize=4,
+                color=c, markerfacecolor=c, markeredgecolor=c, zorder=4)
+
+    # Y-axis 0 to 1.25 with 0.25 ticks (matches SmartPM).
+    ax.set_ylim(0, 1.3)
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(0.25))
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.2f'))
+
+    # X-axis: small left/right padding so endpoints aren't on the axis edges.
+    x_span = x_nums[-1] - x_nums[0]
+    x_pad = max(7, x_span * 0.015)
+    ax.set_xlim(x_nums[0] - x_pad, x_nums[-1] + x_pad)
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=10))
+    ax.xaxis.set_major_formatter(DateFormatter('%m/%d/%y'))
+
+    ax.set_title('SPI Over Time', fontsize=style.TITLE_FONTSIZE,
+                 loc='left', pad=style.TITLE_PAD)
+    ax.tick_params(labelsize=style.TICK_FONTSIZE)
+    ax.grid(True, axis='y', linestyle=':', color=style.LIGHT_GRAY, linewidth=0.7)
+    ax.set_axisbelow(True)
+
+    fig.autofmt_xdate()
+    fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+    plt.close(fig)
