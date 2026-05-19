@@ -16,6 +16,9 @@ REGISTRY = {
     '07-schedule-compression-index-over-time': charts.render_schedule_compression_index,
     '08-velocity': charts.render_velocity,
     '09-spi-over-time': charts.render_spi_over_time,
+    '10-activity-hit-rate': charts.render_activity_hit_rate,
+    '11-window-start-accuracy': charts.render_window_start_accuracy,
+    '12-window-finish-accuracy': charts.render_window_finish_accuracy,
 }
 
 

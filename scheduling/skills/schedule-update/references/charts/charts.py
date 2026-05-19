@@ -479,3 +479,226 @@ def render_spi_over_time(data, output_path):
     fig.autofmt_xdate()
     fig.savefig(output_path, **style.SAVEFIG_KWARGS)
     plt.close(fig)
+
+
+def _render_hit_rate_chart(data, output_path, *, field, title):
+    """Shared renderer for the three hit-rate charts (10/11/12).
+
+    Same MCP endpoint (should_start_finish_trend) drives all three; they
+    only differ by which field is plotted and what the title says.
+
+    field: one of 'totalOnTimeHitRate', 'startedOnTimeHitRate',
+           'finishedOnTimeHitRate'. API returns 0-1 ratios; we multiply
+           by 100 for percent display.
+    """
+    raw = data.get('hitRates') or []
+    points = [p for p in raw if p.get(field) is not None]
+    if not points:
+        fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+        ax.set_title(title, fontsize=style.TITLE_FONTSIZE, loc='left',
+                     pad=style.TITLE_PAD)
+        fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+        plt.close(fig)
+        return
+
+    xs = [date.fromisoformat(p['dataDate'][:10]) for p in points]
+    ys = [float(p[field]) * 100 for p in points]
+    x_nums = [mdates.date2num(x) for x in xs]
+
+    fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+
+    # Dashed threshold lines at 80% (yellow) and 90% (green).
+    ax.axhline(y=80, color=_SCI_YELLOW, linestyle='--', linewidth=1.2, zorder=1)
+    ax.axhline(y=90, color=_SCI_GREEN,  linestyle='--', linewidth=1.2, zorder=1)
+
+    # Color-coded line. Higher = better. >=90 green, >=80 yellow, else red.
+    def color_for(pct):
+        if pct >= 90: return _SCI_GREEN
+        if pct >= 80: return _SCI_YELLOW
+        return _SCI_RED
+
+    pts = list(zip(x_nums, ys))
+    segments = list(zip(pts[:-1], pts[1:]))
+    severity_rank = {_SCI_RED: 2, _SCI_YELLOW: 1, _SCI_GREEN: 0}
+    seg_colors = []
+    for a, b in segments:
+        ca, cb = color_for(a[1]), color_for(b[1])
+        seg_colors.append(ca if severity_rank[ca] >= severity_rank[cb] else cb)
+    lc = LineCollection(segments, colors=seg_colors, linewidth=2, zorder=3)
+    ax.add_collection(lc)
+
+    for x_num, y in zip(x_nums, ys):
+        c = color_for(y)
+        ax.plot(x_num, y, marker='o', markersize=4,
+                color=c, markerfacecolor=c, markeredgecolor=c, zorder=4)
+
+    # Y-axis 0 to 100 with 20 ticks.
+    ax.set_ylim(0, 105)
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(20))
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%d %%'))
+
+    # X-axis: small padding so endpoints aren't on the edges.
+    x_span = x_nums[-1] - x_nums[0]
+    x_pad = max(7, x_span * 0.015)
+    ax.set_xlim(x_nums[0] - x_pad, x_nums[-1] + x_pad)
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=10))
+    ax.xaxis.set_major_formatter(DateFormatter('%m/%d/%y'))
+
+    ax.set_title(title, fontsize=style.TITLE_FONTSIZE, loc='left',
+                 pad=style.TITLE_PAD)
+    ax.tick_params(labelsize=style.TICK_FONTSIZE)
+    ax.grid(True, axis='y', linestyle=':', color=style.LIGHT_GRAY, linewidth=0.7)
+    ax.set_axisbelow(True)
+
+    fig.autofmt_xdate()
+    fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+    plt.close(fig)
+
+
+def render_activity_hit_rate(data, output_path):
+    """Chart 10 — Activity Hit Rate (%).
+
+    Plots `totalOnTimeHitRate` (×100). Same MCP endpoint as charts 11/12,
+    different field. Color thresholds: ≥90 green, ≥80 yellow, else red.
+    """
+    _render_hit_rate_chart(data, output_path,
+                           field='totalOnTimeHitRate',
+                           title='Activity Hit Rate (%)')
+
+
+def _render_window_accuracy_chart(data, output_path, *, prefix, title, on_time_label, late_label, missed_label):
+    """Shared renderer for the two window-accuracy charts (11/12).
+
+    Both are stacked bar charts with three segments per data date: on-time
+    (green), late (yellow), and did-not-start-or-finish (red). The total
+    activity count is labeled above each bar.
+
+    prefix selects the field set:
+      - 'started'  → startedOnTime / startedLate / didNotStart   (chart 11)
+      - 'finished' → finishedOnTime / finishedLate / didNotFinish (chart 12)
+    """
+    raw = data.get('hitRates') or []
+    if not raw:
+        fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+        ax.set_title(title, fontsize=style.TITLE_FONTSIZE, pad=style.TITLE_PAD)
+        fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+        plt.close(fig)
+        return
+
+    # Window to the trailing 12 months ending at the latest data date. Without
+    # this, a multi-year project produces ~120 bars at 12in × 3in — unreadable.
+    raw = sorted(raw, key=lambda p: p['dataDate'])
+    latest = date.fromisoformat(raw[-1]['dataDate'][:10])
+    cutoff = date(latest.year - 1, latest.month, 1)
+    raw = [p for p in raw if date.fromisoformat(p['dataDate'][:10]) >= cutoff]
+
+    on_time_field = f'{prefix}OnTime'
+    late_field    = f'{prefix}Late'
+    missed_field  = 'didNotStart' if prefix == 'started' else 'didNotFinish'
+
+    xs       = [date.fromisoformat(p['dataDate'][:10]) for p in raw]
+    on_time  = [int(p.get(on_time_field) or 0) for p in raw]
+    late     = [int(p.get(late_field)    or 0) for p in raw]
+    missed   = [int(p.get(missed_field)  or 0) for p in raw]
+    totals   = [a + b + c for a, b, c in zip(on_time, late, missed)]
+
+    fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+
+    # Ordinal x positions — each update gets one slot, evenly spaced.
+    # SmartPM does the same: bars are not time-positioned, they're sequenced.
+    # This eliminates the gaps that show up when updates aren't weekly.
+    n = len(raw)
+    x_idx = list(range(n))
+    bar_w = 0.85
+
+    # Stack bottom-up: red (missed) → yellow (late) → green (on time).
+    ax.bar(x_idx, missed, bar_w, color=_SCI_RED, edgecolor='none', zorder=2)
+    ax.bar(x_idx, late, bar_w, bottom=missed, color=_SCI_YELLOW, edgecolor='none', zorder=2)
+    ax.bar(x_idx, on_time, bar_w,
+           bottom=[m + l for m, l in zip(missed, late)],
+           color=_SCI_GREEN, edgecolor='none', zorder=2)
+
+    # Per-segment count labels — number on top of each colored segment.
+    # Skip zero values to avoid clutter.
+    y_max = max(totals + [10])
+    seg_fontsize = 5
+    for i, (m, l, o, t) in enumerate(zip(missed, late, on_time, totals)):
+        if m > 0:
+            ax.text(i, m / 2, str(m), ha='center', va='center',
+                    fontsize=seg_fontsize, color='white', fontweight='bold')
+        if l > 0:
+            ax.text(i, m + l / 2, str(l), ha='center', va='center',
+                    fontsize=seg_fontsize, color='#222')
+        if o > 0:
+            ax.text(i, m + l + o / 2, str(o), ha='center', va='center',
+                    fontsize=seg_fontsize, color='white', fontweight='bold')
+        # Total label above the bar.
+        if t > 0:
+            ax.text(i, t + y_max * 0.015, str(t),
+                    ha='center', va='bottom', fontsize=6, color='#333')
+
+    ax.set_ylim(0, max(y_max * 1.1, 100))
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(25))
+
+    # X-axis: pick ~14 evenly-spaced tick positions and label them with dates.
+    ax.set_xlim(-0.7, n - 0.3)
+    tick_step = max(1, n // 14)
+    tick_positions = list(range(0, n, tick_step))
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(
+        [xs[i].strftime('%m/%d/%y') for i in tick_positions],
+        rotation=45, ha='right',
+    )
+
+    # SmartPM centers the title for these two charts.
+    ax.set_title(title, fontsize=style.TITLE_FONTSIZE, pad=style.TITLE_PAD)
+    ax.tick_params(labelsize=style.TICK_FONTSIZE)
+    ax.grid(True, axis='y', linestyle=':', color=style.LIGHT_GRAY, linewidth=0.7)
+    ax.set_axisbelow(True)
+
+    # Legend at the bottom: solid colored swatches.
+    from matplotlib.patches import Patch
+    legend_handles = [
+        Patch(facecolor=_SCI_GREEN,  label=on_time_label),
+        Patch(facecolor=_SCI_YELLOW, label=late_label),
+        Patch(facecolor=_SCI_RED,    label=missed_label),
+    ]
+    ax.legend(handles=legend_handles, loc='lower center',
+              bbox_to_anchor=(0.5, -0.35), ncol=3,
+              fontsize=8, frameon=False)
+
+    fig.autofmt_xdate()
+    fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+    plt.close(fig)
+
+
+def render_window_start_accuracy(data, output_path):
+    """Chart 11 — Window Start Accuracy.
+
+    Stacked bar per data date: Started On Time (green) / Started Late (yellow)
+    / Did Not Start (red). Total count labeled above each bar.
+    """
+    _render_window_accuracy_chart(
+        data, output_path,
+        prefix='started',
+        title='Window Start Accuracy',
+        on_time_label='Started On Time',
+        late_label='Started Late',
+        missed_label='Did Not Start',
+    )
+
+
+def render_window_finish_accuracy(data, output_path):
+    """Chart 12 — Window Finish Accuracy.
+
+    Stacked bar per data date: Finished On Time (green) / Finished Late
+    (yellow) / Did Not Finish (red). Total count labeled above each bar.
+    """
+    _render_window_accuracy_chart(
+        data, output_path,
+        prefix='finished',
+        title='Window Finish Accuracy',
+        on_time_label='Finished On Time',
+        late_label='Finished Late',
+        missed_label='Did Not Finish',
+    )

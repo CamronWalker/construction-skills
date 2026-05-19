@@ -120,5 +120,55 @@ class TestSpiOverTime(unittest.TestCase):
         self.assertGreater(width, height * 1.8)
 
 
+class TestActivityHitRate(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '10-activity-hit-rate.png'
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_valid_png(self):
+        data = json.loads((FIXTURE_DIR / '10-activity-hit-rate.json').read_text())
+        charts.render_activity_hit_rate(data, str(self.output))
+        self.assertTrue(self.output.exists())
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+        width, height = img.size
+        self.assertGreater(width, height * 1.8)
+
+
+class TestWindowStartAccuracy(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '11-window-start-accuracy.png'
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_valid_png(self):
+        data = json.loads((FIXTURE_DIR / '11-window-start-accuracy.json').read_text())
+        charts.render_window_start_accuracy(data, str(self.output))
+        self.assertTrue(self.output.exists())
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+
+
+class TestWindowFinishAccuracy(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '12-window-finish-accuracy.png'
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_valid_png(self):
+        data = json.loads((FIXTURE_DIR / '12-window-finish-accuracy.json').read_text())
+        charts.render_window_finish_accuracy(data, str(self.output))
+        self.assertTrue(self.output.exists())
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+
+
 if __name__ == '__main__':
     unittest.main()
