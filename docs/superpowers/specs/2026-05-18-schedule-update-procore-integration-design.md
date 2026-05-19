@@ -108,6 +108,8 @@ Total addition per phase: ~30 lines. Net effect: 0 `.py` or HTML `Read`s in stea
 
 ### C. Procore publish phase
 
+The phase is **Claude-driven markdown only** (`phases/procore.md`). The Procore MCP tools are not importable from Python; Claude calls them directly. The bootstrap rule for `share_to_procore` lives in `carry_forward.transition_attachments` alongside the rest of the per-attachment transition logic — no new Python module.
+
 `phases/procore.md` orchestrates three operations, in order, when fired:
 
 #### Preflight
@@ -314,7 +316,6 @@ The `.eml` write and the Procore publish are independent. One failing does not b
 | `scheduling/skills/schedule-update/phases/status.md` | NEW — lifted; phase detection extended to include Procore publish state |
 | `scheduling/skills/schedule-update/phases/_carry_forward.md` | NEW — shared "carry forward from last week" chunk with inline shapes |
 | `scheduling/skills/schedule-update/phases/_attachments.md` | NEW — shared attachment data model including `share_to_procore` |
-| `scheduling/skills/schedule-update/references/procore_publish.py` | NEW — orchestrator |
 | `scheduling/skills/schedule-update/references/generate_email_preview_html.py` | Add `share_to_procore` checkbox to attachment cards; add `skip_procore` master toggle |
 | `scheduling/skills/schedule-update/references/parse_email_html.py` | Return `share_to_procore` per attachment; return top-level `skip_procore` |
 | `scheduling/skills/schedule-update/references/carry_forward.py` | `transition_attachments` carries `share_to_procore` verbatim; bootstrap rule for new attachments |
