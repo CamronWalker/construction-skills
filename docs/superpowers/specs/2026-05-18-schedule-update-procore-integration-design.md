@@ -10,7 +10,7 @@ Three issues with the current `schedule-update` skill:
 
 1. **Inconsistent script use.** When colleagues run the skill, Claude sometimes skips the parse/generate scripts for HTML artifacts and tries to read or edit the HTML directly — corrupting it on UNC shares (W1177, 2026-05-07). Root cause: the skill doesn't enforce "read the whole skill before acting," and the model guesses based on partial context.
 2. **Read amplification.** Every run re-reads `parse_email_html.py`, `generate_email_preview_html.py`, the preview HTML itself, and large chunks of `SKILL.md` (~726 lines). Per-run waste is 8–10k tokens for the same workflow. The model is reading scripts to learn their input shapes when it only needs the signatures.
-3. **Manual Procore handoff.** Today the human exports the XER, uploads it to SmartPM, and separately uploads PDFs and Excel files to the Procore Documents tool. The Procore MCP can do all of this — XER import to Schedule tool, dated folder creation in Documents, file uploads with verify-and-retry — but the skill doesn't use it.
+3. **Manual Procore handoff.** Today the human exports the XER, uploads it to SmartPM (human step — out of scope for this spec), and separately uploads the XER, PDFs, and Excel files to Procore (XER to the Schedule tool, attachments to the Documents tool). The Procore MCP can handle the Procore side — XER import to Schedule tool, dated folder creation in Documents, file uploads with verify-and-retry — but the skill doesn't use it. The SmartPM upload remains manual.
 
 ## Goals
 
