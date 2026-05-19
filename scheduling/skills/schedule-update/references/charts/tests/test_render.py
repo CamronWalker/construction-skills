@@ -66,5 +66,23 @@ class TestEndDateVariance(unittest.TestCase):
         self.assertTrue((output_dir / '06-end-date-variance.png').exists())
 
 
+class TestScheduleCompressionIndex(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '07-schedule-compression-index-over-time.png'
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_valid_png(self):
+        data = json.loads((FIXTURE_DIR / '07-schedule-compression-index-over-time.json').read_text())
+        charts.render_schedule_compression_index(data, str(self.output))
+        self.assertTrue(self.output.exists())
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+        width, height = img.size
+        self.assertGreater(width, height * 1.8)
+
+
 if __name__ == '__main__':
     unittest.main()

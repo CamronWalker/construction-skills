@@ -13,6 +13,7 @@ from . import charts  # noqa: F401 — chart functions registered below as they'
 
 REGISTRY = {
     '06-end-date-variance': charts.render_end_date_variance,
+    '07-schedule-compression-index-over-time': charts.render_schedule_compression_index,
 }
 
 
