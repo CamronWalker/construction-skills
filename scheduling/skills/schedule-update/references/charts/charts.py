@@ -48,16 +48,20 @@ def render_end_date_variance(data, output_path):
     Each data point gets a pink-background label showing the projected finish
     date for that update — that's how the viewer sees the actual dates.
 
+    Consumes the SmartPM MCP shape (list_scenario_schedules_v2 entries) plus
+    a separate contractual_completion field that the phase file looks up from
+    the original baseline.
+
     data shape:
       {
         "updates": [
-          {"data_date": "YYYY-MM-DD", "projected_finish": "YYYY-MM-DD"},
+          {"dataDate": "YYYY-MM-DDTHH:MM:SS", "sourceEndDate": "YYYY-MM-DDTHH:MM:SS", ...},
           ...
         ],
         "contractual_completion": "YYYY-MM-DD"
       }
     """
-    all_updates = data['updates']
+    all_updates = [u for u in data['updates'] if u.get('sourceEndDate')]
     contractual = date.fromisoformat(data['contractual_completion'])
 
     # Display only the latest 9 updates. If anything older exists, we'll add
@@ -65,8 +69,8 @@ def render_end_date_variance(data, output_path):
     visible = all_updates[-9:]
     has_older = len(all_updates) > len(visible)
 
-    xs = [date.fromisoformat(u['data_date']) for u in visible]
-    finishes = [date.fromisoformat(u['projected_finish']) for u in visible]
+    xs = [date.fromisoformat(u['dataDate'][:10]) for u in visible]
+    finishes = [date.fromisoformat(u['sourceEndDate'][:10]) for u in visible]
     ys = [(f - contractual).days for f in finishes]
 
     fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
