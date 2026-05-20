@@ -2,7 +2,7 @@
 -- Power BI Sync Supabase project (anwdfilrfczluhudtbzw); applied as migration
 -- create_wnd_bug_reports on 2026-05-19.
 --
--- Inserts come ONLY from the westland-feedback MCP service (in the
+-- Inserts come ONLY from the westland-internal MCP service (in the
 -- westland-mcps Cloudflare Worker), which uses the Supabase service-role key.
 -- user_email is stamped server-side from the Procore-verified ctx.props.email
 -- and cannot be forged by the client.

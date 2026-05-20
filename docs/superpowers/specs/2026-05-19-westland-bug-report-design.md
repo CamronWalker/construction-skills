@@ -2,8 +2,10 @@
 
 **Date:** 2026-05-19
 **Skill:** `westland:westland-bug-report` (new, in `construction-skills`)
-**Service:** `/feedback/mcp` (new, in `westland-mcps`)
+**Service:** `/westland-internal/mcp` (new, in `westland-mcps`)
 **Status:** Design — implementation in progress
+
+> **Note (2026-05-20):** The MCP service was renamed from `feedback` to `westland-internal` pre-launch to broaden scope beyond bug reports. See `westland-mcps/docs/superpowers/specs/2026-05-20-westland-internal-rename.md`. The rest of this design doc reflects the original `feedback` naming; substitute mentally.
 
 ## Problem
 

@@ -1,6 +1,8 @@
-# westland-feedback MCP tool shapes
+# westland-internal MCP tool shapes
 
-Reference documentation for the three tools exposed by the `westland-feedback` MCP service (`https://westland-mcps.westland.workers.dev/feedback/mcp`). Source of truth lives in `westland-mcps/src/services/feedback/tools/`.
+Reference documentation for the three tools exposed by the `westland-internal` MCP service (`https://westland-mcps.westland.workers.dev/westland-internal/mcp`). Source of truth lives in `westland-mcps/src/services/westland-internal/tools/`.
+
+The service is named `westland-internal` because it holds tools for internal Westland workflows that aren't tied to a specific upstream vendor — bug reports today, plus future capture flows (feature requests, skill-usage stats, etc.). All three tools in v1 are bug-report-related; new tools live in the same connector.
 
 ## `submit_bug_report`
 
@@ -54,7 +56,7 @@ Text fields >16 KB are trimmed server-side with a `…[truncated]` marker. Valid
 - `SUPABASE_URL is not configured on the Worker. Run: npx wrangler secret put SUPABASE_URL`
 - `Supabase insert failed (<status>): <body>`
 
-## `feedback_whoami`
+## `whoami`
 
 **Purpose:** Returns the authenticated Westland identity. Use as a connectivity check before submitting.
 
@@ -72,7 +74,7 @@ Text fields >16 KB are trimmed server-side with a `…[truncated]` marker. Valid
 {
   "email":         "<westland email>",
   "procoreUserId": "<procore user id>",
-  "service":       "westland-feedback"
+  "service":       "westland-internal"
 }
 ```
 
