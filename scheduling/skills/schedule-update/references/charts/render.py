@@ -22,6 +22,18 @@ REGISTRY = {
     'smartpm-summary-curve': charts.render_summary_plan_vs_actual,
     'smartpm-summary-cards': charts.render_summary_cards,
     'smartpm-summary-milestones': charts.render_summary_milestones,
+
+    # Stubs for non-default trend graphs — raise NotImplementedError with a
+    # `--legacy` hint. Replace with real render functions as implemented.
+    '01-planned-vs-actual-percent-complete': charts.render_planned_vs_actual_percent_complete,
+    '02-schedule-quality-grade-over-time': charts.render_schedule_quality_grade_over_time,
+    '03-project-health-index-over-time': charts.render_project_health_index_over_time,
+    '04-schedule-changes-over-time': charts.render_schedule_changes_over_time,
+    '05-schedule-delay-over-time': charts.render_schedule_delay_over_time,
+    '13-missing-logic': charts.render_missing_logic,
+    '14-average-total-float': charts.render_average_total_float,
+    '15-high-total-float': charts.render_high_total_float,
+    '16-critical-path-percentage': charts.render_critical_path_percentage,
 }
 
 

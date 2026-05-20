@@ -1225,3 +1225,53 @@ def render_summary_milestones(data, output_path):
 
     fig.savefig(output_path, **style.SAVEFIG_KWARGS)
     plt.close(fig)
+
+
+# =====================================================================
+# Stubs for the 9 non-default trend graphs (slugs 01-05 and 13-16).
+#
+# v1 ships the 7 default trends (06-12) + the SmartPM Summary Report parts
+# (smartpm-summary-{curve,cards,milestones}). A project whose
+# graph_screenshots list includes a non-default slug hits one of these
+# stubs, which fail loudly with a NotImplementedError pointing at
+# `/schedule-update screenshots --legacy` as the fallback path.
+# Implement the real render functions in place of each stub as needed.
+# =====================================================================
+
+def _stub(slug, description):
+    """Build a stub render function that raises NotImplementedError with a
+    clear path forward (use --legacy)."""
+    def _render(data, output_path):
+        raise NotImplementedError(
+            f'Chart {slug} ({description}) is not yet implemented in the '
+            f'matplotlib path. Use `/schedule-update screenshots --legacy` '
+            f'to capture this chart via Playwright until a render function '
+            f'is added.'
+        )
+    _render.__name__ = f'render_{slug.replace("-", "_")}'
+    return _render
+
+
+render_planned_vs_actual_percent_complete = _stub(
+    '01-planned-vs-actual-percent-complete',
+    'Planned VS Actual Percent Complete')
+render_schedule_quality_grade_over_time = _stub(
+    '02-schedule-quality-grade-over-time',
+    'Schedule Quality Grade Over Time')
+render_project_health_index_over_time = _stub(
+    '03-project-health-index-over-time',
+    'Project Health Index Over Time')
+render_schedule_changes_over_time = _stub(
+    '04-schedule-changes-over-time',
+    'Schedule Changes Over Time')
+render_schedule_delay_over_time = _stub(
+    '05-schedule-delay-over-time',
+    'Schedule Delay Over Time')
+render_missing_logic = _stub(
+    '13-missing-logic', 'Missing Logic')
+render_average_total_float = _stub(
+    '14-average-total-float', 'Average Total Float')
+render_high_total_float = _stub(
+    '15-high-total-float', 'High Total Float')
+render_critical_path_percentage = _stub(
+    '16-critical-path-percentage', 'Critical Path Percentage')

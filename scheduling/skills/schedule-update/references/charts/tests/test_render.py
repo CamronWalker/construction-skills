@@ -170,5 +170,24 @@ class TestWindowFinishAccuracy(unittest.TestCase):
         self.assertEqual(img.format, 'PNG')
 
 
+class TestNonDefaultStubs(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output_dir = Path(self._tmp.name) / 'out'
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_unimplemented_chart_is_reported_as_failed(self):
+        payload_dir = Path(self._tmp.name) / 'payload'
+        payload_dir.mkdir()
+        (payload_dir / '01-planned-vs-actual-percent-complete.json').write_text('{}')
+        results = render.render_payload(payload_dir, self.output_dir)
+        self.assertEqual(results['rendered'], [])
+        self.assertEqual(len(results['failed']), 1)
+        self.assertIn('NotImplementedError', results['failed'][0]['reason'])
+        self.assertIn('--legacy', results['failed'][0]['reason'])
+
+
 if __name__ == '__main__':
     unittest.main()
