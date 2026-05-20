@@ -2,13 +2,90 @@
 
 > Loaded by SKILL.md's router when the user invokes `/schedule-update screenshots`.
 
-Captures 17 screenshots from SmartPM v2: 1 Summary Report + 16 individual trend graphs. **Fully headless and auto-authenticated** — no manual login, no MCP, no visible browser.
+Captures the SmartPM Summary Report and trend graphs listed in `project-context.html`'s `graph_screenshots`. Two paths share the same output filenames so the rest of the pipeline can't tell them apart:
 
-<!-- Lifted from SKILL.md lines ~170–286, verbatim. Preserve all Step 0–5
-     content including the 16-graph filename table, Step 3b tests block,
-     and SmartPM processing warning. -->
+| Invocation | Path | When to use |
+|------------|------|-------------|
+| `/schedule-update screenshots` (no arg) | **matplotlib (new)** — MCP fetch + Python render | Default. No browser automation; no SmartPM login. |
+| `/schedule-update screenshots --legacy` | **Playwright (legacy)** — headless Chromium captures SmartPM | Fallback while matplotlib styling is being dialed in, or when a non-default chart isn't implemented yet. |
 
-## Step 0: Pre-Flight — credentials + Node setup
+Both paths write into `{dated_folder}/screenshots/` with the same PNG filenames.
+
+---
+
+## Default path: matplotlib (no `--legacy` arg)
+
+### Step 0: Pre-flight
+
+- Python 3.10+
+- `matplotlib`, `Pillow` installed: `pip install -r {skill_dir}/references/charts/requirements.txt`
+- SmartPM MCP available in the session (the `mcp__...__smartpm_*` tools should be listed)
+
+### Step 1: Read Project Context
+
+Apply folder resolution. Read `project-context.html`. Extract:
+- `graph_screenshots` — list of slugs to render
+- `smartpm_project_name` — exact name to match on SmartPM
+- `smartpm_url`
+
+If `project-context.html` is missing, stop with the standard error.
+
+### Step 2: Resolve project_id + scenario_id
+
+```
+project_id  = mcp__...__smartpm_list_projects matching smartpm_project_name
+scenario_id = mcp__...__smartpm_list_scenarios(project_id) → newest
+```
+
+If no match: surface the names you got and ask the colleague.
+
+### Step 3: Fetch + write payload JSONs
+
+Create `{dated_folder}/.chart-payload/`. For each slug in `graph_screenshots` plus the summary parts, call the right MCP endpoint and write a canonical-shape JSON to `.chart-payload/{slug}.json`. The slug → endpoint mapping:
+
+| Slug | MCP endpoint | Canonical shape |
+|------|--------------|-----------------|
+| `06-end-date-variance` | `smartpm_list_scenario_schedules_v2(scenario_id)` | `{"updates": [{"dataDate", "sourceEndDate"}, ...], "contractual_completion"}` |
+| `07-schedule-compression-index-over-time` | `smartpm_get_scenario_schedule_compression_trend(scenario_id)` | `{"trend": [{"data_date", "value"}, ...]}` |
+| `08-velocity` | `smartpm_get_scenario_velocity(scenario_id)` | `{"months": [{"month", "starts", "finishes"}, ...]}` |
+| `09-spi-over-time` | `smartpm_get_scenario_spi_trend(scenario_id)` | `{"trend": [{"data_date", "value"}, ...]}` |
+| `10-activity-hit-rate` | `smartpm_get_scenario_should_start_finish_trend(scenario_id)` → hit-rate series | `{"trend": [{"data_date", "value"}, ...]}` |
+| `11-window-start-accuracy` | same endpoint → start-accuracy series | `{"trend": [{"data_date", "value"}, ...]}` |
+| `12-window-finish-accuracy` | same endpoint → finish-accuracy series | `{"trend": [{"data_date", "value"}, ...]}` |
+| `smartpm-summary-curve` | `smartpm_get_scenario_percent_complete_curve_v2` | `{"planned": [...], "actual": [...], "data_date"}` — see `charts.py:render_summary_plan_vs_actual` docstring |
+| `smartpm-summary-cards` | composite: `smartpm_post_project_summary` (health/SPI/quality/compression/predicted/previous-predicted) | see `charts.py:render_summary_cards` docstring |
+| `smartpm-summary-milestones` | composite: `smartpm_post_project_summary` called once per milestone scenario (defaultScenarioId for row 1, originalScenarioId for the Full Schedule row) + `smartpm_get_project` for location + `smartpm_list_scenario_change_log_by_type` for the CPD/recovery bullet items and Last Period Schedule Changes counts | see `charts.py:render_summary_milestones` docstring |
+
+For any slug present in `graph_screenshots` that **isn't** in this table (i.e., one of the 9 non-default charts), the matplotlib path will raise `NotImplementedError`. That's the signal to suggest `--legacy` to the colleague.
+
+### Step 4: Render
+
+```bash
+cd {skill_dir}/references
+PYTHONPATH=. python -m charts.render {dated_folder}/.chart-payload {dated_folder}/screenshots
+```
+
+The script prints a JSON `{rendered: [...], failed: [...]}`. If anything is in `failed`, surface it to the colleague.
+
+### Step 5: Verify
+
+For each PNG named in `graph_screenshots` plus the summary parts: confirm exists in `{dated_folder}/screenshots/` and >0 bytes.
+
+If a slug failed with `NotImplementedError`, tell the colleague:
+
+> "Chart {slug} isn't implemented in the new matplotlib path yet. Run `/schedule-update screenshots --legacy` to capture it via the existing Playwright path."
+
+### Step 6: Clean up
+
+Delete `{dated_folder}/.chart-payload/` so the dated folder stays clean.
+
+---
+
+## Legacy path: `--legacy`
+
+Everything in this section is the **unchanged** Playwright capture. It runs the same `references/smartpm/capture-smartpm.js` script the pipeline has used until now, end-to-end. Use it when a matplotlib chart isn't ready or doesn't look right yet.
+
+### Step 0: Pre-Flight — credentials + Node setup
 
 The script reads SmartPM credentials from `~/.claude/.env`:
 
@@ -19,103 +96,58 @@ The script reads SmartPM credentials from `~/.claude/.env`:
 | `SMARTPM_PROJECTS_URL` | no | v2 projects/cards URL (defaults to Westland's org URL) |
 | `SMARTPM_BASE_URL` | no | Defaults to `https://live.smartpmtech.com` |
 
-**If credentials are missing**, the script throws `ENV_MISSING`. To set them up:
+If credentials are missing, the script throws `ENV_MISSING`. To set them up:
 
 ```bash
 node "{skill_dir}/references/smartpm/env-loader.js" setup
 ```
 
-Or ask the colleague for them via `AskUserQuestion` (header: "SmartPM creds", with email and password questions) and write them yourself by calling `upsertEnvFile({SMARTPM_EMAIL, SMARTPM_PASSWORD})` from `references/smartpm/env-loader.js`. Never log the password back to the user.
+Or ask the colleague for them via `AskUserQuestion` (header: "SmartPM creds") and write them yourself by calling `upsertEnvFile({SMARTPM_EMAIL, SMARTPM_PASSWORD})` from `references/smartpm/env-loader.js`. Never log the password back to the user.
 
-**Node + Playwright pre-flight:**
-1. Verify Node.js: `node --version` (any 18+).
-2. Check `node_modules/` exists in `{skill_dir}/references/`. If missing, run `npm install` in that folder. The capture script will auto-install on first run too.
-3. Chromium binary is installed via `npx playwright install chromium` (the script handles this).
+Node + Playwright pre-flight:
+1. `node --version` (any 18+).
+2. Check `node_modules/` exists in `{skill_dir}/references/`. If missing, run `npm install` in that folder.
+3. Chromium is installed via `npx playwright install chromium` (the script handles this).
 
-## Step 1: Read Project Context
+### Step 1: Read Project Context
 
-Apply folder resolution. Read `project-context.html`. Extract:
-- `smartpm_project_name` — exact title shown on SmartPM v2 `/projects/cards`. **Falls back to `project_name`** if blank. This is what the script types into the search filter.
+Apply folder resolution. Read `project-context.html`. Extract `smartpm_project_name` (falls back to `project_name`).
 
-Determine the output directory: `{dated_folder}/screenshots/`.
+Output dir: `{dated_folder}/screenshots/`.
 
-If `project-context.html` is missing, stop with the standard error.
+### Step 2: Write Checklist
 
-## Step 2: Write Checklist
-
-Create `{dated_folder}/screenshots/` if it doesn't exist.
-Write `screenshots/checklist.md` from the template at `{skill_dir}/references/checklist-template.md`,
-filling in project name, date, and the v2 cards URL.
+Create `{dated_folder}/screenshots/` if it doesn't exist. Write `screenshots/checklist.md` from `{skill_dir}/references/checklist-template.md`.
 
 Print the checklist.
 
-## Step 3: Capture via Node script
+### Step 3: Capture via Node script
 
 ```bash
 node "{skill_dir}/references/smartpm/capture-smartpm.js" \
   "{smartpm_project_name or project_name}" "{dated_folder}/screenshots"
 ```
 
-The script:
-- Loads credentials from `~/.claude/.env`
-- Launches headless Chromium with a persistent profile at `~/.smartpm-playwright-profile/`
-- Auto-logs in via the v2 two-step Auth0-style flow (email page → password page)
-- Navigates to `<projects_url>?search=<encoded project name>` — SmartPM v2 reads the `search` query param and renders only the matching card. **The first card is always the right one** because the URL filter is exact.
-- Clicks **Run Summary Report** on that card → captures the report → saves as `smartpm-summary-report.png`
-- Re-navigates to the same search URL, clicks **View Trends** → captures each `<spm-card-container>` (which includes the chart title row) for the 16 graphs:
+stdout: JSON `{ status, total, screenshots: [{name, file, path, size}, ...], urls }`.
 
-| # | File | Chart |
-|---|------|-------|
-| 1 | `01-planned-vs-actual-percent-complete.png` | Planned VS Actual Percent Complete |
-| 2 | `02-schedule-quality-grade-over-time.png` | Schedule Quality Grade Over Time |
-| 3 | `03-project-health-index-over-time.png` | Project Health Index Over Time |
-| 4 | `04-schedule-changes-over-time.png` | Schedule Changes Over Time |
-| 5 | `05-schedule-delay-over-time.png` | Schedule Delay Over Time *(wide -- scroll right for latest)* |
-| 6 | `06-end-date-variance.png` | End Date Variance *(wide -- scroll right for latest)* |
-| 7 | `07-schedule-compression-index-over-time.png` | Schedule Compression Index Over Time |
-| 8 | `08-velocity.png` | Velocity |
-| 9 | `09-spi-over-time.png` | SPI Over Time |
-| 10 | `10-activity-hit-rate.png` | Activity Hit Rate |
-| 11 | `11-window-start-accuracy.png` | Window Start Accuracy |
-| 12 | `12-window-finish-accuracy.png` | Window Finish Accuracy |
-| 13 | `13-missing-logic.png` | Missing Logic |
-| 14 | `14-average-total-float.png` | Average Total Float |
-| 15 | `15-high-total-float.png` | High Total Float |
-| 16 | `16-critical-path-percentage.png` | Critical Path Percentage |
-
-For wide charts (#5 and #6), the script scrolls `.highcharts-scrolling` and `.highcharts-inner-container` to the right before capture so the latest data is visible.
-
-**stdout:** JSON shape `{ status, total, screenshots: [{name, file, path, size}, ...], urls }`.
-
-**Errors:**
+Errors:
 - `ENV_MISSING` → run the setup command (Step 0) or ask the user for credentials.
-- Login redirect timeout → bad creds, MFA challenge, or captcha. Surface the error and ask the user to log in manually once via `node smartpm/capture-smartpm.js` with `headless: false` (debug helper) and confirm the credentials are right.
-- "No chart cards found" → trends page didn't render. Likely an upload-still-processing or stale cache; retry after 30 seconds.
-- Sign in button stuck disabled → Angular form validation rejected the email. Confirm `SMARTPM_EMAIL` is the exact login email.
+- Login redirect timeout → bad creds, MFA challenge, or captcha. Surface and ask the user to log in manually once via the headed debug helper.
+- "No chart cards found" → trends page didn't render. Likely upload-still-processing or stale cache; retry after 30 seconds.
+- Sign-in button stuck disabled → Angular form validation rejected the email. Confirm `SMARTPM_EMAIL`.
 
-## Step 3b: Tests
+### Step 4: Verify
 
-Smoke tests live at `{skill_dir}/references/tests/smartpm.spec.js` (uses `@playwright/test`). Run:
+Read the captured PNGs visually. Confirm `smartpm-summary-report.png` shows the Summary Report modal, and each graph file shows the correct chart with data.
 
-```bash
-cd "{skill_dir}/references" && npx playwright test --config=tests/playwright.config.js
-```
+**SmartPM processing warning:** If called within 30 minutes of XER upload, SmartPM may still be processing. Check the Workspace page status; offer to wait.
 
-Tests verify: env-loader returns creds, navigation auto-logs in, the test project card is found via URL search, the Summary Report is captured, and all 16 trend graphs are captured (file existence + size sanity). Default test project is "Anchorage Alaska Temple" — override via `TEST_PROJECT_NAME=...`.
+### Step 5: Report
 
-## Step 4: Verify
+Mark checklist complete. Report total screenshots captured, file paths and sizes, SmartPM URLs used.
 
-Read the captured PNGs visually. Confirm:
-- `smartpm-summary-report.png` shows the Summary Report modal with milestones, health index, and S-curve
-- Each graph file shows the correct chart with data points
+---
 
-If any screenshot looks wrong (blank, login page, wrong project), inform the user and offer to retry that capture.
+## Iteration note
 
-**SmartPM processing warning:** If this command is called within 30 minutes of XER upload, SmartPM may still be processing. Check the Workspace page status. If processing is still running, warn the user and offer to wait.
-
-## Step 5: Report
-
-Mark checklist complete. Report:
-- Total screenshots captured (17)
-- File paths and sizes
-- SmartPM URLs used
+The matplotlib path is brand new. Expect back-and-forth on styling — fonts, gridlines, axis labels, colors, table cell formatting — against live data. Tweak the relevant function in `references/charts/charts.py`; everything else (registry, orchestrator, tests) stays still. When a chart looks right, that's it — no formal sign-off step, just keep using it. Until each default chart is dialed in, `--legacy` is the safety net.
