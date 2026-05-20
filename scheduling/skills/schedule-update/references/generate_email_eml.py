@@ -40,7 +40,11 @@ from email.utils import formatdate, make_msgid
 # bytes are identical regardless of which output format the caller
 # picks. If the body ever needs to diverge (e.g. .eml-specific quirks),
 # revisit — but right now the lesson is "two paths, one body".
-from generate_email_msg import _build_html_body, DEFAULT_LOGO_PATH
+from generate_email_msg import (
+    _build_html_body,
+    _ensure_subject_has_date,
+    DEFAULT_LOGO_PATH,
+)
 
 
 _INLINE_LOGO_CID = 'westland_logo'
@@ -182,6 +186,7 @@ def generate_update_email_eml(
 
     # Build the message envelope
     msg = EmailMessage()
+    subject = _ensure_subject_has_date(subject)
     if subject:
         msg['Subject'] = subject
     if from_address:

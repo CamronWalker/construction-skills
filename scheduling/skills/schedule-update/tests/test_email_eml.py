@@ -286,5 +286,60 @@ class CrossPathParityTests(unittest.TestCase):
                           f'item {text!r} missing from .eml body')
 
 
+class TestSubjectDateSuffix(unittest.TestCase):
+    """Each weekly schedule-update email must start its own Outlook thread.
+    Outlook groups messages by subject stem, so identical subjects collapse
+    into one conversation. `_ensure_subject_has_date` guarantees the subject
+    ends with a YYYY-MM-DD date so successive sends thread separately.
+    """
+
+    def test_appends_today_when_no_date_present(self):
+        from datetime import date
+        fixed_today = date(2026, 5, 20)
+        result = gen_msg._ensure_subject_has_date(
+            'Sample Project — Schedule Update', today=fixed_today,
+        )
+        self.assertEqual(result, 'Sample Project — Schedule Update - 2026-05-20')
+
+    def test_leaves_subject_alone_when_already_ends_with_date(self):
+        from datetime import date
+        fixed_today = date(2026, 5, 20)
+        result = gen_msg._ensure_subject_has_date(
+            'Schedule Update - Lubumbashi DRC Temple - 2026-04-09',
+            today=fixed_today,
+        )
+        # 2026-04-09 is already there; helper must not double-stamp.
+        self.assertEqual(result,
+                         'Schedule Update - Lubumbashi DRC Temple - 2026-04-09')
+
+    def test_trailing_whitespace_does_not_defeat_detection(self):
+        from datetime import date
+        fixed_today = date(2026, 5, 20)
+        result = gen_msg._ensure_subject_has_date(
+            'Subject - 2026-04-09   ', today=fixed_today,
+        )
+        self.assertEqual(result, 'Subject - 2026-04-09   ')
+
+    def test_empty_subject_passes_through(self):
+        # Callers that intentionally leave the subject blank (so Outlook
+        # picks its default) shouldn't suddenly get a bare date.
+        self.assertEqual(gen_msg._ensure_subject_has_date(''), '')
+        self.assertIsNone(gen_msg._ensure_subject_has_date(None))
+
+    def test_eml_writer_stamps_subject_with_today(self):
+        """End-to-end through the .eml path — confirm the written Subject
+        header carries a YYYY-MM-DD suffix."""
+        kw = dict(SAMPLE_KW)
+        kw['subject'] = 'Sample Project — Schedule Update'  # no date
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, 'dated.eml')
+            gen_eml.generate_update_email_eml(p, **kw)
+            msg = _read_eml(p)
+        subject = msg.get('Subject') or ''
+        import re as _re
+        self.assertRegex(subject, r'\d{4}-\d{2}-\d{2}\s*$',
+                         f'Subject {subject!r} must end with YYYY-MM-DD')
+
+
 if __name__ == '__main__':
     unittest.main()
