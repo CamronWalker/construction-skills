@@ -1,7 +1,7 @@
 {
   "name": "westland",
-  "version": "1.3.1",
-  "description": "Westland organizational plugin — safety hooks and house-style references. Install first; required dependency of domain plugins (scheduling, estimating, etc.). Contains the Westland Project Files PreToolUse hook (modify-prompt on existing files; .xer in-place changes and deletes denied — move to _Archive; .html / .md / .json allowlisted as freely-editable working artifacts) plus the westland-house-style skill.",
+  "version": "1.4.1",
+  "description": "Westland organizational plugin — safety hooks, house-style references, and bug-report capture. Install first; required dependency of domain plugins. Contains the Westland Project Files PreToolUse hook (modify-prompt on existing files; .xer in-place changes/deletes denied; .html/.md/.json allowlisted), the westland-house-style skill, and the westland-bug-report skill (Procore-gated bug capture to Supabase via the westland-internal MCP).",
   "author": {
     "name": "Camron Walker"
   },
