@@ -14,6 +14,7 @@ import matplotlib.ticker as mticker
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.dates import DateFormatter
+from matplotlib.patches import FancyBboxPatch, Rectangle
 
 from . import style
 
@@ -289,7 +290,7 @@ def render_velocity(data, output_path):
 
     if not monthly:
         fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
-        ax.set_title('Monthly Activity Start & Finish Distribution',
+        ax.set_title('Monthly Activity Start & Finish Distribution (Last 12 Months)',
                      fontsize=style.TITLE_FONTSIZE, loc='left',
                      pad=style.TITLE_PAD)
         fig.savefig(output_path, **style.SAVEFIG_KWARGS)
@@ -372,7 +373,7 @@ def render_velocity(data, output_path):
     ax.tick_params(axis='y', labelsize=style.TICK_FONTSIZE)
     ax.set_xlim(-0.5, len(months) - 0.5)
 
-    ax.set_title('Monthly Activity Start & Finish Distribution',
+    ax.set_title('Monthly Activity Start & Finish Distribution (Last 12 Months)',
                  fontsize=style.TITLE_FONTSIZE, loc='left',
                  pad=style.TITLE_PAD)
 
@@ -681,7 +682,7 @@ def render_window_start_accuracy(data, output_path):
     _render_window_accuracy_chart(
         data, output_path,
         prefix='started',
-        title='Window Start Accuracy',
+        title='Window Start Accuracy (Last 12 Months)',
         on_time_label='Started On Time',
         late_label='Started Late',
         missed_label='Did Not Start',
@@ -697,8 +698,500 @@ def render_window_finish_accuracy(data, output_path):
     _render_window_accuracy_chart(
         data, output_path,
         prefix='finished',
-        title='Window Finish Accuracy',
+        title='Window Finish Accuracy (Last 12 Months)',
         on_time_label='Finished On Time',
         late_label='Finished Late',
         missed_label='Did Not Finish',
     )
+
+
+# Planned vs Actual % Complete palette — matches the SmartPM Summary Report.
+_PVA_LATE_PLANNED  = '#C0223A'   # red — Late Date Planned (All Schedules)
+_PVA_EARLY_PLANNED = '#3FA864'   # green — Early Date Planned (All Schedules)
+_PVA_ACTUAL        = '#2E86C1'   # blue — Actual
+_PVA_SCHEDULED     = '#3FA864'   # green — Scheduled Completion (markers only)
+_PVA_PREDICTIVE    = '#2E86C1'   # blue — Predictive Completion (markers only)
+
+
+def render_summary_plan_vs_actual(data, output_path):
+    """Summary Report part 1 — Planned VS Actual Percent Complete curve.
+
+    Mirrors the right-side curve in SmartPM's Summary Report. Five series:
+      - Late Date Planned (red line)
+      - Early Date Planned (green line)
+      - Actual (blue line)
+      - Scheduled Completion (green triangle markers — only at end of project)
+      - Predictive Completion (blue diamond markers — only at end of project)
+
+    Consumes the MCP percent_complete_curve_v2 shape directly:
+      {
+        "percentCompleteTypes": {...},
+        "data": [
+          {"DATE": "YYYY-MM-DD",
+           "LATE_DATE_PLANNED": float|null,
+           "ACTUAL": float|null,
+           "SCHEDULED": float|null,
+           "PLANNED": float|null,           # = Early Date Planned (display label)
+           "PREDICTIVE": float|null},
+          ...
+        ]
+      }
+    """
+    rows = data.get('data') or []
+    if not rows:
+        fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+        ax.set_title('Planned VS Actual Percent Complete',
+                     fontsize=style.TITLE_FONTSIZE, pad=style.TITLE_PAD)
+        fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+        plt.close(fig)
+        return
+
+    def series(field):
+        """Return (xs, ys) for one series, skipping null entries."""
+        xs, ys = [], []
+        for r in rows:
+            v = r.get(field)
+            if v is None:
+                continue
+            xs.append(date.fromisoformat(r['DATE']))
+            ys.append(float(v))
+        return xs, ys
+
+    late_xs,  late_ys  = series('LATE_DATE_PLANNED')
+    early_xs, early_ys = series('PLANNED')
+    act_xs,   act_ys   = series('ACTUAL')
+    sch_xs,   sch_ys   = series('SCHEDULED')
+    prd_xs,   prd_ys   = series('PREDICTIVE')
+
+    fig, ax = plt.subplots(figsize=style.FIGSIZE, dpi=style.DPI)
+
+    # Gray shaded band between Early Date Planned (green) and Late Date Planned
+    # (red) — the "planning window" between the two extremes. Use rows where
+    # both series have values so the fill is continuous.
+    band_xs, band_lo, band_hi = [], [], []
+    for r in rows:
+        ldp = r.get('LATE_DATE_PLANNED')
+        edp = r.get('PLANNED')
+        if ldp is None or edp is None:
+            continue
+        band_xs.append(date.fromisoformat(r['DATE']))
+        lo, hi = sorted((float(ldp), float(edp)))
+        band_lo.append(lo)
+        band_hi.append(hi)
+    if band_xs:
+        ax.fill_between(band_xs, band_lo, band_hi,
+                        color=style.LIGHT_GRAY, alpha=0.6, zorder=1)
+
+    # Lines.
+    if late_xs:
+        ax.plot(late_xs, late_ys, color=_PVA_LATE_PLANNED, linewidth=1.8,
+                marker='o', markersize=2.5, zorder=3,
+                label='Late Date Planned (All Schedules)')
+    if early_xs:
+        ax.plot(early_xs, early_ys, color=_PVA_EARLY_PLANNED, linewidth=1.8,
+                marker='o', markersize=2.5, zorder=3,
+                label='Early Date Planned (All Schedules)')
+    if act_xs:
+        ax.plot(act_xs, act_ys, color=_PVA_ACTUAL, linewidth=1.8,
+                marker='s', markersize=2.5, zorder=4, label='Actual')
+
+    # End-of-project markers.
+    if sch_xs:
+        ax.plot(sch_xs, sch_ys, color=_PVA_SCHEDULED, linestyle='none',
+                marker='^', markersize=7, zorder=5, label='Scheduled Completion')
+    if prd_xs:
+        ax.plot(prd_xs, prd_ys, color=_PVA_PREDICTIVE, linestyle='none',
+                marker='D', markersize=6, markerfacecolor='none',
+                markeredgewidth=1.5, zorder=5, label='Predictive Completion')
+
+    # Y-axis: percent, 0–105 with 25% ticks.
+    ax.set_ylim(-2, 105)
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(25))
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%d %%'))
+    ax.set_ylabel('Values', fontsize=style.LABEL_FONTSIZE)
+
+    # X-axis: cover the full data range with a touch of padding.
+    all_xs = late_xs + early_xs + act_xs + sch_xs + prd_xs
+    x_min, x_max = min(all_xs), max(all_xs)
+    x_pad = max(timedelta(days=7), (x_max - x_min) * 0.015)
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=8))
+    ax.xaxis.set_major_formatter(DateFormatter('%m/%d/%y'))
+
+    # SmartPM centers this title.
+    ax.set_title('Planned VS Actual Percent Complete',
+                 fontsize=style.TITLE_FONTSIZE, pad=style.TITLE_PAD)
+    ax.tick_params(labelsize=style.TICK_FONTSIZE)
+    ax.grid(True, axis='y', linestyle=':', color=style.LIGHT_GRAY, linewidth=0.7)
+    ax.set_axisbelow(True)
+
+    # Legend at the bottom, two rows.
+    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.42),
+              ncol=3, fontsize=7, frameon=False)
+
+    fig.autofmt_xdate()
+    fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+    plt.close(fig)
+
+
+def render_summary_cards(data, output_path):
+    """Summary Report part 2 — the three top cards as a single PNG.
+
+    Layout: three side-by-side cards at 12in × 2.5in.
+      1. Project Health Index — thermometer gauge (red → yellow → green) with
+         the value marked by a horizontal indicator and the % label
+      2. Schedule Performance — SPI + Planned/Actual bars on the left,
+         Critical Path Delay + Planned Impact big-number columns on the right
+      3. Schedule Feasibility — three sub-columns: Quality Grade / Compression
+         Index / Predicted Completion (with previous date if provided)
+
+    data shape:
+      {
+        "health": {"value": int (0-100)},
+        "spi": float,
+        "planned_pct": int, "actual_pct": int,
+        "critical_path_delay_days": int,
+        "planned_impact_days": int,
+        "quality_grade": str (e.g. "A-"),
+        "compression_pct": int,
+        "predicted_completion": "YYYY-MM-DD",
+        "last_predicted_completion": "YYYY-MM-DD"  # optional
+      }
+    """
+    fig = plt.figure(figsize=(12, 2.5), dpi=style.DPI)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1, 2.2, 2.2], wspace=0.15,
+                          left=0.02, right=0.98, top=0.95, bottom=0.05)
+
+    ax_health = fig.add_subplot(gs[0])
+    ax_perf   = fig.add_subplot(gs[1])
+    ax_feas   = fig.add_subplot(gs[2])
+
+    for ax in (ax_health, ax_perf, ax_feas):
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis('off')
+
+    card_bg = '#F5F5F5'
+    title_y = 0.95
+    title_fs = 11
+
+    def rounded_card(ax, x, y, w, h):
+        """Add a rounded-corner gray card background."""
+        ax.add_patch(FancyBboxPatch(
+            (x, y), w, h,
+            boxstyle="round,pad=0,rounding_size=0.03",
+            facecolor=card_bg, edgecolor='none', zorder=0,
+            mutation_aspect=1.0,
+        ))
+
+    # ===== Card 1: Project Health Index =====
+    ax_health.text(0.5, title_y, 'Project Health Index™',
+                   ha='center', va='top',
+                   fontsize=title_fs, fontweight='bold')
+    # Vertical thermometer: red (0-50), yellow (50-75), green (75-100).
+    gx0, gx1 = 0.45, 0.55
+    gy0, gy1 = 0.10, 0.85
+    bands = [(_SCI_RED, 0.0, 0.50), (_SCI_YELLOW, 0.50, 0.75),
+             (_SCI_GREEN, 0.75, 1.00)]
+    for color, lo, hi in bands:
+        y_lo = gy0 + (gy1 - gy0) * lo
+        y_hi = gy0 + (gy1 - gy0) * hi
+        ax_health.add_patch(Rectangle((gx0, y_lo), gx1 - gx0, y_hi - y_lo,
+                                       facecolor=color, edgecolor='none'))
+    # Indicator
+    health_val = float(data['health']['value'])
+    ind_y = gy0 + (gy1 - gy0) * health_val / 100
+    ax_health.plot([gx0 - 0.07, gx1 + 0.07], [ind_y, ind_y],
+                   color='#222', linewidth=2.0)
+    # Value label to the left in the band's color.
+    health_color = (_SCI_GREEN if health_val >= 75
+                    else _SCI_YELLOW if health_val >= 50
+                    else _SCI_RED)
+    ax_health.text(gx0 - 0.10, ind_y, f'{int(health_val)}%',
+                   ha='right', va='center', fontsize=14,
+                   color=health_color, fontweight='bold')
+
+    # ===== Card 2: Schedule Performance =====
+    ax_perf.text(0.03, title_y, 'Schedule Performance', ha='left', va='top',
+                 fontsize=title_fs, fontweight='bold')
+    rounded_card(ax_perf, 0.01, 0.05, 0.98, 0.78)
+
+    # Shared vertical anchors. Sub-labels are two lines; they're centered
+    # vertically on label_y. Big numbers and units sit at their own anchors so
+    # everything across cards 2/3 lines up horizontally.
+    label_y      = 0.65   # vertical center of all 2-line sub-labels
+    big_value_y  = 0.32   # all big numbers sit here
+    unit_y       = 0.12   # "Days" / year / delta arrow
+
+    spi_val = float(data['spi'])
+    ax_perf.text(0.05, label_y, f'SPI  {spi_val:.2f}', ha='left', va='center',
+                 fontsize=11, color='#333', fontweight='bold')
+
+    planned_pct = int(data['planned_pct'])
+    actual_pct  = int(data['actual_pct'])
+    bar_x0   = 0.05
+    bar_w    = 0.35
+    # Planned bar (red)
+    ax_perf.text(0.05, 0.52, f'Planned ({planned_pct}%)',
+                 ha='left', va='center', fontsize=9, color='#444')
+    ax_perf.add_patch(Rectangle((bar_x0, 0.40), bar_w * planned_pct / 100, 0.07,
+                                 facecolor=_SMARTPM_RED, edgecolor='none', zorder=2))
+    # Actual bar (green)
+    ax_perf.text(0.05, 0.27, f'Actual ({actual_pct}%)',
+                 ha='left', va='center', fontsize=9, color='#444')
+    ax_perf.add_patch(Rectangle((bar_x0, 0.15), bar_w * actual_pct / 100, 0.07,
+                                 facecolor=_SCI_GREEN, edgecolor='none', zorder=2))
+
+    # Right side: two big-number columns.
+    cpd = int(data['critical_path_delay_days'])
+    pi  = int(data['planned_impact_days'])
+    ax_perf.text(0.62, label_y, 'Critical Path\nDelay',
+                 ha='center', va='center', fontsize=9, color='#444',
+                 linespacing=1.2)
+    ax_perf.text(0.62, big_value_y, str(cpd), ha='center', va='center',
+                 fontsize=20, fontweight='bold', color='#222')
+    ax_perf.text(0.62, unit_y, 'Days', ha='center', va='center',
+                 fontsize=9, color='#444')
+
+    ax_perf.text(0.88, label_y, 'Planned\nImpact',
+                 ha='center', va='center', fontsize=9, color='#444',
+                 linespacing=1.2)
+    ax_perf.text(0.88, big_value_y, str(pi), ha='center', va='center',
+                 fontsize=20, fontweight='bold', color='#222')
+    ax_perf.text(0.88, unit_y, 'Days', ha='center', va='center',
+                 fontsize=9, color='#444')
+
+    # ===== Card 3: Schedule Feasibility =====
+    ax_feas.text(0.03, title_y, 'Schedule Feasibility', ha='left', va='top',
+                 fontsize=title_fs, fontweight='bold')
+    rounded_card(ax_feas, 0.01, 0.05, 0.98, 0.78)
+
+    qg = str(data['quality_grade'])
+    comp = int(data['compression_pct'])
+    pc_str = data['predicted_completion']
+    last_pc_str = data.get('last_predicted_completion')
+
+    # Quality Grade
+    ax_feas.text(0.18, label_y, 'Schedule\nQuality Grade™',
+                 ha='center', va='center', fontsize=9, color='#444',
+                 linespacing=1.2)
+    qg_color = _SCI_GREEN if qg.upper().startswith(('A', 'B')) else _SCI_RED
+    ax_feas.text(0.18, big_value_y, qg, ha='center', va='center',
+                 fontsize=22, fontweight='bold', color=qg_color)
+
+    # Compression Index
+    ax_feas.text(0.48, label_y, 'Schedule Compression\nIndex™',
+                 ha='center', va='center', fontsize=9, color='#444',
+                 linespacing=1.2)
+    comp_color = (_SCI_RED if comp >= 25 else
+                  _SCI_YELLOW if comp >= 15 else _SCI_GREEN)
+    ax_feas.text(0.48, big_value_y, f'{comp}%', ha='center', va='center',
+                 fontsize=20, fontweight='bold', color=comp_color)
+
+    # Predicted Completion — headline date in green (matches SmartPM's style),
+    # previous date in red+▲ when the schedule slipped (new date later) and
+    # green+▼ when it recovered (new date earlier).
+    pc = date.fromisoformat(pc_str)
+    ax_feas.text(0.80, label_y, 'Predicted\nCompletion',
+                 ha='center', va='center', fontsize=9, color='#444',
+                 linespacing=1.2)
+    ax_feas.text(0.80, big_value_y + 0.16, pc.strftime('%b'),
+                 ha='center', va='center', fontsize=10, color=_SCI_GREEN)
+    ax_feas.text(0.80, big_value_y, pc.strftime('%d'),
+                 ha='center', va='center', fontsize=20, fontweight='bold',
+                 color=_SCI_GREEN)
+    ax_feas.text(0.80, big_value_y - 0.14, pc.strftime('%Y'),
+                 ha='center', va='center', fontsize=9, color=_SCI_GREEN)
+    if last_pc_str:
+        last_pc = date.fromisoformat(last_pc_str)
+        slipped = pc > last_pc       # new predicted date is LATER than last week's
+        delta_color = _SCI_RED if slipped else _SCI_GREEN
+        arrow = '▲' if slipped else '▼'
+        ax_feas.text(0.80, unit_y, f'{arrow} {last_pc.strftime("%b %d, %Y")}',
+                     ha='center', va='center', fontsize=8, color=delta_color)
+
+    fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+    plt.close(fig)
+
+
+def render_summary_milestones(data, output_path):
+    """Summary Report part 3 — milestones table + last-period changes summary.
+
+    Two sections in a single PNG:
+      Top:  Milestones table (Order, Milestone, Contractual, Current, Days Late,
+            Predicted, Compression)
+      Bottom: Last Period changes — Critical Path Delays count + bullet list,
+              Recoveries count, then a single-row strip of Total/Critical Path/
+              Acceleration counts.
+
+    The data shape mirrors what schedule-toolbox's compare_schedules() produces
+    (or a thin transformation of it) — the phase file is responsible for that
+    mapping. Today's wiring uses an explicit pre-shaped dict for testability:
+
+      {
+        "milestones": [
+          {"order": int, "name": str,
+           "contractual": "YYYY-MM-DD"|null,
+           "current": "YYYY-MM-DD",
+           "days_late": int,
+           "predicted": "YYYY-MM-DD",
+           "compression_pct": int},
+          ...
+        ],
+        "critical_path_delays": {
+          "count": int,
+          "items": [str, ...]    # "NTTxxxxx - Name (N days)" style strings
+        },
+        "critical_path_recoveries": {"count": int, "items": [str, ...]},
+        "last_period_changes": {
+          "total": int,
+          "critical_path": int,
+          "acceleration_days": int|null
+        }
+      }
+    """
+    milestones = data.get('milestones', [])
+    cpd  = data.get('critical_path_delays') or {'count': 0, 'items': []}
+    cpr  = data.get('critical_path_recoveries') or {'count': 0, 'items': []}
+    lpc  = data.get('last_period_changes') or {}
+
+    n_delay_bullets = len(cpd.get('items', []))
+    n_recov_bullets = len(cpr.get('items', []))
+    n_milestone_rows = max(2, len(milestones))
+
+    # Estimate height: 1 row of header ~0.5in, each milestone row ~0.35in,
+    # then ~1.6in for the changes summary text block + bullets.
+    height = 1.5 + 0.35 * n_milestone_rows + 0.22 * (n_delay_bullets + n_recov_bullets)
+    height = max(2.8, min(height, 4.5))
+
+    fig = plt.figure(figsize=(12, height), dpi=style.DPI)
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.9], hspace=0.25,
+                          left=0.02, right=0.98, top=0.97, bottom=0.04)
+
+    # ===== Top: Milestones table =====
+    ax_tbl = fig.add_subplot(gs[0])
+    ax_tbl.axis('off')
+
+    headers = ['Order', 'Milestone', 'Contractual', 'Current', 'Days Late',
+               'Predicted', 'Compression']
+    cell_text = []
+    cell_colors = []
+    for m in milestones:
+        days_late = m.get('days_late')
+        compress  = m.get('compression_pct') or 0
+        # Row tint by days late.
+        if days_late is not None and days_late > 0:
+            row_color = '#FBE6EA'   # light red
+            late_color = _SCI_RED
+        elif days_late is not None and days_late < 0:
+            row_color = '#E8F1ED'   # light green
+            late_color = _SCI_GREEN
+        else:
+            row_color = 'white'
+            late_color = '#222'
+
+        cell_text.append([
+            str(m.get('order', '')),
+            m.get('name', ''),
+            (m.get('contractual') or 'N/A')[:10],
+            (m.get('current') or 'N/A')[:10],
+            ('—' if days_late is None else str(days_late)),
+            (m.get('predicted') or 'N/A')[:10],
+            f"{compress}%",
+        ])
+        cell_colors.append([row_color] * 7)
+
+    if not cell_text:
+        cell_text = [['—'] * 7]
+        cell_colors = [['white'] * 7]
+
+    table = ax_tbl.table(
+        cellText=cell_text,
+        cellColours=cell_colors,
+        colLabels=headers,
+        cellLoc='left',
+        colLoc='left',
+        loc='upper center',
+        colWidths=[0.05, 0.35, 0.10, 0.10, 0.08, 0.10, 0.10],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.5)
+
+    # Header row styling.
+    for col_idx in range(len(headers)):
+        h_cell = table[(0, col_idx)]
+        h_cell.set_facecolor('#F0F0F0')
+        h_cell.set_text_props(color='#333', fontweight='bold')
+
+    # Days Late column tinted bold.
+    for row_idx, m in enumerate(milestones, start=1):
+        days_late = m.get('days_late')
+        if days_late is None:
+            continue
+        late_color = (_SCI_RED if days_late > 0
+                      else _SCI_GREEN if days_late < 0
+                      else '#222')
+        table[(row_idx, 4)].set_text_props(color=late_color, fontweight='bold')
+
+    # ===== Bottom: Changes summary =====
+    ax_chg = fig.add_subplot(gs[1])
+    ax_chg.axis('off')
+    ax_chg.set_xlim(0, 1)
+    ax_chg.set_ylim(0, 1)
+
+    y_cursor = 0.95
+
+    # Selected Period Critical Path Delays (count colored).
+    cpd_count = int(cpd.get('count', 0))
+    cpd_color = _SCI_RED if cpd_count > 0 else '#222'
+    ax_chg.text(0.005, y_cursor, 'Selected Period Critical Path Delays: ',
+                ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
+    ax_chg.text(0.305, y_cursor, str(cpd_count),
+                ha='left', va='top', fontsize=10, fontweight='bold', color=cpd_color)
+    y_cursor -= 0.13
+
+    for item in (cpd.get('items') or [])[:6]:   # cap to avoid overflow
+        ax_chg.text(0.03, y_cursor, f'• {item}',
+                    ha='left', va='top', fontsize=9, color='#444')
+        y_cursor -= 0.11
+
+    # Last Period Critical Path Recoveries
+    cpr_count = int(cpr.get('count', 0))
+    cpr_label = 'N/A' if cpr_count == 0 else str(cpr_count)
+    cpr_color = _SCI_GREEN if cpr_count > 0 else '#666'
+    y_cursor -= 0.04
+    ax_chg.text(0.005, y_cursor, 'Last Period Critical Path Recoveries: ',
+                ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
+    ax_chg.text(0.305, y_cursor, cpr_label,
+                ha='left', va='top', fontsize=10, fontweight='bold', color=cpr_color)
+    y_cursor -= 0.13
+
+    for item in (cpr.get('items') or [])[:6]:
+        ax_chg.text(0.03, y_cursor, f'• {item}',
+                    ha='left', va='top', fontsize=9, color='#444')
+        y_cursor -= 0.11
+
+    # Last Period Schedule Changes header
+    y_cursor -= 0.04
+    ax_chg.text(0.005, y_cursor, 'Last Period Schedule Changes',
+                ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
+    y_cursor -= 0.13
+
+    total = lpc.get('total', 0)
+    cp    = lpc.get('critical_path', 0)
+    accel = lpc.get('acceleration_days')
+    accel_str = 'N/A' if accel is None else str(accel)
+
+    ax_chg.text(0.005, y_cursor,
+                f'Total Changes:  {total}',
+                ha='left', va='top', fontsize=10, color='#333')
+    ax_chg.text(0.30, y_cursor,
+                f'Critical Path Changes:  {cp}',
+                ha='left', va='top', fontsize=10, color='#333')
+    ax_chg.text(0.65, y_cursor,
+                f'Acceleration Days:  {accel_str}',
+                ha='left', va='top', fontsize=10, color='#333')
+
+    fig.savefig(output_path, **style.SAVEFIG_KWARGS)
+    plt.close(fig)

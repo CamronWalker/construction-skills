@@ -19,6 +19,9 @@ REGISTRY = {
     '10-activity-hit-rate': charts.render_activity_hit_rate,
     '11-window-start-accuracy': charts.render_window_start_accuracy,
     '12-window-finish-accuracy': charts.render_window_finish_accuracy,
+    'smartpm-summary-curve': charts.render_summary_plan_vs_actual,
+    'smartpm-summary-cards': charts.render_summary_cards,
+    'smartpm-summary-milestones': charts.render_summary_milestones,
 }
 
 
