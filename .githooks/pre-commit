@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# pre-commit: enforce that touching any plugin's source dir requires bumping
+# both that plugin's plugin.json AND the top-level marketplace.json in the
+# same commit. Heuristic check (looks for a +"version": line in the staged
+# diff of each file). Bypass with --no-verify only if you know what you're
+# doing.
+#
+# Activate once per clone:
+#   git config core.hooksPath .githooks
+
+set -e
+
+check_plugin_bump() {
+  local plugin_dir="$1"
+  local plugin_json="${plugin_dir}/.claude-plugin/plugin.json"
+  local marketplace_json=".claude-plugin/marketplace.json"
+
+  # Any tracked file inside this plugin staged? (Excluding plugin.json itself
+  # so that bumping the version alone doesn't trip the check on its own.)
+  local files_changed
+  files_changed=$(git diff --cached --name-only | grep "^${plugin_dir}/" | grep -v "^${plugin_json}$" || true)
+  if [ -z "$files_changed" ]; then
+    return 0
+  fi
+
+  # Exempt commits where the current plugin.json version contains -dev.
+  # Reads the staged version (post-edit) by extracting from the staged blob.
+  local staged_version
+  staged_version=$(git show ":${plugin_json}" 2>/dev/null | grep -E '"version":\s*"' | head -1 | sed -E 's/.*"version":\s*"([^"]+)".*/\1/')
+  # Fall back to working-tree if not in index (e.g., file unchanged but other plugin files staged)
+  if [ -z "$staged_version" ] && [ -f "$plugin_json" ]; then
+    staged_version=$(grep -E '"version":\s*"' "$plugin_json" | head -1 | sed -E 's/.*"version":\s*"([^"]+)".*/\1/')
+  fi
+  if [[ "$staged_version" == *-dev* ]]; then
+    return 0
+  fi
+
+  # plugin.json must have a +"version" line in the staged diff.
+  if ! git diff --cached -- "$plugin_json" | grep -q '^+[[:space:]]*"version":'; then
+    echo "ERROR: ${plugin_dir}/ files are staged but ${plugin_json} version was not bumped." >&2
+    echo "       Edit the version field and stage the change before committing." >&2
+    return 1
+  fi
+
+  # marketplace.json must have a +"version" line in the staged diff.
+  if ! git diff --cached -- "$marketplace_json" | grep -q '^+[[:space:]]*"version":'; then
+    echo "ERROR: ${plugin_dir}/ files are staged but ${marketplace_json} was not bumped." >&2
+    echo "       Bump the ${plugin_dir} entry's version in marketplace.json and stage the change." >&2
+    return 1
+  fi
+
+  return 0
+}
+
+failed=0
+for plugin in westland scheduling estimating project-management site-operations safety; do
+  check_plugin_bump "$plugin" || failed=1
+done
+
+if [ "$failed" = "1" ]; then
+  echo "" >&2
+  echo "Pre-commit version-bump check failed. Fix the above and try again." >&2
+  exit 1
+fi
+exit 0

@@ -21,6 +21,18 @@ After merging to `main`:
 
 The `src/` folder is gitignored — zips are rebuilt locally after each merge and never committed. Both distribution paths are supported: the marketplace (`marketplace.json`) serves direct-from-repo installs; the zip serves enterprise-managed installs.
 
+### Pre-commit version-bump hook
+
+`.githooks/pre-commit` enforces the steps 1–2 rule mechanically: any commit that touches files under a plugin directory must also bump both that plugin's `plugin.json` and the matching `marketplace.json` entry. Commits with a `-dev` suffix in the plugin's `plugin.json` version are exempt (so you can work in-branch without a real bump). Bypass with `--no-verify` only if you know what you're doing.
+
+Activate once per clone (and once in the main repo for any worktrees to inherit it):
+
+```
+git config core.hooksPath .githooks
+```
+
+Smoke-test the hook locally with `bash .githooks/test_pre_commit.sh`.
+
 ## Structure
 
 ```
