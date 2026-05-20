@@ -1015,61 +1015,115 @@ def render_summary_cards(data, output_path):
 
 
 def render_summary_milestones(data, output_path):
-    """Summary Report part 3 — milestones table + last-period changes summary.
+    """Summary Report — left-side panel: header + milestones table + changes.
 
-    Two sections in a single PNG:
-      Top:  Milestones table (Order, Milestone, Contractual, Current, Days Late,
-            Predicted, Compression)
-      Bottom: Last Period changes — Critical Path Delays count + bullet list,
-              Recoveries count, then a single-row strip of Total/Critical Path/
-              Acceleration counts.
+    Recreates the left half of the SmartPM v2 Summary Report card. Layout:
 
-    The data shape mirrors what schedule-toolbox's compare_schedules() produces
-    (or a thin transformation of it) — the phase file is responsible for that
-    mapping. Today's wiring uses an explicit pre-shaped dict for testability:
+      Header (4 bold-label lines):
+        Project Name:     <name>
+        Milestone Name:   <scenario name>
+        Project Location: <city, state>
+        Data Date:        MM/DD/YY
 
+      Milestones table (Order / Milestone / Contractual / Current /
+        Days Late / Predicted / Compression). One row per milestone scenario.
+
+      Selected Period Critical Path Delays: <count>
+        • <activity bullet>          (one per item)
+
+      Last Period Critical Path Recoveries: <count or N/A>
+        • <activity bullet>
+
+      Last Period Schedule Changes
+        Total Changes: N    Critical Path Changes: N    Acceleration Days: N
+
+    Most fields are populated from smartpm_post_project_summary called once per
+    milestone scenario (the project's defaultScenarioId for row 1, and any
+    sibling COMPLETE-type scenarios for additional rows). Project Location
+    comes from smartpm_get_project. The critical-path-delay/recovery bullet
+    content and the Last Period Schedule Changes triplet aren't exposed by
+    the post endpoint — phase file pulls those from
+    smartpm_list_scenario_change_log_by_type and passes them in via the
+    `critical_path_delays.items` and `last_period_changes` fields.
+
+    data shape:
       {
+        "project_name":     str,
+        "milestone_name":   str,
+        "project_location": str,
+        "data_date":        "YYYY-MM-DD",
         "milestones": [
           {"order": int, "name": str,
            "contractual": "YYYY-MM-DD"|null,
-           "current": "YYYY-MM-DD",
-           "days_late": int,
-           "predicted": "YYYY-MM-DD",
+           "current":     "YYYY-MM-DD",
+           "days_late":   int,
+           "predicted":   "YYYY-MM-DD",
            "compression_pct": int},
           ...
         ],
-        "critical_path_delays": {
-          "count": int,
-          "items": [str, ...]    # "NTTxxxxx - Name (N days)" style strings
-        },
+        "critical_path_delays":     {"count": int, "items": [str, ...]},
         "critical_path_recoveries": {"count": int, "items": [str, ...]},
         "last_period_changes": {
-          "total": int,
-          "critical_path": int,
-          "acceleration_days": int|null
+          "total": int, "critical_path": int, "acceleration_days": int|null
         }
       }
     """
     milestones = data.get('milestones', [])
-    cpd  = data.get('critical_path_delays') or {'count': 0, 'items': []}
+    cpd  = data.get('critical_path_delays')     or {'count': 0, 'items': []}
     cpr  = data.get('critical_path_recoveries') or {'count': 0, 'items': []}
-    lpc  = data.get('last_period_changes') or {}
+    lpc  = data.get('last_period_changes')      or {}
 
-    n_delay_bullets = len(cpd.get('items', []))
-    n_recov_bullets = len(cpr.get('items', []))
-    n_milestone_rows = max(2, len(milestones))
+    def _fmt_date(s):
+        """ISO YYYY-MM-DD → MM/DD/YY (or 'N/A' for None/empty)."""
+        if not s:
+            return 'N/A'
+        try:
+            d = date.fromisoformat(s[:10])
+            return d.strftime('%m/%d/%y')
+        except Exception:
+            return str(s)[:10]
 
-    # Estimate height: 1 row of header ~0.5in, each milestone row ~0.35in,
-    # then ~1.6in for the changes summary text block + bullets.
-    height = 1.5 + 0.35 * n_milestone_rows + 0.22 * (n_delay_bullets + n_recov_bullets)
-    height = max(2.8, min(height, 4.5))
+    n_delay_bullets = min(len(cpd.get('items', []) or []), 6)
+    n_recov_bullets = min(len(cpr.get('items', []) or []), 6)
+    n_milestone_rows = max(1, len(milestones))
 
-    fig = plt.figure(figsize=(12, height), dpi=style.DPI)
-    gs = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.9], hspace=0.25,
-                          left=0.02, right=0.98, top=0.97, bottom=0.04)
+    # Heights — header is fixed, table grows with rows, bottom grows with bullets.
+    header_h = 0.95
+    table_h  = 0.55 + 0.35 * n_milestone_rows
+    bottom_h = 1.5 + 0.22 * (n_delay_bullets + n_recov_bullets)
+    total_h  = max(4.0, header_h + table_h + bottom_h + 0.4)
 
-    # ===== Top: Milestones table =====
-    ax_tbl = fig.add_subplot(gs[0])
+    fig = plt.figure(figsize=(12, total_h), dpi=style.DPI)
+    gs = fig.add_gridspec(
+        3, 1,
+        height_ratios=[header_h, table_h, bottom_h],
+        hspace=0.15, left=0.02, right=0.98, top=0.97, bottom=0.03,
+    )
+
+    # ===== Header (Project Name / Milestone Name / Location / Data Date) =====
+    ax_hdr = fig.add_subplot(gs[0])
+    ax_hdr.axis('off')
+    ax_hdr.set_xlim(0, 1)
+    ax_hdr.set_ylim(0, 1)
+
+    header_lines = [
+        ('Project Name: ',     data.get('project_name') or ''),
+        ('Milestone Name: ',   data.get('milestone_name') or ''),
+        ('Project Location: ', data.get('project_location') or ''),
+        ('Data Date: ',        _fmt_date(data.get('data_date'))),
+    ]
+    y = 0.92
+    line_gap = 0.22
+    for label, value in header_lines:
+        ax_hdr.text(0.005, y, label, ha='left', va='top',
+                    fontsize=10, fontweight='bold', color='#222')
+        # Measure the label width visually by placing the value at a fixed offset.
+        ax_hdr.text(0.005 + 0.012 * len(label), y, str(value),
+                    ha='left', va='top', fontsize=10, color='#333')
+        y -= line_gap
+
+    # ===== Milestones table =====
+    ax_tbl = fig.add_subplot(gs[1])
     ax_tbl.axis('off')
 
     headers = ['Order', 'Milestone', 'Contractual', 'Current', 'Days Late',
@@ -1077,32 +1131,23 @@ def render_summary_milestones(data, output_path):
     cell_text = []
     cell_colors = []
     for m in milestones:
-        days_late = m.get('days_late')
+        days_late = m.get('days_late') or 0
         compress  = m.get('compression_pct') or 0
-        # Row tint by days late.
-        if days_late is not None and days_late > 0:
-            row_color = '#FBE6EA'   # light red
-            late_color = _SCI_RED
-        elif days_late is not None and days_late < 0:
-            row_color = '#E8F1ED'   # light green
-            late_color = _SCI_GREEN
-        else:
-            row_color = 'white'
-            late_color = '#222'
 
         cell_text.append([
             str(m.get('order', '')),
             m.get('name', ''),
-            (m.get('contractual') or 'N/A')[:10],
-            (m.get('current') or 'N/A')[:10],
-            ('—' if days_late is None else str(days_late)),
-            (m.get('predicted') or 'N/A')[:10],
+            _fmt_date(m.get('contractual')),
+            _fmt_date(m.get('current')),
+            str(days_late),
+            _fmt_date(m.get('predicted')),
             f"{compress}%",
         ])
-        cell_colors.append([row_color] * 7)
+        # SmartPM screenshot doesn't tint rows — keep cells plain white.
+        cell_colors.append(['white'] * 7)
 
     if not cell_text:
-        cell_text = [['—'] * 7]
+        cell_text   = [['—'] * 7]
         cell_colors = [['white'] * 7]
 
     table = ax_tbl.table(
@@ -1112,85 +1157,70 @@ def render_summary_milestones(data, output_path):
         cellLoc='left',
         colLoc='left',
         loc='upper center',
-        colWidths=[0.05, 0.35, 0.10, 0.10, 0.08, 0.10, 0.10],
+        colWidths=[0.06, 0.36, 0.10, 0.10, 0.10, 0.10, 0.12],
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1, 1.5)
+    table.set_fontsize(10)
+    table.scale(1, 1.6)
 
-    # Header row styling.
     for col_idx in range(len(headers)):
         h_cell = table[(0, col_idx)]
-        h_cell.set_facecolor('#F0F0F0')
-        h_cell.set_text_props(color='#333', fontweight='bold')
+        h_cell.set_facecolor('#F2F2F2')
+        h_cell.set_text_props(color='#222', fontweight='bold')
 
-    # Days Late column tinted bold.
-    for row_idx, m in enumerate(milestones, start=1):
-        days_late = m.get('days_late')
-        if days_late is None:
-            continue
-        late_color = (_SCI_RED if days_late > 0
-                      else _SCI_GREEN if days_late < 0
-                      else '#222')
-        table[(row_idx, 4)].set_text_props(color=late_color, fontweight='bold')
-
-    # ===== Bottom: Changes summary =====
-    ax_chg = fig.add_subplot(gs[1])
+    # ===== Bottom: Selected Period delays + Last Period Recoveries + Changes =====
+    ax_chg = fig.add_subplot(gs[2])
     ax_chg.axis('off')
     ax_chg.set_xlim(0, 1)
     ax_chg.set_ylim(0, 1)
 
     y_cursor = 0.95
+    row_gap  = 0.11
 
-    # Selected Period Critical Path Delays (count colored).
-    cpd_count = int(cpd.get('count', 0))
-    cpd_color = _SCI_RED if cpd_count > 0 else '#222'
+    # Selected Period Critical Path Delays
+    cpd_count = int(cpd.get('count', 0) or 0)
     ax_chg.text(0.005, y_cursor, 'Selected Period Critical Path Delays: ',
                 ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
-    ax_chg.text(0.305, y_cursor, str(cpd_count),
-                ha='left', va='top', fontsize=10, fontweight='bold', color=cpd_color)
-    y_cursor -= 0.13
-
-    for item in (cpd.get('items') or [])[:6]:   # cap to avoid overflow
-        ax_chg.text(0.03, y_cursor, f'• {item}',
-                    ha='left', va='top', fontsize=9, color='#444')
-        y_cursor -= 0.11
-
-    # Last Period Critical Path Recoveries
-    cpr_count = int(cpr.get('count', 0))
-    cpr_label = 'N/A' if cpr_count == 0 else str(cpr_count)
-    cpr_color = _SCI_GREEN if cpr_count > 0 else '#666'
-    y_cursor -= 0.04
-    ax_chg.text(0.005, y_cursor, 'Last Period Critical Path Recoveries: ',
+    ax_chg.text(0.30, y_cursor, str(cpd_count),
                 ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
-    ax_chg.text(0.305, y_cursor, cpr_label,
-                ha='left', va='top', fontsize=10, fontweight='bold', color=cpr_color)
-    y_cursor -= 0.13
+    # "Last Period Critical Path Recoveries" lives on the same line, far right.
+    cpr_count = int(cpr.get('count', 0) or 0)
+    cpr_label = 'N/A' if cpr_count == 0 else str(cpr_count)
+    ax_chg.text(0.50, y_cursor, 'Last Period Critical Path Recoveries: ',
+                ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
+    ax_chg.text(0.83, y_cursor, cpr_label,
+                ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
+    y_cursor -= row_gap
 
-    for item in (cpr.get('items') or [])[:6]:
-        ax_chg.text(0.03, y_cursor, f'• {item}',
-                    ha='left', va='top', fontsize=9, color='#444')
-        y_cursor -= 0.11
+    # Bullets under each side, max 6 each.
+    delay_items = (cpd.get('items') or [])[:6]
+    recov_items = (cpr.get('items') or [])[:6]
+    n_bullet_rows = max(len(delay_items), len(recov_items))
+    for i in range(n_bullet_rows):
+        if i < len(delay_items):
+            ax_chg.text(0.025, y_cursor, f'•  {delay_items[i]}',
+                        ha='left', va='top', fontsize=9, color='#333')
+        if i < len(recov_items):
+            ax_chg.text(0.52, y_cursor, f'•  {recov_items[i]}',
+                        ha='left', va='top', fontsize=9, color='#333')
+        y_cursor -= row_gap
 
-    # Last Period Schedule Changes header
+    # Last Period Schedule Changes (small header + triplet line)
     y_cursor -= 0.04
     ax_chg.text(0.005, y_cursor, 'Last Period Schedule Changes',
                 ha='left', va='top', fontsize=10, fontweight='bold', color='#222')
-    y_cursor -= 0.13
+    y_cursor -= row_gap
 
-    total = lpc.get('total', 0)
-    cp    = lpc.get('critical_path', 0)
+    total = lpc.get('total', 0) or 0
+    cp    = lpc.get('critical_path', 0) or 0
     accel = lpc.get('acceleration_days')
     accel_str = 'N/A' if accel is None else str(accel)
 
-    ax_chg.text(0.005, y_cursor,
-                f'Total Changes:  {total}',
+    ax_chg.text(0.005, y_cursor, f'Total Changes:  {total}',
                 ha='left', va='top', fontsize=10, color='#333')
-    ax_chg.text(0.30, y_cursor,
-                f'Critical Path Changes:  {cp}',
+    ax_chg.text(0.30, y_cursor, f'Critical Path Changes:  {cp}',
                 ha='left', va='top', fontsize=10, color='#333')
-    ax_chg.text(0.65, y_cursor,
-                f'Acceleration Days:  {accel_str}',
+    ax_chg.text(0.60, y_cursor, f'Acceleration Days:  {accel_str}',
                 ha='left', va='top', fontsize=10, color='#333')
 
     fig.savefig(output_path, **style.SAVEFIG_KWARGS)
