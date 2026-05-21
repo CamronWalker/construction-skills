@@ -8,13 +8,13 @@
       "name": "westland",
       "source": "./westland",
       "description": "Westland organizational plugin — safety hooks, house-style references, and bug-report capture. Install first; required dependency of domain plugins. Contains the Westland Project Files PreToolUse hook (modify-prompt on existing files; .xer in-place changes/deletes denied; .html/.md/.json allowlisted), the westland-house-style skill, and the westland-bug-report skill (Procore-gated bug capture to Supabase via the westland-internal MCP).",
-      "version": "1.4.1"
+      "version": "1.4.2"
     },
     {
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop, reviewer-feedback download for external reviewers (attribution-tagged JSON), and a single propsched dispatcher (iterate, paths, anchors, diff, walk, score, init, bootstrap-anchors, aggregate-postmortems, feedback, metadata, durations).",
-      "version": "5.4.5"
+      "version": "5.4.6"
     },
     {
       "name": "estimating",

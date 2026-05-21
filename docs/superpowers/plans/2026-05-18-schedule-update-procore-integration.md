@@ -2265,7 +2265,7 @@ Read **every file in the column** for your invocation, in full, before taking an
 - **NEVER** edit in place (Edit / MultiEdit / overwriting Write).
 - **NEVER** delete.
 
-Enforced at the tool layer by the `westland` plugin's PreToolUse hook (`westland/hooks/check_xer_write.py`, matcher: `Edit|Write|MultiEdit|NotebookEdit|Bash`), which blocks in-place edits, overwrites of existing `.xer` files, and Bash delete commands (`rm`, `del`, `Remove-Item`, `find -delete`) targeting `.xer` paths. The `westland` plugin is a required organizational dependency — if the hook isn't firing, the `westland` plugin isn't loaded.
+Enforced at the tool layer by the `westland` plugin's PreToolUse hook (`westland/hooks/westland_share_guard.py`, matcher: `Edit|Write|MultiEdit|NotebookEdit|Bash`), which blocks in-place edits, overwrites of existing `.xer` files, and Bash delete commands (`rm`, `del`, `Remove-Item`, `find -delete`) targeting `.xer` paths. The `westland` plugin is a required organizational dependency — if the hook isn't firing, the `westland` plugin isn't loaded.
 
 ---
 
