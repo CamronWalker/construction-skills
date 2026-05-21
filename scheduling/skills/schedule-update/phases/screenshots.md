@@ -336,6 +336,8 @@ python -m charts.render "{dated_folder}/.chart-payload" "{dated_folder}/screensh
 
 The script prints a JSON `{rendered: [...], failed: [...]}` to stdout.
 
+**Summary-report composite.** After the main loop, if all three summary parts (`smartpm-summary-cards`, `smartpm-summary-milestones`, `smartpm-summary-curve`) rendered successfully, the orchestrator stacks them vertically into a single `smartpm-summary-report.png` in the output dir. This matches the legacy Playwright filename and is what the email body / preview / changes-report embed as the single `summary_screenshot_path`. Nothing extra to do — the composite appears as another entry in the `rendered` list.
+
 ### Step 5: Verify
 
 For every slug in `graph_screenshots`: confirm `{dated_folder}/screenshots/{slug}.png` exists with size > 0 bytes. Use the Bash tool:

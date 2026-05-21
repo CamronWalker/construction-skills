@@ -189,5 +189,71 @@ class TestNonDefaultStubs(unittest.TestCase):
         self.assertIn('--legacy', results['failed'][0]['reason'])
 
 
+class TestSummaryReportComposite(unittest.TestCase):
+    """All three summary parts (cards, milestones, curve) render → render.py
+    composites them into a single smartpm-summary-report.png so the email
+    pipeline's single-summary-image kwarg keeps working unchanged."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.payload_dir = Path(self._tmp.name) / 'payload'
+        self.payload_dir.mkdir()
+        self.output_dir = Path(self._tmp.name) / 'out'
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _seed_summary_parts(self):
+        for slug in (
+            'smartpm-summary-cards',
+            'smartpm-summary-milestones',
+            'smartpm-summary-curve',
+        ):
+            (self.payload_dir / f'{slug}.json').write_text(
+                (FIXTURE_DIR / f'{slug}.json').read_text()
+            )
+
+    def test_composite_produced_when_all_three_parts_render(self):
+        self._seed_summary_parts()
+        r = render.render_payload(self.payload_dir, self.output_dir)
+
+        slugs = [item['slug'] for item in r['rendered']]
+        self.assertIn('smartpm-summary-report', slugs,
+                      'composite was not produced even though all 3 parts rendered')
+
+        composite_path = self.output_dir / 'smartpm-summary-report.png'
+        self.assertTrue(composite_path.exists())
+        img = Image.open(composite_path)
+        self.assertEqual(img.format, 'PNG')
+
+        # The composite stacks all three parts vertically with no padding,
+        # so total height == sum of part heights and width == max part width.
+        part_heights = []
+        part_widths  = []
+        for slug in (
+            'smartpm-summary-cards',
+            'smartpm-summary-milestones',
+            'smartpm-summary-curve',
+        ):
+            part = Image.open(self.output_dir / f'{slug}.png')
+            part_heights.append(part.height)
+            part_widths.append(part.width)
+            part.close()
+        self.assertEqual(img.height, sum(part_heights))
+        self.assertEqual(img.width, max(part_widths))
+        img.close()
+
+    def test_no_composite_when_a_part_is_missing(self):
+        # Render only two of the three parts — composite should NOT fire.
+        for slug in ('smartpm-summary-cards', 'smartpm-summary-curve'):
+            (self.payload_dir / f'{slug}.json').write_text(
+                (FIXTURE_DIR / f'{slug}.json').read_text()
+            )
+        r = render.render_payload(self.payload_dir, self.output_dir)
+        slugs = [item['slug'] for item in r['rendered']]
+        self.assertNotIn('smartpm-summary-report', slugs)
+        self.assertFalse((self.output_dir / 'smartpm-summary-report.png').exists())
+
+
 if __name__ == '__main__':
     unittest.main()
