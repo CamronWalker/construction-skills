@@ -1,0 +1,12 @@
+{
+  "health": {"value": 98},
+  "spi": 0.99,
+  "planned_pct": 100,
+  "actual_pct": 99,
+  "critical_path_delay_days": 553,
+  "planned_impact_days": -278,
+  "quality_grade": "A-",
+  "compression_pct": 0,
+  "predicted_completion": "2026-06-10",
+  "last_predicted_completion": "2026-05-30"
+}

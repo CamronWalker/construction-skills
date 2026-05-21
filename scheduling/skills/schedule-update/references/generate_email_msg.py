@@ -69,12 +69,39 @@ Markdown bold convention for list items:
 import os
 import re
 import html as html_mod
+from datetime import date
 
 try:
     import win32com.client
     HAS_WIN32COM = True
 except ImportError:
     HAS_WIN32COM = False
+
+
+# Subject must end with a YYYY-MM-DD date so each weekly schedule-update
+# email starts a fresh Outlook conversation (Outlook groups by subject
+# stem; identical subjects collapse into one thread). The regex catches
+# both ISO dates and the trailing form used in Westland's house style
+# ("...Schedule Update - 2026-05-20").
+_SUBJECT_DATE_RE = re.compile(r'\d{4}-\d{2}-\d{2}\s*$')
+
+
+def _ensure_subject_has_date(subject, today=None):
+    """Return `subject` with a trailing YYYY-MM-DD date guaranteed.
+
+    - Empty `subject` is returned unchanged so callers that intentionally
+      leave it blank (e.g. tests, Outlook-pick-default cases) aren't surprised.
+    - If `subject` already ends with a YYYY-MM-DD, it's left alone.
+    - Otherwise today's date is appended as ` - YYYY-MM-DD`.
+
+    `today` is an injection point for tests; defaults to `date.today()`.
+    """
+    if not subject:
+        return subject
+    if _SUBJECT_DATE_RE.search(subject):
+        return subject
+    today = today or date.today()
+    return f'{subject.rstrip()} - {today.isoformat()}'
 
 # Westland brand colors
 RED = '#C94444'
@@ -732,6 +759,7 @@ def generate_update_email_msg(
         mail.To = to_recipients
     if cc_recipients:
         mail.CC = cc_recipients
+    subject = _ensure_subject_has_date(subject)
     if subject:
         mail.Subject = subject
 

@@ -1,0 +1,16 @@
+{
+  "description": "Scheduling — advisory hook steering Claude toward the parse/generate scripts for managed HTML artifacts (project-context.html, dated *-email-preview.html). Always advisory; never blocks.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import os,re,runpy;r=os.environ['CLAUDE_PLUGIN_ROOT'];m=re.match(r'^/([a-zA-Z])/(.*)',r) if os.name=='nt' else None;r=(m.group(1).upper()+':/'+m.group(2)) if m else r;runpy.run_path(r+'/hooks/check_html_discipline.py',run_name='__main__')\""
+          }
+        ]
+      }
+    ]
+  }
+}
