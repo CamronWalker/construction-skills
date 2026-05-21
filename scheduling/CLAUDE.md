@@ -2,6 +2,53 @@
 
 Plugin-level guidance that applies to every skill under `scheduling/skills/`. The repo-root [CLAUDE.md](../CLAUDE.md) covers cross-plugin release conventions; this file is for scheduling-specific contracts.
 
+## Drive the existing scripts — don't wrap them
+
+Every skill under `scheduling/skills/{skill}/references/` ships its own renderers, generators, and parsers — `charts/render.py`, `generate_email_preview_html.py`, `parse_email_html.py`, `iterate.py` for proposal schedules, and so on. When you need to produce or regenerate an artifact, drive those scripts directly. **Do not write a wrapper Python file that embeds tool output as literals or defines hardcoded sample kwargs.**
+
+### Canonical pattern for MCP → chart rendering
+
+```text
+1. For each slug in graph_screenshots (from project-context.html):
+     Call the documented MCP endpoint (see phases/screenshots.md per-slug recipes).
+     Take the response as-is.
+     Write tool → {dated_folder}/.chart-payload/{slug}.json
+   (One Write call per slug. No transformation, no Python literal-pasting,
+   no "let me assemble it in a script first". The render module already
+   knows the shape.)
+
+2. Bash tool, one invocation for the whole batch:
+     cd scheduling/skills/schedule-update/references
+     python -m charts.render "{dated_folder}/.chart-payload" "{dated_folder}/screenshots"
+```
+
+### Canonical pattern for email-preview regeneration
+
+```text
+Bash tool, python -c one-liner:
+  python -c "
+  import sys; sys.path.insert(0, 'scheduling/skills/schedule-update/references')
+  from generate_email_preview_html import generate_preview_html
+  generate_preview_html('<out_path>', **kwargs)
+  "
+```
+
+For ad-hoc verification, build the kwargs dict in the one-liner or load it from a small JSON written next to the output. Do not check in a `test_*.py` next to the shipping scripts — colleagues mistake them for product code, and they rot the instant the underlying script's shape changes.
+
+### Why this matters
+
+| Anti-pattern | What it costs |
+|--------------|---------------|
+| Embedding ~200 lines of MCP response JSON as Python literals | Pure token waste — the JSON was already in the tool result. Dump it to disk with `Write` instead. |
+| Wrapper script that re-declares the canonical input shape | Drifts silently when the renderer adds or renames a field. The wrapper "works" until someone notices the chart looks wrong. |
+| `test_xyz.py` checked in beside shipping scripts | Future colleagues can't tell product code from harness. The `scripts/` folder at repo root is for repo-wide tools (e.g. `build.py`), not per-skill ad-hoc helpers. |
+
+If you genuinely need an orchestration file (e.g. a new shipping CLI that some future skill will call), put it under the skill's `references/` directory, give it a clear non-test name, and update the skill's `SKILL.md` / phase files to document it. Otherwise: `Write` + `Bash`, no `.py` files.
+
+### Where the per-slug recipes live
+
+`phases/screenshots.md` has the exact MCP tool, parameters, response shape, and payload assembly for every chart slug. Read it before fetching anything; do not improvise endpoint choices.
+
 ## Email-preview JSON shape — single source of truth
 
 The weekly schedule email pipeline (`schedule-update` skill) round-trips through one HTML artifact: `{YYYY-MM-DD}-email-preview.html`. Three places handle that HTML:
