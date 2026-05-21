@@ -2,7 +2,7 @@
 
 > Loaded by SKILL.md's router when the user invokes `/schedule-update screenshots`.
 
-Captures the SmartPM Summary Report and trend graphs listed in `project-context.html`'s `graph_screenshots`. Two paths share the same output filenames so the rest of the pipeline can't tell them apart:
+Captures the SmartPM Summary Report parts and trend graphs listed in `project-context.html`'s `graph_screenshots`. Two paths share the same output filenames so the rest of the pipeline can't tell them apart:
 
 | Invocation | Path | When to use |
 |------------|------|-------------|
@@ -17,73 +17,368 @@ Both paths write into `{dated_folder}/screenshots/` with the same PNG filenames.
 
 ### Step 0: Pre-flight
 
-- Python 3.10+
-- `matplotlib`, `Pillow` installed: `pip install -r {skill_dir}/references/charts/requirements.txt`
-- SmartPM MCP available in the session (the `mcp__...__smartpm_*` tools should be listed)
+Run these checks **before** Step 1 — failing early is cheaper than crashing on render.
+
+1. **Python deps.** Use the Bash tool:
+   ```bash
+   python -c "import matplotlib, PIL; print('ok')"
+   ```
+   If it errors with `ModuleNotFoundError`, install:
+   ```bash
+   pip install -r "{skill_dir}/references/charts/requirements.txt"
+   ```
+
+2. **SmartPM MCP tools.** Look at your tool list for any tool whose name matches `mcp__<uuid>__smartpm_*`. The `<uuid>` part is per-installation — don't hardcode it. Throughout this doc, when you see `smartpm_foo`, the real tool name is `mcp__<uuid>__smartpm_foo`. Use the `ToolSearch` tool with `query: "select:smartpm_post_project_summary,smartpm_get_project,smartpm_list_scenarios,smartpm_list_scenario_schedules_v2,smartpm_get_scenario_schedule_compression_trend,smartpm_get_scenario_velocity,smartpm_get_scenario_spi_trend,smartpm_get_scenario_should_start_finish_trend,smartpm_get_scenario_percent_complete_curve_v2,smartpm_list_scenario_change_log_by_type"` to load all the schemas at once.
+
+   If `ToolSearch` reports "no matching deferred tools", the SmartPM connector isn't connected. Tell the colleague:
+   > "SmartPM MCP isn't available in this session. Run `/mcp` to reconnect, or use `/schedule-update screenshots --legacy` for the Playwright path."
+   …and stop.
 
 ### Step 1: Read Project Context
 
-Apply folder resolution. Read `project-context.html`. Extract:
-- `graph_screenshots` — list of slugs to render
-- `smartpm_project_name` — exact name to match on SmartPM
-- `smartpm_url`
+Apply standard folder resolution (see `phases/status.md` for the rule — use today's dated folder under the project's Schedules tree). Read `project-context.html` via `parse_project_context_html` if available, otherwise extract these four fields directly from the HTML:
 
-If `project-context.html` is missing, stop with the standard error.
+- `graph_screenshots` — list of slugs to render. If empty or missing, default to:
+  `["smartpm-summary-curve", "smartpm-summary-cards", "smartpm-summary-milestones",
+    "06-end-date-variance", "07-schedule-compression-index-over-time",
+    "08-velocity", "09-spi-over-time", "10-activity-hit-rate",
+    "11-window-start-accuracy", "12-window-finish-accuracy"]`
+- `smartpm_project_name` — string to match on SmartPM. Falls back to `project_name`.
+- `smartpm_url` — used by the email body, not by this phase. Just preserve.
+- `contractual_completion` — `YYYY-MM-DD`. Only needed for `06-end-date-variance` (see Step 3). If missing from project-context, Step 3 will fall back to `smartpm_post_project_summary` for it.
 
-### Step 2: Resolve project_id + scenario_id
+If `project-context.html` is missing, stop with:
+> "No project-context.html found in {dated_folder}. Run `/schedule-update copy` first, then re-run this command."
 
-```
-project_id  = mcp__...__smartpm_list_projects matching smartpm_project_name
-scenario_id = mcp__...__smartpm_list_scenarios(project_id) → newest
-```
+### Step 2: Resolve project_id + modelId + scenarioId(s)
 
-If no match: surface the names you got and ask the colleague.
+This step is precise on purpose — Westland projects have multiple SmartPM scenarios with the same `dataDate`, so picking "the newest" by date is ambiguous and gets you the wrong scenario.
+
+1. **Find the project.** Call `smartpm_list_projects` (no args).
+
+   ```
+   target_name = smartpm_project_name  # from Step 1
+   ```
+
+   Filter for projects whose `name` equals `target_name` exactly. If zero matches, retry with a case-insensitive, whitespace-trimmed comparison. If still zero, surface the closest 3 matches and ask the colleague:
+   > "I couldn't find a SmartPM project named {target_name!r}. Closest matches: 1. … 2. … 3. … Which one (or different)?"
+
+   On match, capture: `project_id = project['id']`.
+
+2. **Get the project record (single source of truth for scenario IDs).** Call `smartpm_get_project(projectId=project_id)`. Response contains:
+
+   ```json
+   {
+     "id": 147808,
+     "name": "Neiafu Tonga Temple",
+     "city": "Neiafu", "state": "Vava'u", "zipcode": null,
+     "currentModelId": 885,
+     "originalScenarioId": 2058,      // ← "Full Schedule" scenario
+     "defaultScenarioId": 2062,       // ← milestone scenario (Substantial Completion)
+     "dataDate": "2026-04-29T08:00:00"
+     // …other fields
+   }
+   ```
+
+   Capture:
+   ```
+   model_id              = project['currentModelId']
+   default_scenario_id   = project['defaultScenarioId']     # use this for everything
+   original_scenario_id  = project['originalScenarioId']    # ONLY for the second row of smartpm-summary-milestones
+   project_location      = ", ".join(p for p in (project.get('city'), project.get('state')) if p)
+   data_date             = project['dataDate'][:10]
+   ```
+
+   The `defaultScenarioId` is the milestone scenario you want for almost every chart. The `originalScenarioId` is the "Full Schedule" sibling — only relevant for the second row of the milestones chart. Do NOT call `smartpm_list_scenarios` to "pick the newest" — they all share `dataDate` and the IDs don't sort meaningfully.
 
 ### Step 3: Fetch + write payload JSONs
 
-Create `{dated_folder}/.chart-payload/`. For each slug in `graph_screenshots` plus the summary parts, call the right MCP endpoint and write a canonical-shape JSON to `.chart-payload/{slug}.json`. The slug → endpoint mapping:
+For each slug in `graph_screenshots`, call the MCP endpoint shown below, transform the response to the canonical payload shape (also shown below), and write it to `{dated_folder}/.chart-payload/{slug}.json`. Create `.chart-payload/` if it doesn't exist.
 
-| Slug | MCP endpoint | Canonical shape |
-|------|--------------|-----------------|
-| `06-end-date-variance` | `smartpm_list_scenario_schedules_v2(scenario_id)` | `{"updates": [{"dataDate", "sourceEndDate"}, ...], "contractual_completion"}` |
-| `07-schedule-compression-index-over-time` | `smartpm_get_scenario_schedule_compression_trend(scenario_id)` | `{"trend": [{"data_date", "value"}, ...]}` |
-| `08-velocity` | `smartpm_get_scenario_velocity(scenario_id)` | `{"months": [{"month", "starts", "finishes"}, ...]}` |
-| `09-spi-over-time` | `smartpm_get_scenario_spi_trend(scenario_id)` | `{"trend": [{"data_date", "value"}, ...]}` |
-| `10-activity-hit-rate` | `smartpm_get_scenario_should_start_finish_trend(scenario_id)` → hit-rate series | `{"trend": [{"data_date", "value"}, ...]}` |
-| `11-window-start-accuracy` | same endpoint → start-accuracy series | `{"trend": [{"data_date", "value"}, ...]}` |
-| `12-window-finish-accuracy` | same endpoint → finish-accuracy series | `{"trend": [{"data_date", "value"}, ...]}` |
-| `smartpm-summary-curve` | `smartpm_get_scenario_percent_complete_curve_v2` | `{"planned": [...], "actual": [...], "data_date"}` — see `charts.py:render_summary_plan_vs_actual` docstring |
-| `smartpm-summary-cards` | composite: `smartpm_post_project_summary` (health/SPI/quality/compression/predicted/previous-predicted) | see `charts.py:render_summary_cards` docstring |
-| `smartpm-summary-milestones` | composite: `smartpm_post_project_summary` called once per milestone scenario (defaultScenarioId for row 1, originalScenarioId for the Full Schedule row) + `smartpm_get_project` for location + `smartpm_list_scenario_change_log_by_type` for the CPD/recovery bullet items and Last Period Schedule Changes counts | see `charts.py:render_summary_milestones` docstring |
+**`smartpm_post_project_summary` warning:** This endpoint accepts a closed set of columns. ANY unknown column 400s the whole batch with no per-column detail. The valid columns are listed verbatim in the tool description (look for "CANONICAL COLUMNS:"). Don't invent names like `MILESTONES` or `LAST_PERIOD_CHANGES` — they don't exist on this endpoint.
 
-For any slug present in `graph_screenshots` that **isn't** in this table (i.e., one of the 9 non-default charts), the matplotlib path will raise `NotImplementedError`. That's the signal to suggest `--legacy` to the colleague.
+#### Recipe per slug
+
+##### `06-end-date-variance`
+
+```
+updates_response = smartpm_list_scenario_schedules_v2(
+    projectId=project_id, scenarioId=default_scenario_id)
+# updates_response is a list of dicts. Each has: dataDate, sourceEndDate, etc.
+
+# Get contractual completion. Prefer project-context if present; else MCP.
+if not contractual_completion:
+    summary = smartpm_post_project_summary(
+        projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
+        columns=["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"])
+    contractual_completion = summary["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"][:10]
+
+payload = {
+    "updates": updates_response,
+    "contractual_completion": contractual_completion,
+}
+```
+
+##### `07-schedule-compression-index-over-time`
+
+```
+resp = smartpm_get_scenario_schedule_compression_trend(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: list of {dataDate, scheduleCompression, scheduleCompressionIndex, indicator}
+
+payload = {"trend": resp}
+```
+
+##### `08-velocity`
+
+```
+resp = smartpm_get_scenario_velocity(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp: list of {date, baselineStarts, baselineFinishes, currentStarts, currentFinishes}
+# Don't try to massage the shape — pass it through as velocityList.
+
+payload = {
+    "velocityList": resp,
+    "dataDate": data_date,                        # YYYY-MM-DD from Step 2
+}
+```
+
+##### `09-spi-over-time`
+
+```
+resp = smartpm_get_scenario_spi_trend(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp: list of {dataDate, spi}
+
+payload = {"trend": resp}
+```
+
+##### `10-activity-hit-rate`, `11-window-start-accuracy`, `12-window-finish-accuracy`
+
+These three share a single endpoint — call it once and reuse the response.
+
+```
+hit_resp = smartpm_get_scenario_should_start_finish_trend(
+    projectId=project_id, scenarioId=default_scenario_id)
+# hit_resp: list of {dataDate, totalOnTimeHitRate,
+#                    startedOnTime, startedLate, didNotStart,
+#                    finishedOnTime, finishedLate, didNotFinish, ...}
+
+# Same payload for all three charts; the chart functions pick the field they want.
+payload = {"hitRates": hit_resp}
+# Write this same payload to three files:
+#   10-activity-hit-rate.json
+#   11-window-start-accuracy.json
+#   12-window-finish-accuracy.json
+```
+
+##### `smartpm-summary-curve`
+
+```
+resp = smartpm_get_scenario_percent_complete_curve_v2(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: {"percentCompleteTypes": {...},
+#              "data": [{"DATE", "LATE_DATE_PLANNED", "ACTUAL",
+#                        "SCHEDULED", "PLANNED", "PREDICTIVE"}, ...]}
+
+payload = resp   # pass through as-is
+```
+
+##### `smartpm-summary-cards`
+
+One call to `smartpm_post_project_summary`, then map fields into the canonical shape.
+
+```
+columns = [
+    "CURRENT_SCENARIO.HEALTH",
+    "CURRENT_SCENARIO.SCHEDULE_PERFORMANCE_INDEX",
+    "CURRENT_SCENARIO.PROGRESS",
+    "CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY",
+    "CURRENT_SCENARIO.DELAY_PLANNED_RECOVERY",
+    "CURRENT_SCENARIO.SCHEDULE_QUALITY",
+    "CURRENT_SCENARIO.COMPRESSION_DELTA",
+    "CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE",
+    "PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE",
+]
+r = smartpm_post_project_summary(
+    projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
+    columns=columns)
+
+# COMPRESSION_DELTA.current.index is the integer percentage you want (e.g. 0, 83).
+# Don't use .value — that's the raw ratio.
+payload = {
+    "health":      {"value": r["CURRENT_SCENARIO.HEALTH"]["health"]},
+    "spi":         r["CURRENT_SCENARIO.SCHEDULE_PERFORMANCE_INDEX"]["value"],
+    "planned_pct": round(r["CURRENT_SCENARIO.PROGRESS"]["currentPlanned"]),
+    "actual_pct":  round(r["CURRENT_SCENARIO.PROGRESS"]["currentActual"]),
+    "critical_path_delay_days": r["CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY"],
+    "planned_impact_days":      r["CURRENT_SCENARIO.DELAY_PLANNED_RECOVERY"],
+    "quality_grade":   r["CURRENT_SCENARIO.SCHEDULE_QUALITY"]["mark"],
+    "compression_pct": r["CURRENT_SCENARIO.COMPRESSION_DELTA"]["current"]["index"],
+    "predicted_completion":      r["CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+    "last_predicted_completion": r["PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+}
+```
+
+##### `smartpm-summary-milestones`
+
+This is the most complex one — 4 MCP calls total. Steps:
+
+1. **Row 1 — Substantial Completion** (the milestone scenario):
+   ```
+   r1 = smartpm_post_project_summary(
+       projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
+       columns=[
+           "PROJECT.NAME",
+           "SCENARIO.NAME",
+           "CURRENT_SCENARIO.DATA_DATE",
+           "CURRENT_SCENARIO.END_DATE",
+           "CURRENT_SCENARIO.CONTRACTUAL_END_DATE",
+           "CURRENT_SCENARIO.CONTRACTUAL_FLOAT",
+           "CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE",
+           "CURRENT_SCENARIO.COMPRESSION_DELTA",
+           "CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY",
+           "PREVIOUS_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY",
+       ])
+   ```
+
+2. **Row 2 — Full Schedule** (the original/COMPLETE scenario):
+   ```
+   r2 = smartpm_post_project_summary(
+       projectId=project_id, modelId=model_id, scenarioId=original_scenario_id,
+       columns=[
+           "SCENARIO.NAME",
+           "CURRENT_SCENARIO.END_DATE",
+           "CURRENT_SCENARIO.CONTRACTUAL_END_DATE",
+           "CURRENT_SCENARIO.CONTRACTUAL_FLOAT",
+           "CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE",
+           "CURRENT_SCENARIO.COMPRESSION_DELTA",
+       ])
+   ```
+
+3. **Bullet items for Selected Period Critical Path Delays.** Call `smartpm_list_scenario_change_log_by_type` with `type="CriticalChanges"` and `dataDate=data_date` (the latest data date from Step 2):
+   ```
+   cpd_items = smartpm_list_scenario_change_log_by_type(
+       projectId=project_id, scenarioId=default_scenario_id,
+       type="CriticalChanges", dataDate=data_date)
+   # cpd_items: list of {differences[], friendlyId, ...}.
+   # Render each as: f"{friendlyId} (+{N} days)" where N is derived from the
+   # remainingDuration or plannedDuration diff in `differences`.
+   ```
+
+4. **Last Period Schedule Changes counts.** Same endpoint, different type:
+   ```
+   activity_items = smartpm_list_scenario_change_log_by_type(
+       projectId=project_id, scenarioId=default_scenario_id,
+       type="ActivityChanges", dataDate=data_date)
+   # last_period_changes.total          = len(activity_items)
+   # last_period_changes.critical_path  = len(cpd_items)
+   # last_period_changes.acceleration_days = null  (not available from MCP)
+   ```
+
+5. **Assemble:**
+   ```
+   def days_late(r):
+       cf = r.get("CURRENT_SCENARIO.CONTRACTUAL_FLOAT")
+       return abs(cf) if cf is not None and cf < 0 else 0
+
+   payload = {
+       "project_name":     r1["PROJECT.NAME"],
+       "milestone_name":   r1["SCENARIO.NAME"],
+       "project_location": project_location,        # from Step 2
+       "data_date":        data_date,
+       "milestones": [
+           {
+               "order": 1,
+               "name": r1["SCENARIO.NAME"],
+               "contractual": r1["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"][:10] if r1.get("CURRENT_SCENARIO.CONTRACTUAL_END_DATE") else None,
+               "current":     r1["CURRENT_SCENARIO.END_DATE"][:10],
+               "days_late":   days_late(r1),
+               "predicted":   r1["CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+               "compression_pct": r1["CURRENT_SCENARIO.COMPRESSION_DELTA"]["current"]["index"],
+           },
+           {
+               "order": 2,
+               "name": r2["SCENARIO.NAME"],
+               "contractual": r2["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"][:10] if r2.get("CURRENT_SCENARIO.CONTRACTUAL_END_DATE") else None,
+               "current":     r2["CURRENT_SCENARIO.END_DATE"][:10],
+               "days_late":   days_late(r2),
+               "predicted":   r2["CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+               "compression_pct": r2["CURRENT_SCENARIO.COMPRESSION_DELTA"]["current"]["index"],
+           },
+       ],
+       "critical_path_delays": {
+           "count": (r1["CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY"]
+                     - r1["PREVIOUS_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY"]),
+           "items": [render_cpd_bullet(it) for it in cpd_items],
+       },
+       "critical_path_recoveries": {"count": 0, "items": []},
+       "last_period_changes": {
+           "total":         len(activity_items),
+           "critical_path": len(cpd_items),
+           "acceleration_days": None,
+       },
+   }
+   ```
+
+#### Non-default slugs
+
+For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 9 non-default trends — `01`, `02`, `03`, `04`, `05`, `13`, `14`, `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
 
 ### Step 4: Render
 
 ```bash
-cd {skill_dir}/references
-PYTHONPATH=. python -m charts.render {dated_folder}/.chart-payload {dated_folder}/screenshots
+cd "{skill_dir}/references"
+python -m charts.render "{dated_folder}/.chart-payload" "{dated_folder}/screenshots"
 ```
 
-The script prints a JSON `{rendered: [...], failed: [...]}`. If anything is in `failed`, surface it to the colleague.
+`charts/` is a regular Python package — no `PYTHONPATH` gymnastics needed when run as a module from the `references/` directory. Works identically on Windows PowerShell and bash.
+
+The script prints a JSON `{rendered: [...], failed: [...]}` to stdout.
 
 ### Step 5: Verify
 
-For each PNG named in `graph_screenshots` plus the summary parts: confirm exists in `{dated_folder}/screenshots/` and >0 bytes.
+For every slug in `graph_screenshots`: confirm `{dated_folder}/screenshots/{slug}.png` exists with size > 0 bytes. Use the Bash tool:
 
-If a slug failed with `NotImplementedError`, tell the colleague:
+```bash
+ls -la "{dated_folder}/screenshots/"
+```
+
+For any slug in the orchestrator's `failed` list whose `reason` contains `NotImplementedError`, tell the colleague:
 
 > "Chart {slug} isn't implemented in the new matplotlib path yet. Run `/schedule-update screenshots --legacy` to capture it via the existing Playwright path."
 
+For any other failure (e.g. MCP error, JSON write error), surface the exact `reason` so the colleague can decide.
+
 ### Step 6: Clean up
 
-Delete `{dated_folder}/.chart-payload/` so the dated folder stays clean.
+Remove the working payload directory:
+
+```bash
+rm -rf "{dated_folder}/.chart-payload"
+```
+
+(On Windows PowerShell: `Remove-Item -Recurse -Force "{dated_folder}\.chart-payload"`.)
+
+---
+
+## Failures & recovery
+
+| Failure mode | Where it surfaces | Action |
+|---|---|---|
+| `ToolSearch` returns no matches for `smartpm_*` tools | Step 0 | Tell the colleague to `/mcp` reconnect or use `--legacy`. |
+| `ModuleNotFoundError: matplotlib` | Step 0 | `pip install -r {skill_dir}/references/charts/requirements.txt` |
+| `smartpm_list_projects` returns no match for `smartpm_project_name` | Step 2.1 | Try case-insensitive match; if still no match, show the closest 3 names and ask. |
+| `smartpm_post_project_summary` 400 BAD_REQUEST | Step 3 | A column in the batch isn't in the canonical set. Re-check the tool description's "CANONICAL COLUMNS" list — don't invent column names. |
+| Renderer `failed` entry mentions `NotImplementedError` | Step 5 | Non-default slug. Quote the `--legacy` message above. |
+| Renderer `failed` entry mentions `KeyError` / `TypeError` | Step 5 | Payload shape doesn't match what the chart expects. Re-check the recipe in Step 3 for that slug — every chart's expected shape is inlined there. Don't `Read` the chart `.py` file. |
+| Renderer creates a PNG of size 0 | Step 5 | Likely an empty trend response (project too new). Show the colleague and offer to skip that slug. |
 
 ---
 
 ## Legacy path: `--legacy`
 
-Everything in this section is the **unchanged** Playwright capture. It runs the same `references/smartpm/capture-smartpm.js` script the pipeline has used until now, end-to-end. Use it when a matplotlib chart isn't ready or doesn't look right yet.
+Everything in this section is the **unchanged** Playwright capture. It runs `references/smartpm/capture-smartpm.js` end-to-end. Use when a matplotlib chart isn't ready or doesn't look right yet.
 
 ### Step 0: Pre-Flight — credentials + Node setup
 
