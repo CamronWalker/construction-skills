@@ -16,8 +16,14 @@ On the branch:
 After merging to `main`:
 
 5. **Push to origin** — so that any installed Claude Code instance pulling from the repo sees the marketplace bump.
-6. **Build** — run `python build.py` at the repo root to produce `src/{plugin}.zip` for each plugin. Pass a plugin name (e.g. `python build.py scheduling`) to build just one.
-7. **Distribute** — upload the updated zip(s) to the enterprise plugin distribution for zip-based installs.
+6. **Build in the main repo working tree, not a worktree.** From `C:\Users\camron\code\construction-skills\` (the main checkout — not under `.claude/worktrees/...`):
+   ```
+   git switch main          # release the feature branch if you were on it
+   git pull --ff-only       # pick up the merged PR
+   python build.py scheduling   # or omit the plugin name to build all
+   ```
+   The build writes `src/{plugin}.zip` *relative to the current working directory*, so building from a worktree puts the zip inside the worktree's `src/` — invisible to the distribution path you upload from. Always cd to the main checkout first. If a worktree currently has `main` checked out (which blocks `git switch main` in the main repo), `git switch <feature-branch>` inside the worktree to release it, then switch the main repo.
+7. **Distribute** — upload the updated zip(s) from the main repo's `src/` to the enterprise plugin distribution for zip-based installs.
 
 The `src/` folder is gitignored — zips are rebuilt locally after each merge and never committed. Both distribution paths are supported: the marketplace (`marketplace.json`) serves direct-from-repo installs; the zip serves enterprise-managed installs.
 
