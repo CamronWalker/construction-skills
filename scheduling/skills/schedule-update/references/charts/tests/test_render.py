@@ -206,8 +206,8 @@ class TestSummaryReportComposite(unittest.TestCase):
     def _seed_summary_parts(self):
         for slug in (
             'smartpm-summary-cards',
-            'smartpm-summary-milestones',
             'smartpm-summary-curve',
+            'smartpm-summary-milestones',
         ):
             (self.payload_dir / f'{slug}.json').write_text(
                 (FIXTURE_DIR / f'{slug}.json').read_text()
@@ -232,8 +232,8 @@ class TestSummaryReportComposite(unittest.TestCase):
         part_widths  = []
         for slug in (
             'smartpm-summary-cards',
-            'smartpm-summary-milestones',
             'smartpm-summary-curve',
+            'smartpm-summary-milestones',
         ):
             part = Image.open(self.output_dir / f'{slug}.png')
             part_heights.append(part.height)

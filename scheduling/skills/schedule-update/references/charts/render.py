@@ -23,12 +23,12 @@ from . import charts  # noqa: F401 — chart functions registered below as they'
 
 # The three summary-report parts that get composited, in the order they
 # stack top-to-bottom in the final PNG. Cards first (KPI headline), then
-# the milestones table (with header + change-summary bullets), then the
-# plan-vs-actual curve at the bottom.
+# the plan-vs-actual curve (project trajectory), then the milestones table
+# with its header + change-summary bullets last (the dated detail).
 _SUMMARY_COMPOSITE_ORDER = (
     'smartpm-summary-cards',
-    'smartpm-summary-milestones',
     'smartpm-summary-curve',
+    'smartpm-summary-milestones',
 )
 _SUMMARY_COMPOSITE_OUTPUT_SLUG = 'smartpm-summary-report'
 
