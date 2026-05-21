@@ -1445,6 +1445,11 @@ document.addEventListener('change', (e) => {
     const item = e.target.closest('[data-checked]');
     if (item) item.dataset.checked = e.target.checked ? 'true' : 'false';
   }
+  // Sync data-share-procore on attachment row so CSS border highlight tracks the checkbox live
+  if (e.target.matches('input[data-procore-checked]')) {
+    const li = e.target.closest('li.attachment-item');
+    if (li) li.dataset.shareProcore = e.target.checked ? 'true' : 'false';
+  }
 });
 
 // Mark narrative fields and scalar spans as "changed this week" on any
@@ -1971,11 +1976,14 @@ function collectFields() {
   out.custom_paragraphs = paras;
   const atts = [];
   document.querySelectorAll('.attachment-item').forEach(it => {
+    const incCb = it.querySelector('input[data-item-checked]');
+    const proCb = it.querySelector('input[data-procore-checked]');
     atts.push({
       filename: it.querySelector('.attachment-name').textContent.trim(),
-      checked: it.dataset.checked === 'true',
+      checked: incCb ? !!incCb.checked : (it.dataset.checked === 'true'),
       status: it.dataset.status || 'active',
       date_archived: it.dataset.archived || '',
+      share_to_procore: proCb ? !!proCb.checked : false,
     });
   });
   out.attachments = atts;
@@ -1986,6 +1994,9 @@ function collectFields() {
     include: crCheckbox ? !!crCheckbox.checked : false,
     filename: crFilename ? (crFilename.value || '').trim() : '',
   };
+  // Master "skip Procore this week" toggle
+  const skipProCb = document.querySelector('input[data-field="skip_procore"]');
+  out.skip_procore = skipProCb ? !!skipProCb.checked : false;
   const gl = document.querySelector('.graph-list[data-field]');
   if (gl) out[gl.dataset.field] = Array.from(gl.querySelectorAll('img[data-src]')).map(i => i.dataset.src);
   const summary = document.querySelector('img[data-field="summary_screenshot_rel"]');
