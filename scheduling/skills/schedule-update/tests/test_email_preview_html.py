@@ -344,6 +344,49 @@ class ProcoreFieldsGenerateTests(unittest.TestCase):
         self.assertIn('data-share-procore="false"', tmpl)
         self.assertIn('data-procore-checked', tmpl)
 
+    def test_copy_for_claude_js_emits_procore_fields(self):
+        """`Copy for Claude` builds JSON via collectFields(). The shape must
+        match parse_email_html.parse_preview_html so Claude can apply the
+        JSON in one pass without re-reading the HTML — specifically
+        share_to_procore per attachment and top-level skip_procore."""
+        html = self._gen()
+        # Locate the collectFields function body with a brace-matching walk
+        start = html.find('function collectFields()')
+        self.assertGreaterEqual(start, 0, 'collectFields() not found in JS')
+        depth = 0
+        body_end = -1
+        for i, ch in enumerate(html[start:], start):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    body_end = i + 1
+                    break
+        self.assertGreater(body_end, start, 'collectFields() body unbalanced')
+        body = html[start:body_end]
+        # share_to_procore must be emitted on each attachment row
+        self.assertIn('share_to_procore', body,
+                      'collectFields() must include share_to_procore on each '
+                      'attachment so Copy-for-Claude matches the parser shape')
+        # Top-level skip_procore must be emitted
+        self.assertIn('skip_procore', body,
+                      'collectFields() must emit top-level skip_procore so '
+                      'Copy-for-Claude matches the parser shape')
+
+    def test_procore_checkbox_change_listener_present(self):
+        """As the user toggles a Procore P checkbox, the LI's
+        data-share-procore must update live so the CSS border highlight
+        tracks the checkbox and the saved-snapshot HTML stays accurate."""
+        html = self._gen()
+        # The change listener must reference data-procore-checked
+        self.assertRegex(
+            html,
+            r"matches\(\s*['\"]input\[data-procore-checked\]['\"]\s*\)",
+            'No change listener wires data-procore-checked → '
+            'data-share-procore on the attachment row',
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
