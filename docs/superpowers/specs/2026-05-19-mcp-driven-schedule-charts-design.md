@@ -268,7 +268,7 @@ The phase file is the canonical mapping. `render.py` knows nothing about MCP —
 
 ### Hook: `scheduling/hooks/check_html_discipline.py`
 
-Lives in the **scheduling** plugin (not westland). Same shape as `westland/hooks/check_xer_write.py`.
+Lives in the **scheduling** plugin (not westland). Same shape as `westland/hooks/westland_share_guard.py`.
 
 - **Matcher**: `Read|Edit|Write|MultiEdit`
 - **Filename match**: basename equals `project-context.html` OR matches `[0-9]{4}-[0-9]{2}-[0-9]{2}-email-preview.html`

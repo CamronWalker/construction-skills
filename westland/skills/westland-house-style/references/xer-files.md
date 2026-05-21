@@ -31,7 +31,7 @@ Every modification = a new versioned file alongside the previous one:
 
 ## Enforcement
 
-This plugin (`westland`) ships a PreToolUse hook at `hooks/check_xer_write.py` that physically blocks:
+This plugin (`westland`) ships a PreToolUse hook at `hooks/westland_share_guard.py` that physically blocks:
 
 - `Edit` / `MultiEdit` / `NotebookEdit` on any existing `.xer` file
 - `Write` overwriting an existing `.xer` file

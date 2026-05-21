@@ -36,7 +36,7 @@ Reads a PreToolUse JSON envelope from stdin. Emits a JSON response on
 stdout per Claude Code's hookSpecificOutput format (exit 0). Legacy
 exit-2/stderr is still used on JSON parse failure for compatibility.
 
-Self-test: `python check_xer_write.py --self-test`
+Self-test: `python westland_share_guard.py --self-test`
 """
 
 from __future__ import annotations
@@ -321,7 +321,7 @@ def main() -> int:
         # Fail open — never block a tool call because the hook couldn't
         # parse its input. Print diagnostic so a real misconfiguration is
         # visible.
-        print(f"check_xer_write: invalid JSON on stdin: {exc}", file=sys.stderr)
+        print(f"westland_share_guard: invalid JSON on stdin: {exc}", file=sys.stderr)
         return 0
 
     tool_name = payload.get("tool_name", "")
@@ -332,7 +332,7 @@ def main() -> int:
 
 
 def self_test() -> int:
-    r"""Exercise the rule table. Run with `python check_xer_write.py --self-test`.
+    r"""Exercise the rule table. Run with `python westland_share_guard.py --self-test`.
 
     Tests inject the tmp directory as an additional Westland root so file
     operations on real on-disk paths exercise the path-scope predicate

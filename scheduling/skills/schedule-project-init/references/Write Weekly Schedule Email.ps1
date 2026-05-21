@@ -66,7 +66,7 @@ Write-Host ""
 Write-Host "  XER POLICY: every .xer is an IMMUTABLE record." -ForegroundColor Red
 Write-Host "  No in-place edits, no overwrites, no deletes — ever." -ForegroundColor Red
 Write-Host "  Modify by writing a new '...-v2.xer' (then -v3, etc.)." -ForegroundColor Red
-Write-Host "  Enforced by westland plugin's check_xer_write.py hook." -ForegroundColor Red
+Write-Host "  Enforced by westland plugin's westland_share_guard.py hook." -ForegroundColor Red
 Write-Host ""
 Write-Host "  claude: $claudePath" -ForegroundColor DarkGray
 Write-Host "  folder: $PWD" -ForegroundColor DarkGray
@@ -137,7 +137,7 @@ Policy — no exceptions:
 - **NEVER** delete a ``.xer``.
 
 Enforcement: the ``westland`` plugin (required org-wide dependency)
-ships a PreToolUse hook (``westland/hooks/check_xer_write.py``) that
+ships a PreToolUse hook (``westland/hooks/westland_share_guard.py``) that
 physically blocks these operations. If you try anyway, the tool call
 will be rejected with a stderr message. Don't try to work around the
 hook — if a step seems to require editing or deleting a ``.xer``, stop
