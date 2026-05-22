@@ -1,0 +1,206 @@
+[
+  {
+    "dataDate": "2026-02-26T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 0,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 0,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 0,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-03-05T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 0,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 0,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 0,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-03-12T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 2,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 1,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 2,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-03-19T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 3,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 0,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 3,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-03-26T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 0,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 0,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 0,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-04-02T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 5,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 3,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 2,
+      "DurationChanges": 1,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-04-09T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 2,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 0,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 2,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-04-16T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 3,
+      "ActivitiesAdded": 1,
+      "ActivityChanges": 1,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 2,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-04-23T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 0,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 2,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 0,
+      "DurationChanges": 2,
+      "NearCriticalChanges": 2,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-04-30T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 4,
+      "ActivitiesAdded": 1,
+      "ActivityChanges": 4,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 1,
+      "DurationChanges": 1,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-05-07T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 0,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 0,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 0,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  },
+  {
+    "dataDate": "2026-05-21T08:00:00",
+    "metrics": {
+      "DelayedActivityChanges": 0,
+      "CriticalChanges": 0,
+      "ActivitiesAdded": 0,
+      "ActivityChanges": 0,
+      "CalendarChanges": 0,
+      "FlaggedChanges": 0,
+      "AllCalendarChanges": 0,
+      "LogicChanges": 0,
+      "DurationChanges": 0,
+      "NearCriticalChanges": 0,
+      "WorkingDayChanges": 0,
+      "ActivitiesDeleted": 0
+    }
+  }
+]

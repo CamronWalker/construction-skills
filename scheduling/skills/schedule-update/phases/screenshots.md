@@ -164,6 +164,39 @@ health indicator (GOOD=green / FINE=amber / BAD=red). Y-axis auto-fits to
 the visible data range (SmartPM convention). The renderer accepts both the
 raw flat-list form and a `{"trend": [...]}` envelope for forward-compatibility.
 
+##### `04-schedule-changes-over-time`
+
+```
+resp = smartpm_get_scenario_change_log_summary(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: flat list (NOT wrapped in a dict envelope):
+#   [{"dataDate": "YYYY-MM-DDTHH:MM:SS",
+#     "metrics": {
+#         "CriticalChanges":        int,
+#         "NearCriticalChanges":    int,
+#         "ActivityChanges":        int,
+#         "LogicChanges":           int,
+#         "CalendarChanges":        int,
+#         "DurationChanges":        int,
+#         "DelayedActivityChanges": int,
+#         "ActivitiesAdded":        int,
+#         "ActivitiesDeleted":      int,
+#         "AllCalendarChanges":     int,
+#         "FlaggedChanges":         int,
+#         "WorkingDayChanges":      int
+#     }}, ...]
+# NOTE: there is no "totalActivities" field in this endpoint — the column
+# series visible in the SmartPM UI is not available via MCP.
+
+payload = resp   # pass through as-is (flat list)
+```
+
+7 smoothed spline lines, one per change category (Critical / Near-Critical /
+Activity / Logic / Calendar / Duration / Delayed Activity). Numeric Y-axis
+from 0 to max observed value, rounded up to a sensible tick boundary.
+All-zero datasets (early-stage projects) render as an empty-but-valid chart
+frame — no crash.
+
 ##### `06-end-date-variance`
 
 ```

@@ -2064,9 +2064,186 @@ def _stub(slug, description):
         )
     _render.__name__ = f'render_{slug.replace("-", "_")}'
     return _render
-render_schedule_changes_over_time = _stub(
-    '04-schedule-changes-over-time',
-    'Schedule Changes Over Time')
+# ---- Chart 04: Schedule Changes Over Time ----
+
+# Colors copied from Chrome MCP inspection of SmartPM's chart 04 DOM on 2026-05-21.
+# 7 spline series, one per change category.
+_PVA04_CRITICAL_CHANGES       = '#D01010'   # red
+_PVA04_NEAR_CRITICAL_CHANGES  = '#FFC000'   # amber
+_PVA04_ACTIVITY_CHANGES       = '#1AA462'   # green
+_PVA04_LOGIC_CHANGES          = '#0000FF'   # pure blue
+_PVA04_CALENDAR_CHANGES       = '#2196F3'   # material blue
+_PVA04_DURATION_CHANGES       = '#1476B7'   # dark blue
+_PVA04_DELAYED_ACTIVITY       = '#DB495B'   # pink-red
+
+# MCP field name (inside metrics{}) → label + color.  PascalCase as returned
+# by smartpm_get_scenario_change_log_summary.  Order matches SmartPM's legend.
+_PVA04_SPLINE_SERIES = [
+    ('CriticalChanges',         'Critical Changes',          _PVA04_CRITICAL_CHANGES),
+    ('NearCriticalChanges',     'Near Critical Changes',     _PVA04_NEAR_CRITICAL_CHANGES),
+    ('ActivityChanges',         'Activity Changes',          _PVA04_ACTIVITY_CHANGES),
+    ('LogicChanges',            'Logic Changes',             _PVA04_LOGIC_CHANGES),
+    ('CalendarChanges',         'Calendar Changes',          _PVA04_CALENDAR_CHANGES),
+    ('DurationChanges',         'Duration Changes',          _PVA04_DURATION_CHANGES),
+    ('DelayedActivityChanges',  'Delayed Activity Changes',  _PVA04_DELAYED_ACTIVITY),
+]
+
+
+def render_schedule_changes_over_time(data, output_path):
+    """Chart 04 — Schedule Changes Over Time (HTML+SVG → PNG).
+
+    Mirrors SmartPM's "Schedule Changes Over Time" trend:
+      - 7 smoothed spline lines, one per change category (Critical /
+        Near-Critical / Activity / Logic / Calendar / Duration / Delayed
+        Activity), each with its SmartPM palette color.
+      - Single numeric Y-axis from 0 to max observed value (with tick rounding).
+      - X-axis: dates MM/DD/YY per scenario update.
+      - Legend at the bottom with all 7 spline series.
+
+    NOTE: SmartPM's chart UI also shows a "Total Activities" column series,
+    but the MCP endpoint (smartpm_get_scenario_change_log_summary) does not
+    return a total-activity count — only per-change-type metrics.  The column
+    series is therefore omitted; the 7 spline series are rendered as-is.
+
+    Consumes the SmartPM MCP shape from smartpm_get_scenario_change_log_summary.
+    The API returns a flat list (NOT wrapped in {"summary": [...]}):
+      [
+          {"dataDate": "YYYY-MM-DDTHH:MM:SS",
+           "metrics": {
+               "CriticalChanges":        int,
+               "NearCriticalChanges":    int,
+               "ActivityChanges":        int,
+               "LogicChanges":           int,
+               "CalendarChanges":        int,
+               "DurationChanges":        int,
+               "DelayedActivityChanges": int,
+               ...other fields ignored...
+           }},
+          ...
+      ]
+    The renderer also accepts a {"summary": [...]} or {"trend": [...]} envelope
+    for forward-compatibility.
+    """
+    import math
+
+    # Accept flat list, {"summary": [...]}, or {"trend": [...]}.
+    if isinstance(data, list):
+        rows = data
+    else:
+        rows = data.get('summary') or data.get('trend') or []
+
+    output_path = Path(output_path)
+    html_path = output_path.with_suffix('.html')
+    title = 'Schedule Changes Over Time'
+
+    if not rows:
+        html_path.write_text(_pva01_empty_html(title), encoding='utf-8')
+        _html_to_png(html_path, output_path)
+        return
+
+    # SVG geometry — same proportions as charts 01/02/03.
+    svg_w, svg_h = 1692, 312
+    pad_t, pad_r, pad_b, pad_l = 14, 32, 30, 56
+    x0, x1 = pad_l, svg_w - pad_r
+    y0, y1 = pad_t, svg_h - pad_b
+
+    dates = [date.fromisoformat(r['dataDate'][:10]) for r in rows]
+    dmin, dmax = min(dates), max(dates)
+
+    # Y range: 0 to max value across all 7 spline series with ceiling to a
+    # nice tick boundary.  Guard the all-zero case gracefully.
+    all_values = []
+    for r in rows:
+        m = r.get('metrics') or {}
+        for field, _, _ in _PVA04_SPLINE_SERIES:
+            v = m.get(field)
+            if v is not None:
+                all_values.append(float(v))
+
+    if not all_values or max(all_values) == 0:
+        # All-zero dataset (early-stage project) — use a small default range so
+        # the chart renders as an empty-but-valid frame rather than crashing.
+        y_max = 10.0
+        tick_step = 2
+    else:
+        raw_max = max(all_values) * 1.1
+        # Pick a tick step that gives 4-6 ticks.
+        if raw_max > 100:
+            tick_step = 25
+        elif raw_max > 40:
+            tick_step = 10
+        elif raw_max > 15:
+            tick_step = 5
+        elif raw_max > 6:
+            tick_step = 2
+        else:
+            tick_step = 1
+        y_max = math.ceil(raw_max / tick_step) * tick_step
+
+    def value_to_y(v):
+        return y1 - (float(v) / y_max) * (y1 - y0)
+
+    # Gridlines + Y-axis tick labels.
+    gridlines = []
+    y_labels = []
+    for tick in range(0, int(y_max) + 1, tick_step):
+        y = value_to_y(tick)
+        gridlines.append(
+            f'<line x1="{x0}" y1="{y:.1f}" x2="{x1}" y2="{y:.1f}" class="grid-line" />'
+        )
+        y_labels.append(
+            f'<text x="{x0 - 8}" y="{y + 4:.1f}" class="axis-text axis-text-y">'
+            f'{tick}</text>'
+        )
+
+    # X-axis tick labels.
+    x_labels = []
+    for d in _pva01_x_ticks(dmin, dmax):
+        x = _pva01_x(d, dmin, dmax, x0, x1)
+        x_labels.append(
+            f'<text x="{x:.1f}" y="{y1 + 18}" class="axis-text axis-text-x">'
+            f'{d.strftime("%m/%d/%y")}</text>'
+        )
+
+    # Frame border.
+    frame = (
+        f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}" '
+        f'fill="none" stroke="{_PVA01_GRID}" stroke-width="1" />'
+    )
+
+    # 7 smoothed spline lines.
+    series_svg = []
+    for field, _label, color in _PVA04_SPLINE_SERIES:
+        pts = []
+        for r in rows:
+            m = r.get('metrics') or {}
+            v = m.get(field)
+            if v is None:
+                continue
+            d = date.fromisoformat(r['dataDate'][:10])
+            pts.append((_pva01_x(d, dmin, dmax, x0, x1), value_to_y(float(v))))
+        if not pts:
+            continue
+        d_path = _pva01_smooth_path(pts)
+        series_svg.append(
+            f'<path d="{d_path}" fill="none" stroke="{color}" stroke-width="2" />'
+        )
+
+    svg_inner = '\n'.join(gridlines + [frame] + y_labels + x_labels + series_svg)
+
+    # Legend — 7 line swatches, one per spline series.
+    legend_items = [
+        ('circle', color, '', label)
+        for _field, label, color in _PVA04_SPLINE_SERIES
+    ]
+    legend_html = '\n'.join(
+        _pva01_legend_item_html(kind, color, dash, label)
+        for kind, color, dash, label in legend_items
+    )
+
+    html_content = _pva01_html_envelope(title, svg_w, svg_h, svg_inner, legend_html)
+    html_path.write_text(html_content, encoding='utf-8')
+    _html_to_png(html_path, output_path)
 render_schedule_delay_over_time = _stub(
     '05-schedule-delay-over-time',
     'Schedule Delay Over Time')

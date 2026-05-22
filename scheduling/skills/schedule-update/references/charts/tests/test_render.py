@@ -223,6 +223,63 @@ class TestProjectHealthIndexOverTime(unittest.TestCase):
         img.close()
 
 
+@unittest.skipIf(shutil.which('node') is None,
+                 'node executable not on PATH — HTML→PNG rasterisation needs it')
+class TestScheduleChangesOverTime(unittest.TestCase):
+    """Chart 04 — 7 spline series per change category; numeric Y-axis."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '04-schedule-changes-over-time.png'
+        self.html = self.output.with_suffix('.html')
+        self.data = json.loads(
+            (FIXTURE_DIR / '04-schedule-changes-over-time.json').read_text()
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_html_with_smartpm_palette(self):
+        original = charts._html_to_png
+        try:
+            charts._html_to_png = lambda *a, **kw: None
+            charts.render_schedule_changes_over_time(self.data, str(self.output))
+        finally:
+            charts._html_to_png = original
+
+        self.assertTrue(self.html.exists())
+        body = self.html.read_text(encoding='utf-8')
+
+        # All 7 spline series colors must appear.
+        for color in ('#D01010', '#FFC000', '#1AA462', '#0000FF',
+                      '#2196F3', '#1476B7', '#DB495B'):
+            self.assertIn(color, body, f'palette color {color} missing')
+
+        self.assertIn('Schedule Changes Over Time', body)
+
+        # Legend labels for all 7 series.
+        for label in ('Critical Changes', 'Near Critical Changes',
+                      'Activity Changes', 'Logic Changes', 'Calendar Changes',
+                      'Duration Changes', 'Delayed Activity Changes'):
+            self.assertIn(label, body, f'legend label "{label}" missing')
+
+    def test_full_pipeline_writes_png_via_chromium(self):
+        try:
+            charts.render_schedule_changes_over_time(self.data, str(self.output))
+        except RuntimeError as e:
+            msg = str(e)
+            if 'Playwright is not installed' in msg or 'Executable doesn' in msg:
+                self.skipTest(msg.splitlines()[0])
+            raise
+
+        self.assertTrue(self.output.exists())
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+        w, h = img.size
+        self.assertGreater(w, h * 1.8)
+        img.close()
+
+
 class TestNonDefaultStubs(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -232,12 +289,12 @@ class TestNonDefaultStubs(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_unimplemented_chart_is_reported_as_failed(self):
-        # Use slug 04 (still a stub) — slugs 01/02/03 are now implemented
-        # via the HTML+SVG path. Replace with another remaining stub if 04
+        # Use slug 05 (still a stub) — slugs 01/02/03/04 are now implemented
+        # via the HTML+SVG path. Replace with another remaining stub if 05
         # also gets implemented later.
         payload_dir = Path(self._tmp.name) / 'payload'
         payload_dir.mkdir()
-        (payload_dir / '04-schedule-changes-over-time.json').write_text('{}')
+        (payload_dir / '05-schedule-delay-over-time.json').write_text('{}')
         results = render.render_payload(payload_dir, self.output_dir)
         self.assertEqual(results['rendered'], [])
         self.assertEqual(len(results['failed']), 1)
