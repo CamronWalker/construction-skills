@@ -4,9 +4,12 @@
 // At commit 1 the registry is empty; per-chart META imports get added as charts land.
 
 import { htmlEnvelope, escapeHtml } from './svg-lib.js';
+import { META as META01 } from './01-planned-vs-actual.js';
 
 /** @type {Record<string, { svgWidth: number, svgHeight: number, title: string }>} */
-export const CHART_META = {};
+export const CHART_META = {
+  '01-planned-vs-actual-percent-complete': META01,
+};
 
 /**
  * Render a placeholder card matching the dimensions of the real chart for `slug`.

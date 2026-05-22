@@ -118,6 +118,22 @@ renderer is the HTML+SVG path (clones SmartPM's Highcharts CSS, emits a
 sibling `.html` next to the `.png`), while the summary-curve renderer is
 the matplotlib path used inside the Summary Report composite.
 
+**Renderer:** chart 01 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/01-planned-vs-actual.js`). To render this
+slug standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
+The CLI dispatches every payload in `.chart-payload/` through the JS
+registry; slugs without a JS renderer are reported in `failed` with
+reason `no renderer in registry` (those still go through the Python
+`charts.render` step below until they migrate). At this commit, only
+chart 01 is on the JS path.
+
 ##### `02-schedule-quality-grade-over-time`
 
 ```

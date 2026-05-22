@@ -1,6 +1,9 @@
 // registry.js — slug → renderer function map.
+import { renderPlannedVsActual } from './01-planned-vs-actual.js';
 
 /** @typedef {import('./svg-lib.js').RenderFn<any>} RenderFn */
 
 /** @type {Record<string, RenderFn>} */
-export const RENDERERS = {};
+export const RENDERERS = {
+  '01-planned-vs-actual-percent-complete': renderPlannedVsActual,
+};

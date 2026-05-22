@@ -25,6 +25,19 @@ describe('renderPlaceholder', () => {
   it('throws on unknown slug with the offending slug name in the message', () => {
     expect(() => renderPlaceholder('not-a-real-slug')).toThrow(/unknown slug "not-a-real-slug"/);
   });
-  // The "matches CHART_META dimensions" test lands in commit 2 when CHART_META
-  // gets its first entry.
+});
+
+describe('renderPlaceholder (with populated CHART_META)', () => {
+  it('emits HTML containing the chart card width for a known slug', () => {
+    const { html, svgInner } = renderPlaceholder('01-planned-vs-actual-percent-complete');
+    expect(html).toContain(`width="${CHART_META['01-planned-vs-actual-percent-complete'].svgWidth}"`);
+    expect(html).toContain('Data not yet available');
+    expect(svgInner).toContain('<text');
+  });
+  it('honors custom message + warn icon', () => {
+    const { html } = renderPlaceholder('01-planned-vs-actual-percent-complete',
+      { message: 'Render failed', icon: 'warn' });
+    expect(html).toContain('Render failed');
+    expect(html).toContain('#FFC000');
+  });
 });
