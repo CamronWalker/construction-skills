@@ -80,6 +80,20 @@ export function smoothPath(pts) {
   return out.join(' ');
 }
 
+/**
+ * Parse a row's `DATE` (or other date field) into a UTC-midnight Date.
+ * All chart payload date fields use ISO `YYYY-MM-DD`; this helper normalises
+ * to UTC midnight so subsequent `.getUTCDate()` / `.getUTCMonth()` /
+ * `.getUTCFullYear()` calls are timezone-stable across hosts.
+ *
+ * @param {string} iso  ISO-8601 date string (e.g. "2026-05-21").
+ *                      Trailing time-of-day, if present, is stripped.
+ * @returns {Date}
+ */
+export function parseDate(iso) {
+  return new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
+}
+
 /** @param {Date} dmin @param {Date} dmax @param {number} [maxTicks=10] @returns {Date[]} */
 export function xTicks(dmin, dmax, maxTicks = 10) {
   const spanDays = Math.max(1, Math.floor((dmax.getTime() - dmin.getTime()) / 86400000));
@@ -112,7 +126,7 @@ export function seriesPts(rows, field, dmin, dmax, x0, x1, y0, y1) {
   for (const r of rows) {
     const v = r[field];
     if (v === null || v === undefined) continue;
-    const d = new Date(`${String(r.DATE)}T00:00:00Z`);
+    const d = parseDate(String(r.DATE));
     out.push([dateToX(d, dmin, dmax, x0, x1), pctToY(Number(v), y0, y1)]);
   }
   return out;

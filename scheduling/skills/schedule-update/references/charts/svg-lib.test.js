@@ -1,7 +1,7 @@
 // svg-lib.test.js
 import { describe, it, expect } from 'vitest';
 import {
-  dateToX, pctToY, smoothPath, xTicks, seriesPts,
+  dateToX, pctToY, smoothPath, xTicks, seriesPts, parseDate,
   markerSvg, legendItem, htmlEnvelope, emptyHtml,
 } from './svg-lib.js';
 
@@ -158,6 +158,24 @@ describe('emptyHtml', () => {
     const html = emptyHtml('My <Title>');
     expect(html).toContain('&lt;Title&gt;');
     expect(html).toContain('no data');
+  });
+});
+
+describe('parseDate', () => {
+  it('parses an ISO date to UTC midnight', () => {
+    const d = parseDate('2026-05-21');
+    expect(d.getUTCFullYear()).toBe(2026);
+    expect(d.getUTCMonth()).toBe(4); // May = 4
+    expect(d.getUTCDate()).toBe(21);
+    expect(d.getUTCHours()).toBe(0);
+  });
+
+  it('strips time component if present', () => {
+    const d = parseDate('2026-05-21T15:30:00');
+    expect(d.getUTCFullYear()).toBe(2026);
+    expect(d.getUTCMonth()).toBe(4);
+    expect(d.getUTCDate()).toBe(21);
+    expect(d.getUTCHours()).toBe(0); // forced to midnight
   });
 });
 

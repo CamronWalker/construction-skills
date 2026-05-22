@@ -2,7 +2,7 @@
 
 import {
   HTML_CARD_W, HTML_CARD_H,
-  dateToX, pctToY, smoothPath, xTicks, seriesPts,
+  dateToX, pctToY, smoothPath, xTicks, seriesPts, parseDate,
   markerSvg, legendItem, htmlEnvelope, emptyHtml,
 } from './svg-lib.js';
 
@@ -62,7 +62,7 @@ export function renderPlannedVsActual(payload) {
   const y0 = padT, y1 = svgH - padB;
 
   /** @type {Date[]} */
-  const dates = rows.map(r => new Date(`${r.DATE}T00:00:00Z`));
+  const dates = rows.map(r => parseDate(r.DATE));
   const dmin = new Date(Math.min(...dates.map(d => d.getTime())));
   const dmax = new Date(Math.max(...dates.map(d => d.getTime())));
 
@@ -70,7 +70,7 @@ export function renderPlannedVsActual(payload) {
   let dataDate = null;
   for (const r of rows) {
     if (r.ACTUAL !== null && r.ACTUAL !== undefined) {
-      dataDate = new Date(`${r.DATE}T00:00:00Z`);
+      dataDate = parseDate(r.DATE);
     }
   }
 
@@ -86,7 +86,7 @@ export function renderPlannedVsActual(payload) {
   const bandBot = [];
   for (const r of rows) {
     if (r.BASELINE_PLANNED === null || r.LATE_DATE_PLANNED === null) continue;
-    const d = new Date(`${r.DATE}T00:00:00Z`);
+    const d = parseDate(r.DATE);
     const x = dateToX(d, dmin, dmax, x0, x1);
     bandTop.push([x, pctToY(Number(r.BASELINE_PLANNED), y0, y1)]);
     bandBot.push([x, pctToY(Number(r.LATE_DATE_PLANNED), y0, y1)]);
@@ -124,6 +124,10 @@ export function renderPlannedVsActual(payload) {
   /** @param {Array<[number, number]>} pts @param {string} color @param {import('./svg-lib.js').MarkerKind} kind */
   const markers = (pts, color, kind) => pts.map(([x, y]) => markerSvg(kind, x, y, color, 4)).join('\n');
 
+  // Series, back-to-front. The dashed Scheduled Completion goes LAST so it
+  // sits visually above the solid Early Date Planned where the two coincide
+  // (same #388543 color) — without this z-order, the dashed line vanishes
+  // wherever the two coincide.
   const seriesSvg = [];
   if (bandPath) {
     seriesSvg.push(`<path d="${bandPath}" fill="${PROGRESS_TARGET_FILL}" fill-opacity="0.2" stroke="none" />`);

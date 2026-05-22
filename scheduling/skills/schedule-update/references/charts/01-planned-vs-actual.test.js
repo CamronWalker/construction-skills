@@ -44,6 +44,14 @@ describe('renderPlannedVsActual', () => {
     expect(() => renderPlannedVsActual(/** @type {any} */ ({ data: 'not an array' }))).toThrow(TypeError);
   });
 
+  it('throws TypeError when payload is null', () => {
+    expect(() => renderPlannedVsActual(/** @type {any} */ (null))).toThrow(TypeError);
+  });
+
+  it('throws TypeError when payload is a primitive (string)', () => {
+    expect(() => renderPlannedVsActual(/** @type {any} */ ('nope'))).toThrow(TypeError);
+  });
+
   it('renders empty-state card when data array is empty', () => {
     const { html: empty } = renderPlannedVsActual({ ...fixture, data: [] });
     expect(empty).toContain('no data');
