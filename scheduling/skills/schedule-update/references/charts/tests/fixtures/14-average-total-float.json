@@ -1,0 +1,33 @@
+{
+  "trend": [
+    { "dataDate": "2025-09-30T08:00:00", "value": 18.2 },
+    { "dataDate": "2025-10-07T08:00:00", "value": 18.5 },
+    { "dataDate": "2025-10-14T08:00:00", "value": 19.1 },
+    { "dataDate": "2025-10-21T08:00:00", "value": 20.4 },
+    { "dataDate": "2025-11-04T08:00:00", "value": 22.0 },
+    { "dataDate": "2025-11-25T08:00:00", "value": 23.7 },
+    { "dataDate": "2025-12-02T08:00:00", "value": 24.6 },
+    { "dataDate": "2025-12-09T08:00:00", "value": 25.8 },
+    { "dataDate": "2025-12-16T08:00:00", "value": 26.4 },
+    { "dataDate": "2026-01-06T08:00:00", "value": 27.9 },
+    { "dataDate": "2026-01-13T08:00:00", "value": 28.6 },
+    { "dataDate": "2026-01-20T08:00:00", "value": 30.1 },
+    { "dataDate": "2026-01-27T08:00:00", "value": 31.4 },
+    { "dataDate": "2026-02-03T08:00:00", "value": 32.8 },
+    { "dataDate": "2026-02-17T08:00:00", "value": 34.2 },
+    { "dataDate": "2026-02-24T08:00:00", "value": 35.0 },
+    { "dataDate": "2026-03-03T08:00:00", "value": 36.5 },
+    { "dataDate": "2026-03-10T08:00:00", "value": 37.1 },
+    { "dataDate": "2026-03-17T08:00:00", "value": 38.4 },
+    { "dataDate": "2026-03-24T08:00:00", "value": 39.0 },
+    { "dataDate": "2026-03-31T08:00:00", "value": 40.2 },
+    { "dataDate": "2026-04-07T08:00:00", "value": 41.0 },
+    { "dataDate": "2026-04-14T08:00:00", "value": 41.6 },
+    { "dataDate": "2026-04-21T08:00:00", "value": 42.3 },
+    { "dataDate": "2026-04-28T08:00:00", "value": 42.9 },
+    { "dataDate": "2026-05-05T08:00:00", "value": 43.5 },
+    { "dataDate": "2026-05-12T08:00:00", "value": 44.0 },
+    { "dataDate": "2026-05-19T08:00:00", "value": 44.6 }
+  ],
+  "_note": "Synthesized from Wellington (project 113385, scenario 1644) trajectory: avg total float climbs from ~18 days at scenario start to ~44 days by 2026-05 (latest schedule-quality.AVG_ACTIVITY_TOTAL_FLOAT normalizedValue per quality profile 779 = 115.6, but the chart uses a per-real-activity divisor that yields the 15-45 day range visible in the SmartPM Trends UI). Real values come from per-scenario schedule-quality calls at each data date; per-scenario trend endpoint not in public OAS as of 2026-05-22 — consumer should iterate per-date or use the page-internal /a/project/{id}/scenario/{sid}/summary-trend."
+}

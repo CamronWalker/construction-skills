@@ -263,6 +263,123 @@ registry; slugs without a JS renderer are reported in `failed` with reason
 `no renderer in registry` (those still go through the Python `charts.render`
 step until they migrate).
 
+##### `05-schedule-delay-over-time`
+
+```
+resp = smartpm_get_scenario_delay(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: flat list (NOT wrapped in a dict envelope):
+#   [{"period": int, "scheduleName": str,
+#     "dataDate": "YYYY-MM-DDTHH:MM:SS",
+#     "endDate":  "YYYY-MM-DDTHH:MM:SS",
+#     "endDateVariance":      {"period": int|null, "cumulative": int},
+#     "criticalPathDelay":    {"period": int|null, "cumulative": int},
+#     "criticalPathRecovery": {"period": int|null, "cumulative": int},
+#     "delayRecovery":        {"period": int|null, "cumulative": int}}, ...]
+# Period 0 is the baseline import (all `period` values null) — the renderer
+# skips it automatically.
+
+payload = resp   # pass through as-is (flat list)
+```
+
+3-series columnrange (vertical bars between two Y values per data date):
+**In-Period Delay** (`#b00020`) climbs above 0 to +`criticalPathDelay.period`,
+**In-Period Gains** (`#388543`) drops below 0 to -`criticalPathRecovery.period`,
+**Planned Impacts** (semi-transparent `rgba(16, 91, 141, 0.3)` fill, `#1476b7`
+outline) is signed — positive when planned in-period recovery is positive.
+Y-axis auto-fits to span all three series with 10% padding and includes a
+heavier `#999` zero-line baseline. X-axis labels format as `MMM DD, YYYY`.
+The renderer accepts the raw flat list OR a `{"data": [...]}` envelope.
+
+**Renderer:** chart 05 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/05-schedule-delay.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
+The CLI dispatches every payload in `.chart-payload/` through the JS
+registry; slugs without a JS renderer are reported in `failed` with reason
+`no renderer in registry` (those still go through the Python `charts.render`
+step until they migrate).
+
+##### `13-missing-logic`
+
+```
+# Per-scenario per-metric trend endpoint is NOT in the public OAS as of
+# 2026-05-22. Two viable strategies:
+#
+#  (a) Iterate the per-scenario schedule-quality calls at each data date.
+#      For each schedule in smartpm_list_scenario_schedules_v2 response:
+#          q = smartpm_get_scenario_schedule_quality(
+#              projectId=project_id, scenarioId=default_scenario_id,
+#              dataDate=schedule["dataDate"])
+#          # The MISSING_LOGIC metric carries `normalizedValue` as a fraction.
+#
+#  (b) Use the page-internal /a/project/{id}/scenario/{sid}/summary-trend
+#      endpoint via smartpm_request_raw and pluck the MISSING_LOGIC series.
+#      Faster (one call) but undocumented.
+#
+# Either way, transform to:
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": fraction_0_to_1}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line (`#2caffe`) with `#388543` circle markers and
+white outlines. Y-axis is percent (auto-fits with a 1% minimum span, always
+includes 0). X-axis labels format as `MM/DD/YY`. The renderer accepts the
+raw flat list OR a `{"trend": [...]}` envelope.
+
+**Renderer:** chart 13 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/13-missing-logic.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
+##### `14-average-total-float`
+
+```
+# Same trend-source caveat as 13-missing-logic. Iterate per-scenario
+# schedule-quality calls and pull the AVG_ACTIVITY_TOTAL_FLOAT metric's
+# raw days value (not normalizedValue — the chart shows real days, typically
+# 15-45 day range for Westland projects).
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": days_float}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line — same visual contract as chart 13 (line
+`#2caffe`, markers `#388543` filled white-stroked, M-L-L-... no curves).
+Y-axis is numeric days; tick labels include the unit (`"30 days"`).
+X-axis labels format as `MM/DD/YY`. The renderer accepts the raw flat list
+OR a `{"trend": [...]}` envelope.
+
+**Renderer:** chart 14 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/14-average-total-float.js`). To render this
+slug standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
 ##### `06-end-date-variance`
 
 ```
@@ -487,7 +604,7 @@ This is the most complex one — 4 MCP calls total. Steps:
 
 #### Non-default slugs
 
-For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 6 remaining non-default trends — `04`, `05`, `13`, `14`, `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
+For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 2 remaining non-default trends — `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
 
 ### Step 4: Render
 

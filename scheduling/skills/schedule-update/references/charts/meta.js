@@ -8,6 +8,9 @@ import { META as META01 } from './01-planned-vs-actual.js';
 import { META as META02 } from './02-schedule-quality.js';
 import { META as META03 } from './03-project-health.js';
 import { META as META04 } from './04-schedule-changes.js';
+import { META as META05 } from './05-schedule-delay.js';
+import { META as META13 } from './13-missing-logic.js';
+import { META as META14 } from './14-average-total-float.js';
 
 /** @type {Record<string, { svgWidth: number, svgHeight: number, title: string }>} */
 export const CHART_META = {
@@ -15,6 +18,9 @@ export const CHART_META = {
   '02-schedule-quality-grade-over-time':   META02,
   '03-project-health-index-over-time':     META03,
   '04-schedule-changes-over-time':         META04,
+  '05-schedule-delay-over-time':           META05,
+  '13-missing-logic':                      META13,
+  '14-average-total-float':                META14,
 };
 
 /**

@@ -10,7 +10,10 @@
 export { RENDERERS } from './registry.js';
 export { CHART_META } from './meta.js';
 export { renderPlaceholder } from './meta.js';
-export { renderPlannedVsActual } from './01-planned-vs-actual.js';
-export { renderScheduleQuality } from './02-schedule-quality.js';
-export { renderProjectHealth }   from './03-project-health.js';
-export { renderScheduleChanges } from './04-schedule-changes.js';
+export { renderPlannedVsActual }    from './01-planned-vs-actual.js';
+export { renderScheduleQuality }    from './02-schedule-quality.js';
+export { renderProjectHealth }      from './03-project-health.js';
+export { renderScheduleChanges }    from './04-schedule-changes.js';
+export { renderScheduleDelay }      from './05-schedule-delay.js';
+export { renderMissingLogic }       from './13-missing-logic.js';
+export { renderAverageTotalFloat }  from './14-average-total-float.js';
