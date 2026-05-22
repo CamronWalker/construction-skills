@@ -332,3 +332,84 @@ def editorial_to_kwargs(editorial):
         'signer_title':    editorial.get('signer_title', '') or '',
         'signer_mobile':   editorial.get('signer_mobile', '') or '',
     }
+
+
+def _call_generate_update_email_eml(output_path, **kwargs):
+    """Thin indirection so tests can monkeypatch the .eml builder call."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from generate_email_eml import generate_update_email_eml
+    finally:
+        try:
+            sys.path.remove(str(Path(__file__).resolve().parent))
+        except ValueError:
+            pass
+    return generate_update_email_eml(output_path, **kwargs)
+
+
+def _resolve_attachment_paths(filenames, dated_folder):
+    """Resolve attachment filenames against dated_folder. Skip missing files."""
+    resolved = []
+    for filename in filenames or []:
+        candidate = os.path.abspath(os.path.join(dated_folder, filename))
+        if os.path.isfile(candidate):
+            resolved.append(candidate)
+        # Missing files are silently skipped — same policy as the existing
+        # generate_update_email_eml's attachment loop.
+    return resolved
+
+
+def generate_email_from_draft(draft_path, output_eml_path, dated_folder,
+                              logo_path=None, smartpm_project_url='',
+                              smartpm_trends_url=''):
+    """Build a .eml file from an email-draft.json.
+
+    This is the new entry point that replaces the parse-preview-html flow.
+    Reads the draft, renders the stacked chart PNG, resolves attachment
+    filenames to absolute paths under dated_folder, fans the editorial
+    fields out as kwargs to generate_update_email_eml.
+
+    Args:
+        draft_path:        Path to email-draft.json (from MCP finalize_weekly_email).
+        output_eml_path:   Absolute path the .eml gets written to (typically
+                           {dated_folder}/{YYYY-MM-DD}-update-email.eml).
+        dated_folder:      The dated project folder — attachment filenames
+                           in the draft resolve against this.
+        logo_path:         Optional override; defaults to DEFAULT_LOGO_PATH.
+        smartpm_project_url, smartpm_trends_url: passed through to the builder.
+
+    Returns:
+        Absolute path to the written .eml.
+
+    Raises:
+        DraftError on JSON / schema / rasterization failures.
+    """
+    draft = load_draft(draft_path)
+    editorial = draft['editorial']
+
+    # 1. Render the stacked-graphs PNG into the dated folder's screenshots/ dir.
+    screenshots_dir = os.path.join(dated_folder, 'screenshots')
+    stacked_png_path = render_stacked_png(draft, screenshots_dir)
+
+    # 2. Translate editorial -> builder kwargs.
+    kwargs = editorial_to_kwargs(editorial)
+
+    # 3. Resolve attachment filenames -> absolute paths.
+    kwargs['attachment_paths'] = _resolve_attachment_paths(
+        kwargs['attachment_paths'], dated_folder
+    )
+
+    # 4. Plug the stacked PNG into the builder's `summary_screenshot_path` slot.
+    #    The old per-chart graph_screenshot_paths list is empty in the new
+    #    flow — one image holds all charts.
+    kwargs['summary_screenshot_path'] = stacked_png_path
+    kwargs['graph_screenshot_paths'] = []
+
+    # 5. SmartPM URLs + logo.
+    kwargs['smartpm_project_url'] = smartpm_project_url
+    kwargs['smartpm_trends_url'] = smartpm_trends_url
+    if logo_path is not None:
+        kwargs['logo_path'] = logo_path
+
+    # 6. Build the .eml.
+    return _call_generate_update_email_eml(output_eml_path, **kwargs)

@@ -193,5 +193,83 @@ class EditorialToKwargsTests(unittest.TestCase):
         self.assertNotIn('share_to_procore', self.kwargs)
 
 
+class GenerateEmailFromDraftTests(unittest.TestCase):
+    def setUp(self):
+        self.draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
+
+    def test_full_orchestration_writes_eml_and_invokes_builder(self):
+        import unittest.mock as mock
+        captured = {}
+
+        def fake_render_stacked_png(draft, output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+            path = os.path.join(output_dir, 'fake-stacked.png')
+            Path(path).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16)
+            return path
+
+        def fake_generate_eml(output_path, **kwargs):
+            captured['kwargs'] = kwargs
+            captured['output_path'] = output_path
+            Path(output_path).write_text('fake eml')
+            return os.path.abspath(output_path)
+
+        with mock.patch.object(email_draft_io, 'render_stacked_png',
+                               side_effect=fake_render_stacked_png), \
+             mock.patch.object(email_draft_io, '_call_generate_update_email_eml',
+                               side_effect=fake_generate_eml):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Pretend the .pdf attachments are present in the dated folder
+                for att in self.draft['editorial']['attachments']:
+                    Path(tmpdir, att['filename']).write_bytes(b'%PDF stub')
+                Path(tmpdir, self.draft['editorial']['changes_report']['filename']).write_bytes(b'%PDF stub')
+
+                eml_path = email_draft_io.generate_email_from_draft(
+                    draft_path=str(SAMPLE_DRAFT_PATH),
+                    output_eml_path=os.path.join(tmpdir, 'out.eml'),
+                    dated_folder=tmpdir,
+                )
+
+                self.assertTrue(os.path.isfile(eml_path))
+                # Builder received the stacked PNG via summary_screenshot_path
+                self.assertIn('summary_screenshot_path', captured['kwargs'])
+                self.assertTrue(captured['kwargs']['summary_screenshot_path'].endswith('.png'))
+                # No per-graph paths — stacked PNG replaces them
+                self.assertEqual(captured['kwargs'].get('graph_screenshot_paths', []), [])
+                # Attachment paths are absolute and exist
+                for att_path in captured['kwargs']['attachment_paths']:
+                    self.assertTrue(os.path.isabs(att_path))
+                    self.assertTrue(os.path.isfile(att_path))
+
+    def test_skips_attachments_that_dont_exist_on_disk(self):
+        import unittest.mock as mock
+
+        def fake_render_stacked_png(draft, output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+            path = os.path.join(output_dir, 'fake-stacked.png')
+            Path(path).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16)
+            return path
+
+        captured = {}
+
+        def fake_generate_eml(output_path, **kwargs):
+            captured['kwargs'] = kwargs
+            Path(output_path).write_text('fake eml')
+            return os.path.abspath(output_path)
+
+        with mock.patch.object(email_draft_io, 'render_stacked_png',
+                               side_effect=fake_render_stacked_png), \
+             mock.patch.object(email_draft_io, '_call_generate_update_email_eml',
+                               side_effect=fake_generate_eml):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # NO attachment files placed in tmpdir
+                email_draft_io.generate_email_from_draft(
+                    draft_path=str(SAMPLE_DRAFT_PATH),
+                    output_eml_path=os.path.join(tmpdir, 'out.eml'),
+                    dated_folder=tmpdir,
+                )
+                # Builder receives empty attachment list (missing files skipped)
+                self.assertEqual(captured['kwargs']['attachment_paths'], [])
+
+
 if __name__ == '__main__':
     unittest.main()
