@@ -414,6 +414,18 @@ Each commit:
 | 11| `feat(scheduling): JS summary report`               | The big one — 3 sections (cards + curve + milestones table) in 1 HTML, single PNG. `svgInner: ''`.                                                                                                                  |
 | 12| **Cleanup commit — see "Cleanup commit" section below**                                                                                                                                                              |
 
+### Consumer-branch deploy milestones
+
+westland-mcps' branch can deploy progressively as commits here land. The dispatching layer (`RENDERERS[slug]`) doesn't need feature-gating per chart — slugs that aren't yet in the registry simply trigger the consumer's `renderPlaceholder(slug, { message: 'Coming soon' })` fallback path. The user-visible delta during the migration is "some cards show a placeholder where the rendered chart will be after commit N" — no layout shift, no consumer code change between landings.
+
+- **After commit 1** — API contract stable. westland-mcps can finalize the `RenderResult` shape, the placeholder-substitution code path, the editor scaffold, and the email-stacking layout. All 17 slugs render via `renderPlaceholder` (real card dimensions, no data).
+- **After commit 5** — charts 01–04 render end-to-end with live SmartPM data. The 13 unimplemented slugs continue to render via `renderPlaceholder`. Email previews are usable for projects where 01–04 are the meaningful charts.
+- **After commit 7** — charts 01–05 and 13–16 are live (8 trend charts).
+- **After commit 11** — every slug including `smartpm-summary-report` renders end-to-end. Emails round-trip live data through every card. **This is the threshold where the cloud editor matches the local CLI's coverage.**
+- **After commit 12 (cleanup)** — no Python in the rendering path. No `--legacy` escape hatch. westland-mcps' deploys exercise the same code paths the local CLI does.
+
+If westland-mcps ships a release between commits 1 and 11, its `graph_html[].status` field should reflect this with `'processing'` (no payload yet) or `'error'` (render threw) — never `'ready'` when the underlying slug doesn't have a real renderer in this branch's registry. The consumer is the one who knows; the chart package doesn't expose "is this a stub?" because there are no stubs — slugs are either in the registry or not.
+
 ## Per-chart testing contract
 
 Each `NN-slug.test.js` uses Vitest (`describe / it / expect`), runs against the existing fixture in `tests/fixtures/{slug}.json`, and asserts the HTML contract:
