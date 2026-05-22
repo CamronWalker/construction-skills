@@ -1,5 +1,9 @@
 # HTML+SVG chart migration — TypeScript port
 
+> **Status: SUPERSEDED 2026-05-22** by [2026-05-22 HTML+SVG chart migration — JavaScript port (JSDoc types)](2026-05-22-html-svg-chart-migration-javascript-design.md).
+>
+> Architectural decisions on this spec (file-per-slug layout, `{ html, svgInner }` return shape, no-d3 / reimplement svg-lib, 12-commit migration with cleanup at #12, parent-agent-does-Chrome-MCP workflow) were inherited wholesale by the JS spec. The pivot was driven by the actual cloud consumer turning out to be westland-mcps (Cloudflare Worker, JavaScript-only, no TypeScript build step) rather than a Deno-based Supabase Edge Function. Keeping the renderers in TS would have forced a build step on a consumer that doesn't otherwise have one. The visual contract per chart did not change; only the language did.
+
 **Date:** 2026-05-21
 **Branch:** `claude/blissful-tharp-ad03c2` → `feat/html-svg-chart-migration`
 **Plugin scope:** `scheduling` (chart renderer rewrite + phase doc updates + matplotlib + Playwright-capture removal)
