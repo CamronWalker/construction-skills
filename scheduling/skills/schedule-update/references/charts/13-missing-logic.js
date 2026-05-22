@@ -53,22 +53,44 @@ export function renderMissingLogic(payload) {
 
 /**
  * Single-series straight-line trend renderer. Shared by charts 13 (%), 14 (days),
- * 15 (% with red marker) and 16 (% with yellow marker).
+ * 15 (% with red marker), 16 (% with yellow marker), and 07 (compression index %).
  * Kept inline (not factored into svg-lib) because (a) these straight-line
  * single-series consumers are the only ones right now, and (b) Task 10 will
  * introduce a separate `_trend-line.js` shared module for the hit-rate trio.
  *
- * @param {Array<{ dataDate: string, value: number }>} rows
+ * @template R
+ * @param {Array<R>} rows
  * @param {string} title
  * @param {(v: number) => string} fmt   Y-axis tick formatter (input is the raw value).
  * @param {number} minSpan              Minimum Y-axis span (in value units).
  * @param {string} [markerFill]         Circle-marker fill color (default `#388543` green).
+ * @param {{
+ *   xFormat?: 'short' | 'long',
+ *   valueGetter?: (row: R) => (number | null | undefined),
+ *   includeZero?: boolean,
+ * }} [opts]
+ *   - xFormat: 'short' = `MM/DD/YY` (default), 'long' = `MMM DD, YYYY`.
+ *   - valueGetter: extract a numeric value from each row. Defaults to `r => r.value`.
+ *     Returning null/undefined/NaN skips the row.
+ *   - includeZero: clamp Y range to include 0 (default true). Set false when the
+ *     series is a signed delta and 0 shouldn't dominate the axis (e.g. chart 06).
  * @returns {import('./svg-lib.js').RenderResult}
  */
-export function renderTrendLine(rows, title, fmt, minSpan, markerFill = MARKER_FILL) {
-  const parsed = (rows ?? [])
-    .filter(r => r && typeof r.value === 'number' && !Number.isNaN(r.value))
-    .map(r => ({ d: parseDate(String(r.dataDate)), v: Number(r.value) }));
+export function renderTrendLine(rows, title, fmt, minSpan, markerFill = MARKER_FILL, opts = {}) {
+  const xFormat    = opts.xFormat    ?? 'short';
+  /** @type {(row: any) => (number | null | undefined)} */
+  const defaultGetter = (row) => row?.value;
+  const getValue   = opts.valueGetter ?? defaultGetter;
+  const includeZero = opts.includeZero ?? true;
+
+  /** @type {Array<{d: Date, v: number}>} */
+  const parsed = [];
+  for (const r of (rows ?? [])) {
+    const raw = getValue(r);
+    if (typeof raw !== 'number' || Number.isNaN(raw)) continue;
+    // @ts-ignore — row shape is renderer-specific; dataDate is the common contract.
+    parsed.push({ d: parseDate(String(r.dataDate)), v: raw });
+  }
 
   if (!parsed.length) return { html: emptyHtml(title), svgInner: '' };
 
@@ -80,9 +102,11 @@ export function renderTrendLine(rows, title, fmt, minSpan, markerFill = MARKER_F
   const dmin = new Date(Math.min(...parsed.map(p => p.d.getTime())));
   const dmax = new Date(Math.max(...parsed.map(p => p.d.getTime())));
 
-  // Y range: include 0 and observed max, then pad ±10% (clamped to a minimum span).
-  let vMin = Math.min(0, ...parsed.map(p => p.v));
-  let vMax = Math.max(0, ...parsed.map(p => p.v));
+  // Y range: include observed min/max (and 0 by default), then pad ±10%
+  // (clamped to a minimum span).
+  const seed = includeZero ? [0] : [];
+  let vMin = Math.min(...seed, ...parsed.map(p => p.v));
+  let vMax = Math.max(...seed, ...parsed.map(p => p.v));
   let span = Math.max(minSpan, vMax - vMin);
   const pad = span * 0.10;
   vMin -= pad;
@@ -101,13 +125,23 @@ export function renderTrendLine(rows, title, fmt, minSpan, markerFill = MARKER_F
     yLabels.push(`<text x="${x0 - 8}" y="${(y + 4).toFixed(1)}" class="axis-text axis-text-y">${fmt(v)}</text>`);
   }
 
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const xLabels = [];
   for (const d of xTicks(dmin, dmax)) {
     const x = dateToX(d, dmin, dmax, x0, x1);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    const yy = String(d.getUTCFullYear()).slice(-2);
-    xLabels.push(`<text x="${x.toFixed(1)}" y="${y1 + 18}" class="axis-text axis-text-x">${mm}/${dd}/${yy}</text>`);
+    let label;
+    if (xFormat === 'long') {
+      const mon = MONTHS[d.getUTCMonth()];
+      const dd  = String(d.getUTCDate()).padStart(2, '0');
+      const yyyy = d.getUTCFullYear();
+      label = `${mon} ${dd}, ${yyyy}`;
+    } else {
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      const yy = String(d.getUTCFullYear()).slice(-2);
+      label = `${mm}/${dd}/${yy}`;
+    }
+    xLabels.push(`<text x="${x.toFixed(1)}" y="${y1 + 18}" class="axis-text axis-text-x">${label}</text>`);
   }
 
   const frame = `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="${GRID}" stroke-width="1" />`;

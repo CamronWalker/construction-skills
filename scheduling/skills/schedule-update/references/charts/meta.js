@@ -9,6 +9,8 @@ import { META as META02 } from './02-schedule-quality.js';
 import { META as META03 } from './03-project-health.js';
 import { META as META04 } from './04-schedule-changes.js';
 import { META as META05 } from './05-schedule-delay.js';
+import { META as META06 } from './06-end-date-variance.js';
+import { META as META07 } from './07-schedule-compression.js';
 import { META as META13 } from './13-missing-logic.js';
 import { META as META14 } from './14-average-total-float.js';
 import { META as META15 } from './15-high-total-float.js';
@@ -21,6 +23,8 @@ export const CHART_META = {
   '03-project-health-index-over-time':     META03,
   '04-schedule-changes-over-time':         META04,
   '05-schedule-delay-over-time':           META05,
+  '06-end-date-variance':                  META06,
+  '07-schedule-compression-index-over-time': META07,
   '13-missing-logic':                      META13,
   '14-average-total-float':                META14,
   '15-high-total-float':                   META15,

@@ -447,17 +447,27 @@ updates_response = smartpm_list_scenario_schedules_v2(
     projectId=project_id, scenarioId=default_scenario_id)
 # updates_response is a list of dicts. Each has: dataDate, sourceEndDate, etc.
 
-# Get contractual completion. Prefer project-context if present; else MCP.
-if not contractual_completion:
-    summary = smartpm_post_project_summary(
-        projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
-        columns=["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"])
-    contractual_completion = summary["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"][:10]
+payload = {"updates": updates_response}
+```
 
-payload = {
-    "updates": updates_response,
-    "contractual_completion": contractual_completion,
-}
+Single-series straight line (`#2caffe`) with `#388543` circle markers and
+white outlines. The renderer computes end-date variance per row as
+`sourceEndDate - first(sourceEndDate)` in days — the first (earliest)
+update's end date is the baseline. Y-axis is numeric days (`"+45 days"`
+style) with a 5-day minimum visual span so a tightly clustered series
+doesn't collapse to a flat line. X-axis labels format as `MMM DD, YYYY`
+(e.g. `Oct 07, 2025`). The renderer accepts `{updates: [...]}` or a bare
+array. `contractual_completion` is no longer needed at the payload level —
+baseline-from-first-import is the SmartPM web view's actual reference.
+
+**Renderer:** chart 06 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/06-end-date-variance.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
 ```
 
 ##### `07-schedule-compression-index-over-time`
@@ -468,6 +478,25 @@ resp = smartpm_get_scenario_schedule_compression_trend(
 # resp shape: list of {dataDate, scheduleCompression, scheduleCompressionIndex, indicator}
 
 payload = {"trend": resp}
+```
+
+Single-series straight line (`#2caffe`) with `#1AA462` circle markers
+(slightly different green from chart 13's `#388543`) and white outlines.
+The renderer reads `scheduleCompressionIndex` (already in percent units,
+e.g. `16` means 16%) — NOT `scheduleCompression`, which is the underlying
+ratio. Rows where `scheduleCompressionIndex` is null are skipped (not
+plotted as 0). Y-axis is percent with a 1% minimum span; X-axis labels
+format as `MM/DD/YY`. The renderer accepts `{trend: [...]}` or a bare
+array.
+
+**Renderer:** chart 07 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/07-schedule-compression.js`). To render this
+slug standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
 ```
 
 ##### `08-velocity`

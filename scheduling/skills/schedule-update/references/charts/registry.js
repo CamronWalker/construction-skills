@@ -4,6 +4,8 @@ import { renderScheduleQuality }    from './02-schedule-quality.js';
 import { renderProjectHealth }      from './03-project-health.js';
 import { renderScheduleChanges }    from './04-schedule-changes.js';
 import { renderScheduleDelay }      from './05-schedule-delay.js';
+import { renderEndDateVariance }    from './06-end-date-variance.js';
+import { renderScheduleCompression } from './07-schedule-compression.js';
 import { renderMissingLogic }       from './13-missing-logic.js';
 import { renderAverageTotalFloat }  from './14-average-total-float.js';
 import { renderHighTotalFloat }     from './15-high-total-float.js';
@@ -18,6 +20,8 @@ export const RENDERERS = {
   '03-project-health-index-over-time':     renderProjectHealth,
   '04-schedule-changes-over-time':         renderScheduleChanges,
   '05-schedule-delay-over-time':           renderScheduleDelay,
+  '06-end-date-variance':                  renderEndDateVariance,
+  '07-schedule-compression-index-over-time': renderScheduleCompression,
   '13-missing-logic':                      renderMissingLogic,
   '14-average-total-float':                renderAverageTotalFloat,
   '15-high-total-float':                   renderHighTotalFloat,
