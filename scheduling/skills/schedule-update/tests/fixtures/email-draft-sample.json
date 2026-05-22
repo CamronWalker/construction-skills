@@ -1,0 +1,92 @@
+{
+  "project": "G2203",
+  "report_date": "2026-05-21",
+  "editorial": {
+    "project_info": {
+      "project_name": "Lubumbashi MTC",
+      "job_number": "G2203",
+      "contractual_completion": "April 30, 2027",
+      "projected_completion": "May 14, 2027"
+    },
+    "subject": "G2203 — Lubumbashi MTC — Weekly Update — 2026-05-21",
+    "from": "Camron Walker <camron@westlandconstruction.com>",
+    "to": "owner@example.com; pm@example.com",
+    "cc": "sub1@example.com; sub2@example.com",
+    "days_behind": 14,
+    "gain_loss": -3,
+    "successes": [
+      { "text": "Foundation pour complete on Building A.", "checked": true, "status": "active", "date_archived": "" },
+      { "text": "Steel delivery confirmed for week of 2026-06-01.", "checked": true, "status": "new", "date_archived": "" },
+      { "text": "Old success kept for history.", "checked": false, "status": "archived", "date_archived": "2026-05-07" }
+    ],
+    "red_flags": [
+      { "text": "**MEP coordination behind two weeks** — see RFI 0142.", "checked": true, "status": "active", "date_archived": "" }
+    ],
+    "stalled_tasks": [
+      { "text": "Roofing material approval pending owner sign-off.", "checked": true, "status": "active", "date_archived": "" }
+    ],
+    "key_items": [
+      { "text": "Owner walkthrough scheduled 2026-05-28.", "checked": true, "status": "active", "date_archived": "" }
+    ],
+    "gain_loss_narrative": "Lost 3 days this week to weather delays on the south elevation.",
+    "eot_recovery": "Filing EOT request 0017 for the weather impact; recovery plan attached.",
+    "logic_changes": "Reordered MEP rough-in to allow steel erection to continue in parallel.",
+    "smartpm_changelog_url": "https://app.smartpm.com/projects/12345/changelog",
+    "custom_paragraphs": [
+      { "label": "Owner directive 2026-05-19", "text": "Owner directed switch to alternate roofing material per email.", "checked": true }
+    ],
+    "attachments": [
+      { "filename": "G2203 Weekly Report 2026-05-21.pdf", "checked": true, "status": "active", "date_archived": "", "share_to_procore": true },
+      { "filename": "G2203 EOT Request 0017.pdf", "checked": true, "status": "new", "date_archived": "", "share_to_procore": false }
+    ],
+    "changes_report": { "include": true, "filename": "G2203 Changes Report 2026-05-21.pdf" },
+    "skip_procore": false,
+    "signer_name": "Camron Walker",
+    "signer_title": "Scheduler",
+    "signer_mobile": "555-0100",
+    "graph_order": [
+      "01-planned-vs-actual-percent-complete",
+      "02-schedule-quality-grade-over-time",
+      "03-project-health-index-over-time",
+      "smartpm-summary-report"
+    ]
+  },
+  "graph_data": {
+    "01-planned-vs-actual-percent-complete": { "stub": "real SmartPM response here" },
+    "02-schedule-quality-grade-over-time": null,
+    "03-project-health-index-over-time": null,
+    "smartpm-summary-report": { "stub": "real summary response here" }
+  },
+  "graph_html": {
+    "01-planned-vs-actual-percent-complete": {
+      "status": "ready",
+      "html": "<div class=\"chart-card\" data-slug=\"01-planned-vs-actual-percent-complete\"><h3>Planned vs Actual % Complete</h3><svg viewBox=\"0 0 1728 432\"><g class=\"series\"><!-- real svg here --></g></svg></div>",
+      "svgInner": "<g class=\"series\"><!-- real svg here --></g>"
+    },
+    "02-schedule-quality-grade-over-time": {
+      "status": "processing",
+      "html": "<div class=\"chart-card chart-card--placeholder\" data-slug=\"02-schedule-quality-grade-over-time\"><h3>Schedule Quality Grade Over Time</h3><svg viewBox=\"0 0 1728 432\"><!-- clock icon + 'Data not yet available' --></svg></div>",
+      "svgInner": ""
+    },
+    "03-project-health-index-over-time": {
+      "status": "error",
+      "html": "<div class=\"chart-card chart-card--placeholder\" data-slug=\"03-project-health-index-over-time\"><h3>Project Health Index Over Time</h3><svg viewBox=\"0 0 1728 432\"><!-- warn icon + 'Render failed' --></svg></div>",
+      "svgInner": ""
+    },
+    "smartpm-summary-report": {
+      "status": "ready",
+      "html": "<div class=\"chart-card\" data-slug=\"smartpm-summary-report\"><h3>Summary Report</h3><div><!-- 3 sections: cards + curve + milestones --></div></div>",
+      "svgInner": ""
+    }
+  },
+  "meta": {
+    "schema_version": 1,
+    "generated_at": "2026-05-21T20:14:33Z",
+    "last_refreshed_at": "2026-05-21T20:14:33Z",
+    "last_edited_at": "2026-05-21T21:02:11Z",
+    "status": "finalized",
+    "smartpm_import_status": "ready",
+    "graphs_ready_count": 2,
+    "graphs_total": 4
+  }
+}
