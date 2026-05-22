@@ -39,7 +39,7 @@ Run these checks **before** Step 1 — failing early is cheaper than crashing on
 Apply standard folder resolution (see `phases/status.md` for the rule — use today's dated folder under the project's Schedules tree). Read `project-context.html` via `parse_project_context_html` if available, otherwise extract these four fields directly from the HTML:
 
 - `graph_screenshots` — list of slugs to render. If empty or missing, default to:
-  `["smartpm-summary-curve", "smartpm-summary-cards", "smartpm-summary-milestones",
+  `["smartpm-summary-report",
     "01-planned-vs-actual-percent-complete",
     "02-schedule-quality-grade-over-time",
     "06-end-date-variance", "07-schedule-compression-index-over-time",
@@ -113,10 +113,7 @@ resp = smartpm_get_scenario_percent_complete_curve_v2(
 payload = resp   # pass through as-is
 ```
 
-Same endpoint as `smartpm-summary-curve`, different consumer: the chart-01
-renderer is the HTML+SVG path (clones SmartPM's Highcharts CSS, emits a
-sibling `.html` next to the `.png`), while the summary-curve renderer is
-the matplotlib path used inside the Summary Report composite.
+Same endpoint as the curve sub-payload assembled inside `smartpm-summary-report` (see below) — both consume `smartpm_get_scenario_percent_complete_curve_v2`. Chart 01 is the standalone trend page; the summary report's curve section is a simplified inline copy (no Progress Target band, no Late Date Planned series).
 
 **Renderer:** chart 01 is rendered by the JavaScript `@westland/charts`
 package (`references/charts/01-planned-vs-actual.js`). To render this
@@ -626,22 +623,22 @@ node scheduling/skills/schedule-update/references/charts/cli.js \
      {dated_folder}/screenshots
 ```
 
-##### `smartpm-summary-curve`
+##### `smartpm-summary-report`
 
+The Summary Report is a single composite rendered by `summary-report.js`. It bundles three sections — KPI cards (top), plan-vs-actual curve (middle), milestones table (bottom) — into one HTML document and rasterises to a single `smartpm-summary-report.png`. There is no separate sub-slug payload; build one merged payload and write it as `{dated_folder}/.chart-payload/smartpm-summary-report.json`.
+
+The merged payload shape:
+```python
+payload = {
+    "project_name":   r1["PROJECT.NAME"],
+    "milestone_name": r1["SCENARIO.NAME"],
+    "cards":      <cards sub-payload>,        # see "Cards" below
+    "curve":      <curve sub-payload>,        # see "Curve" below
+    "milestones": <milestones sub-payload>,   # see "Milestones" below
+}
 ```
-resp = smartpm_get_scenario_percent_complete_curve_v2(
-    projectId=project_id, scenarioId=default_scenario_id)
-# resp shape: {"percentCompleteTypes": {...},
-#              "data": [{"DATE", "LATE_DATE_PLANNED", "ACTUAL",
-#                        "SCHEDULED", "PLANNED", "PREDICTIVE"}, ...]}
 
-payload = resp   # pass through as-is
-```
-
-##### `smartpm-summary-cards`
-
-One call to `smartpm_post_project_summary`, then map fields into the canonical shape.
-
+**Cards sub-payload.** One MCP call.
 ```
 columns = [
     "CURRENT_SCENARIO.HEALTH",
@@ -654,31 +651,40 @@ columns = [
     "CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE",
     "PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE",
 ]
-r = smartpm_post_project_summary(
+rc = smartpm_post_project_summary(
     projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
     columns=columns)
 
 # COMPRESSION_DELTA.current.index is the integer percentage you want (e.g. 0, 83).
 # Don't use .value — that's the raw ratio.
-payload = {
-    "health":      {"value": r["CURRENT_SCENARIO.HEALTH"]["health"]},
-    "spi":         r["CURRENT_SCENARIO.SCHEDULE_PERFORMANCE_INDEX"]["value"],
-    "planned_pct": round(r["CURRENT_SCENARIO.PROGRESS"]["currentPlanned"]),
-    "actual_pct":  round(r["CURRENT_SCENARIO.PROGRESS"]["currentActual"]),
-    "critical_path_delay_days": r["CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY"],
-    "planned_impact_days":      r["CURRENT_SCENARIO.DELAY_PLANNED_RECOVERY"],
-    "quality_grade":   r["CURRENT_SCENARIO.SCHEDULE_QUALITY"]["mark"],
-    "compression_pct": r["CURRENT_SCENARIO.COMPRESSION_DELTA"]["current"]["index"],
-    "predicted_completion":      r["CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
-    "last_predicted_completion": r["PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+cards = {
+    "health":      {"value": rc["CURRENT_SCENARIO.HEALTH"]["health"]},
+    "spi":         rc["CURRENT_SCENARIO.SCHEDULE_PERFORMANCE_INDEX"]["value"],
+    "planned_pct": round(rc["CURRENT_SCENARIO.PROGRESS"]["currentPlanned"]),
+    "actual_pct":  round(rc["CURRENT_SCENARIO.PROGRESS"]["currentActual"]),
+    "critical_path_delay_days": rc["CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY"],
+    "planned_impact_days":      rc["CURRENT_SCENARIO.DELAY_PLANNED_RECOVERY"],
+    "quality_grade":   rc["CURRENT_SCENARIO.SCHEDULE_QUALITY"]["mark"],
+    "compression_pct": rc["CURRENT_SCENARIO.COMPRESSION_DELTA"]["current"]["index"],
+    "predicted_completion":      rc["CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+    "last_predicted_completion": rc["PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
 }
 ```
 
-##### `smartpm-summary-milestones`
+**Curve sub-payload.** One MCP call.
+```
+curve = smartpm_get_scenario_percent_complete_curve_v2(
+    projectId=project_id, scenarioId=default_scenario_id)
+# curve shape: {"percentCompleteTypes": {...},
+#               "data": [{"DATE", "LATE_DATE_PLANNED", "ACTUAL",
+#                         "SCHEDULED", "PLANNED", "PREDICTIVE"}, ...]}
+# Pass through as-is. The summary renderer reads PLANNED, ACTUAL, SCHEDULED
+# (the simplified series subset).
+```
 
-This is the most complex one — 4 MCP calls total. Steps:
+**Milestones sub-payload.** Four MCP calls.
 
-1. **Row 1 — Substantial Completion** (the milestone scenario):
+1. **Row 1 — milestone scenario:**
    ```
    r1 = smartpm_post_project_summary(
        projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
@@ -696,7 +702,7 @@ This is the most complex one — 4 MCP calls total. Steps:
        ])
    ```
 
-2. **Row 2 — Full Schedule** (the original/COMPLETE scenario):
+2. **Row 2 — Full Schedule (original/COMPLETE scenario):**
    ```
    r2 = smartpm_post_project_summary(
        projectId=project_id, modelId=model_id, scenarioId=original_scenario_id,
@@ -710,33 +716,29 @@ This is the most complex one — 4 MCP calls total. Steps:
        ])
    ```
 
-3. **Bullet items for Selected Period Critical Path Delays.** Call `smartpm_list_scenario_change_log_by_type` with `type="CriticalChanges"` and `dataDate=data_date` (the latest data date from Step 2):
+3. **Selected Period Critical Path Delays bullets:**
    ```
    cpd_items = smartpm_list_scenario_change_log_by_type(
        projectId=project_id, scenarioId=default_scenario_id,
        type="CriticalChanges", dataDate=data_date)
-   # cpd_items: list of {differences[], friendlyId, ...}.
-   # Render each as: f"{friendlyId} (+{N} days)" where N is derived from the
-   # remainingDuration or plannedDuration diff in `differences`.
+   # Render each as: f"{friendlyId} (+{N} days)" where N is derived from
+   # the remainingDuration or plannedDuration diff in `differences`.
    ```
 
-4. **Last Period Schedule Changes counts.** Same endpoint, different type:
+4. **Last Period Schedule Changes counts:**
    ```
    activity_items = smartpm_list_scenario_change_log_by_type(
        projectId=project_id, scenarioId=default_scenario_id,
        type="ActivityChanges", dataDate=data_date)
-   # last_period_changes.total          = len(activity_items)
-   # last_period_changes.critical_path  = len(cpd_items)
-   # last_period_changes.acceleration_days = null  (not available from MCP)
    ```
 
-5. **Assemble:**
+5. **Assemble milestones sub-payload:**
    ```
    def days_late(r):
        cf = r.get("CURRENT_SCENARIO.CONTRACTUAL_FLOAT")
        return abs(cf) if cf is not None and cf < 0 else 0
 
-   payload = {
+   milestones_payload = {
        "project_name":     r1["PROJECT.NAME"],
        "milestone_name":   r1["SCENARIO.NAME"],
        "project_location": project_location,        # from Step 2
@@ -775,6 +777,20 @@ This is the most complex one — 4 MCP calls total. Steps:
    }
    ```
 
+**Final merge.** Wrap the three sub-payloads in the composite envelope and write one JSON file:
+```
+payload = {
+    "project_name":   r1["PROJECT.NAME"],
+    "milestone_name": r1["SCENARIO.NAME"],
+    "cards":      cards,
+    "curve":      curve,
+    "milestones": milestones_payload,
+}
+# Write → {dated_folder}/.chart-payload/smartpm-summary-report.json
+```
+
+The composite renderer reads the merged payload and emits a single HTML document with three flexbox sections. The CLI rasteriser (`cli.js`) drives this through `html_to_png.cjs` to produce `smartpm-summary-report.png` — the same filename the email pipeline already embeds as `summary_screenshot_path`.
+
 #### Non-default slugs
 
 For any slug in `graph_screenshots` that **isn't** in the recipes above, the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
@@ -790,7 +806,7 @@ python -m charts.render "{dated_folder}/.chart-payload" "{dated_folder}/screensh
 
 The script prints a JSON `{rendered: [...], failed: [...]}` to stdout.
 
-**Summary-report composite.** After the main loop, if all three summary parts (`smartpm-summary-cards`, `smartpm-summary-curve`, `smartpm-summary-milestones`) rendered successfully, the orchestrator stacks them vertically into a single `smartpm-summary-report.png` in the output dir (cards on top, curve in the middle, milestones table at the bottom). This matches the legacy Playwright filename and is what the email body / preview / changes-report embed as the single `summary_screenshot_path`. Nothing extra to do — the composite appears as another entry in the `rendered` list.
+**Summary-report composite.** The `smartpm-summary-report` slug is a single composite renderer: one HTML envelope containing the cards (top), plan-vs-actual curve (middle), and milestones table (bottom), rasterised in one pass to `smartpm-summary-report.png`. Build the merged payload in Step 3 (see the `smartpm-summary-report` recipe). The email body / preview / changes-report embed this PNG as the single `summary_screenshot_path`.
 
 ### Step 5: Verify
 

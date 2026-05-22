@@ -26,3 +26,4 @@ export { renderMissingLogic }       from './13-missing-logic.js';
 export { renderAverageTotalFloat }  from './14-average-total-float.js';
 export { renderHighTotalFloat }     from './15-high-total-float.js';
 export { renderCriticalPathPercentage } from './16-critical-path-percentage.js';
+export { renderSummaryReport }      from './summary-report.js';

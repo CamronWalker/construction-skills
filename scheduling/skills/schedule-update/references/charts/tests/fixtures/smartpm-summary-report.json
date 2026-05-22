@@ -1,0 +1,1318 @@
+{
+  "project_name": "Wellington New Zealand Temple",
+  "milestone_name": "Substantial Completion (Turnover to Owner)",
+  "cards": {
+    "health": {
+      "value": 98
+    },
+    "spi": 0.99,
+    "planned_pct": 100,
+    "actual_pct": 99,
+    "critical_path_delay_days": 553,
+    "planned_impact_days": -278,
+    "quality_grade": "A-",
+    "compression_pct": 0,
+    "predicted_completion": "2026-06-10",
+    "last_predicted_completion": "2026-05-30"
+  },
+  "curve": {
+    "percentCompleteTypes": {
+      "LATE_DATE_PLANNED": "Late Date Planned (All Schedules)",
+      "ACTUAL": "Actual",
+      "SCHEDULED": "Scheduled Completion",
+      "PLANNED": "Early Date Planned (All Schedules)",
+      "PREDICTIVE": "Predictive Completion"
+    },
+    "data": [
+      {
+        "DATE": "2020-03-29",
+        "LATE_DATE_PLANNED": 0,
+        "ACTUAL": 0,
+        "SCHEDULED": null,
+        "PLANNED": 0,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-04-29",
+        "LATE_DATE_PLANNED": 0.4242088264359228,
+        "ACTUAL": 0.42420886500036153,
+        "SCHEDULED": null,
+        "PLANNED": 0.4242088264359228,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-05-29",
+        "LATE_DATE_PLANNED": 0.8869820916387476,
+        "ACTUAL": 0.8869814746077274,
+        "SCHEDULED": null,
+        "PLANNED": 0.8869820916387476,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-06-29",
+        "LATE_DATE_PLANNED": 2.0053508158789075,
+        "ACTUAL": 2.0053507387500304,
+        "SCHEDULED": null,
+        "PLANNED": 2.0053508158789075,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-07-29",
+        "LATE_DATE_PLANNED": 3.277977295186676,
+        "ACTUAL": 3.2779771409289205,
+        "SCHEDULED": null,
+        "PLANNED": 3.277977295186676,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-08-29",
+        "LATE_DATE_PLANNED": 4.608450432644797,
+        "ACTUAL": 4.6084498541782155,
+        "SCHEDULED": null,
+        "PLANNED": 4.608450432644797,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-09-29",
+        "LATE_DATE_PLANNED": 6.0931813251705265,
+        "ACTUAL": 6.0931811709127714,
+        "SCHEDULED": null,
+        "PLANNED": 6.0931813251705265,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-10-29",
+        "LATE_DATE_PLANNED": 8.252789896117044,
+        "ACTUAL": 8.252790416736968,
+        "SCHEDULED": null,
+        "PLANNED": 8.252789896117044,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-11-29",
+        "LATE_DATE_PLANNED": 9.89177854371038,
+        "ACTUAL": 9.891779025765866,
+        "SCHEDULED": null,
+        "PLANNED": 9.89177854371038,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2020-12-29",
+        "LATE_DATE_PLANNED": 10.952300609800188,
+        "ACTUAL": 10.95229866229603,
+        "SCHEDULED": null,
+        "PLANNED": 10.952300609800188,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-01-29",
+        "LATE_DATE_PLANNED": 12.880522548145294,
+        "ACTUAL": 12.880523126611871,
+        "SCHEDULED": null,
+        "PLANNED": 12.880522548145294,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-02-28",
+        "LATE_DATE_PLANNED": 14.307406782520669,
+        "ACTUAL": 14.307407091036179,
+        "SCHEDULED": null,
+        "PLANNED": 14.307406782520669,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-03-28",
+        "LATE_DATE_PLANNED": 15.07869555785871,
+        "ACTUAL": 15.078693822458964,
+        "SCHEDULED": null,
+        "PLANNED": 15.07869555785871,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-04-28",
+        "LATE_DATE_PLANNED": 15.811419894429848,
+        "ACTUAL": 15.811418776061124,
+        "SCHEDULED": null,
+        "PLANNED": 15.811419894429848,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-05-28",
+        "LATE_DATE_PLANNED": 16.659837547301695,
+        "ACTUAL": 16.659837315915063,
+        "SCHEDULED": null,
+        "PLANNED": 16.659837547301695,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-06-28",
+        "LATE_DATE_PLANNED": 17.14189303188797,
+        "ACTUAL": 17.141893070452408,
+        "SCHEDULED": null,
+        "PLANNED": 17.14189303188797,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-07-28",
+        "LATE_DATE_PLANNED": 18.04815734291017,
+        "ACTUAL": 18.04815792137675,
+        "SCHEDULED": null,
+        "PLANNED": 18.04815734291017,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-08-28",
+        "LATE_DATE_PLANNED": 19.282219383451036,
+        "ACTUAL": 19.28221949914435,
+        "SCHEDULED": null,
+        "PLANNED": 19.282219383451036,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-09-28",
+        "LATE_DATE_PLANNED": 20.45843476584155,
+        "ACTUAL": 20.458434804405986,
+        "SCHEDULED": null,
+        "PLANNED": 20.45843476584155,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-10-28",
+        "LATE_DATE_PLANNED": 21.11403022487888,
+        "ACTUAL": 21.11403039841886,
+        "SCHEDULED": null,
+        "PLANNED": 21.11403022487888,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-11-28",
+        "LATE_DATE_PLANNED": 21.692496806382415,
+        "ACTUAL": 21.692497134180144,
+        "SCHEDULED": null,
+        "PLANNED": 21.692496806382415,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2021-12-28",
+        "LATE_DATE_PLANNED": 22.675889994938416,
+        "ACTUAL": 22.675890168478393,
+        "SCHEDULED": null,
+        "PLANNED": 22.675889994938416,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-01-28",
+        "LATE_DATE_PLANNED": 23.834910923120347,
+        "ACTUAL": 23.83282329292101,
+        "SCHEDULED": null,
+        "PLANNED": 23.834910923120347,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-02-28",
+        "LATE_DATE_PLANNED": 25.455287643424285,
+        "ACTUAL": 25.448327527778446,
+        "SCHEDULED": null,
+        "PLANNED": 25.455287643424285,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-03-28",
+        "LATE_DATE_PLANNED": 27.43123780108665,
+        "ACTUAL": 27.419637340017832,
+        "SCHEDULED": null,
+        "PLANNED": 27.43123780108665,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-04-28",
+        "LATE_DATE_PLANNED": 28.932291707060333,
+        "ACTUAL": 29.00078270384921,
+        "SCHEDULED": null,
+        "PLANNED": 28.932291707060333,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-05-28",
+        "LATE_DATE_PLANNED": 31.279376854939986,
+        "ACTUAL": 32.28236153197233,
+        "SCHEDULED": null,
+        "PLANNED": 31.279376854939986,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-06-28",
+        "LATE_DATE_PLANNED": 33.54575399971894,
+        "ACTUAL": 35.440760992070196,
+        "SCHEDULED": null,
+        "PLANNED": 33.54575399971894,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-07-28",
+        "LATE_DATE_PLANNED": 36.05558589485013,
+        "ACTUAL": 38.885088230615345,
+        "SCHEDULED": null,
+        "PLANNED": 36.05558589485013,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-08-28",
+        "LATE_DATE_PLANNED": 38.38128617389709,
+        "ACTUAL": 41.7596485429873,
+        "SCHEDULED": null,
+        "PLANNED": 38.38128617389709,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-09-28",
+        "LATE_DATE_PLANNED": 41.051532583268845,
+        "ACTUAL": 45.628474824652315,
+        "SCHEDULED": null,
+        "PLANNED": 41.051532583268845,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-10-19",
+        "LATE_DATE_PLANNED": 43.15665422642146,
+        "ACTUAL": 47.749357236857975,
+        "SCHEDULED": null,
+        "PLANNED": 43.15665422642146,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-11-03",
+        "LATE_DATE_PLANNED": 43.71308480536249,
+        "ACTUAL": 50.11143138479413,
+        "SCHEDULED": null,
+        "PLANNED": 48.617031746738746,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-11-17",
+        "LATE_DATE_PLANNED": 44.01831307931101,
+        "ACTUAL": 51.15422333438815,
+        "SCHEDULED": null,
+        "PLANNED": 52.30487897328609,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-11-23",
+        "LATE_DATE_PLANNED": 44.02076866020164,
+        "ACTUAL": 0,
+        "SCHEDULED": null,
+        "PLANNED": 53.49592649832218,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-12-01",
+        "LATE_DATE_PLANNED": 44.75510773879839,
+        "ACTUAL": 50.3843314115899,
+        "SCHEDULED": null,
+        "PLANNED": 54.884997145610214,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2022-12-14",
+        "LATE_DATE_PLANNED": 45.98848031647482,
+        "ACTUAL": 50.72473545463502,
+        "SCHEDULED": null,
+        "PLANNED": 56.81434536147466,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-01-26",
+        "LATE_DATE_PLANNED": 48.98766517403368,
+        "ACTUAL": 51.59780620628509,
+        "SCHEDULED": null,
+        "PLANNED": 58.86861577767601,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-02-01",
+        "LATE_DATE_PLANNED": 49.44919095629241,
+        "ACTUAL": 51.87285390601912,
+        "SCHEDULED": null,
+        "PLANNED": 59.119284629660875,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-02-09",
+        "LATE_DATE_PLANNED": 50.130490920579106,
+        "ACTUAL": 52.17389646688317,
+        "SCHEDULED": null,
+        "PLANNED": 59.485646797946444,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-02-15",
+        "LATE_DATE_PLANNED": 50.67992637564901,
+        "ACTUAL": 37.08572156169228,
+        "SCHEDULED": null,
+        "PLANNED": 59.71703343054786,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-02-22",
+        "LATE_DATE_PLANNED": 51.25133924892174,
+        "ACTUAL": 39.40789265566557,
+        "SCHEDULED": null,
+        "PLANNED": 60.00626672129961,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-03-01",
+        "LATE_DATE_PLANNED": 51.62495535836927,
+        "ACTUAL": 39.83112017540012,
+        "SCHEDULED": null,
+        "PLANNED": 60.19908891513413,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-03-08",
+        "LATE_DATE_PLANNED": 51.95461663141122,
+        "ACTUAL": 40.25159794781846,
+        "SCHEDULED": null,
+        "PLANNED": 60.39191110896865,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-03-16",
+        "LATE_DATE_PLANNED": 52.37218757726436,
+        "ACTUAL": 40.46395472922605,
+        "SCHEDULED": null,
+        "PLANNED": 60.75827327725422,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-03-22",
+        "LATE_DATE_PLANNED": 52.65789401390071,
+        "ACTUAL": 40.262756720093314,
+        "SCHEDULED": null,
+        "PLANNED": 61.008942129239074,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-03-29",
+        "LATE_DATE_PLANNED": 52.98755528694267,
+        "ACTUAL": 40.298893743819065,
+        "SCHEDULED": null,
+        "PLANNED": 61.29817541999084,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-04-12",
+        "LATE_DATE_PLANNED": 53.51501332380979,
+        "ACTUAL": 40.846352029928156,
+        "SCHEDULED": null,
+        "PLANNED": 61.76094868519366,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-04-19",
+        "LATE_DATE_PLANNED": 53.91060685146014,
+        "ACTUAL": 42.293175989457126,
+        "SCHEDULED": null,
+        "PLANNED": 62.10802863409578,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-04-26",
+        "LATE_DATE_PLANNED": 54.21829070629928,
+        "ACTUAL": 43.0544927927543,
+        "SCHEDULED": null,
+        "PLANNED": 62.435826363614446,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-05-17",
+        "LATE_DATE_PLANNED": 54.721024147688254,
+        "ACTUAL": 45.17110123731643,
+        "SCHEDULED": null,
+        "PLANNED": 63.99768613367397,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-05-31",
+        "LATE_DATE_PLANNED": 55.160572511744185,
+        "ACTUAL": 46.77317521085755,
+        "SCHEDULED": null,
+        "PLANNED": 65.06061847718672,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-06-07",
+        "LATE_DATE_PLANNED": 55.33639185736655,
+        "ACTUAL": 47.62637771876472,
+        "SCHEDULED": null,
+        "PLANNED": 65.40769842608884,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-06-14",
+        "LATE_DATE_PLANNED": 55.60012087580012,
+        "ACTUAL": 48.1241341756971,
+        "SCHEDULED": null,
+        "PLANNED": 65.77165031695148,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-06-21",
+        "LATE_DATE_PLANNED": 55.83912529875553,
+        "ACTUAL": 48.79481336360133,
+        "SCHEDULED": null,
+        "PLANNED": 66.09944804647014,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-07-05",
+        "LATE_DATE_PLANNED": 56.73745226779484,
+        "ACTUAL": 49.52310290829659,
+        "SCHEDULED": null,
+        "PLANNED": 66.71647906674059,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-07-19",
+        "LATE_DATE_PLANNED": 57.66325100958765,
+        "ACTUAL": 50.29984588018985,
+        "SCHEDULED": null,
+        "PLANNED": 66.92858347995855,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-08-02",
+        "LATE_DATE_PLANNED": 58.303343314744104,
+        "ACTUAL": 50.47214410323013,
+        "SCHEDULED": null,
+        "PLANNED": 67.12140567379305,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-08-09",
+        "LATE_DATE_PLANNED": 58.52311749677207,
+        "ACTUAL": 51.27293596075636,
+        "SCHEDULED": null,
+        "PLANNED": 67.2178167707103,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-09-06",
+        "LATE_DATE_PLANNED": 59.46265212494162,
+        "ACTUAL": 54.8220338958798,
+        "SCHEDULED": null,
+        "PLANNED": 68.09997830750319,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-09-13",
+        "LATE_DATE_PLANNED": 59.90220048899756,
+        "ACTUAL": 55.83330756189112,
+        "SCHEDULED": null,
+        "PLANNED": 68.40608354021548,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-09-20",
+        "LATE_DATE_PLANNED": 60.6027306942117,
+        "ACTUAL": 56.435411988566074,
+        "SCHEDULED": null,
+        "PLANNED": 68.8688568054183,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-09-27",
+        "LATE_DATE_PLANNED": 61.15353973791928,
+        "ACTUAL": 56.87025856905158,
+        "SCHEDULED": null,
+        "PLANNED": 69.17978259297645,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-10-04",
+        "LATE_DATE_PLANNED": 61.68923930661245,
+        "ACTUAL": 58.29538387303213,
+        "SCHEDULED": null,
+        "PLANNED": 69.54614476126201,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-10-18",
+        "LATE_DATE_PLANNED": 62.78124227356391,
+        "ACTUAL": 60.02797597809748,
+        "SCHEDULED": null,
+        "PLANNED": 69.95348164573743,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-10-25",
+        "LATE_DATE_PLANNED": 63.132880964808656,
+        "ACTUAL": 60.01607804787392,
+        "SCHEDULED": null,
+        "PLANNED": 70.05230302007762,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-11-01",
+        "LATE_DATE_PLANNED": 63.547704733386446,
+        "ACTUAL": 60.59881143735898,
+        "SCHEDULED": null,
+        "PLANNED": 70.25958687844971,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-11-23",
+        "LATE_DATE_PLANNED": 65.34161149418972,
+        "ACTUAL": 63.33002793489053,
+        "SCHEDULED": null,
+        "PLANNED": 71.24056978958279,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-12-07",
+        "LATE_DATE_PLANNED": 66.64652069998077,
+        "ACTUAL": 65.36738350135128,
+        "SCHEDULED": null,
+        "PLANNED": 72.16129576514257,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2023-12-14",
+        "LATE_DATE_PLANNED": 67.19595615505068,
+        "ACTUAL": 65.7671756252413,
+        "SCHEDULED": null,
+        "PLANNED": 72.70360818530213,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-01-10",
+        "LATE_DATE_PLANNED": 68.88547017939068,
+        "ACTUAL": 68.01310299473029,
+        "SCHEDULED": null,
+        "PLANNED": 74.99337173708693,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-01-24",
+        "LATE_DATE_PLANNED": 70.09422818054449,
+        "ACTUAL": 69.25461015574994,
+        "SCHEDULED": null,
+        "PLANNED": 76.41543541661645,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-01-31",
+        "LATE_DATE_PLANNED": 70.75080354935304,
+        "ACTUAL": 69.84811573287817,
+        "SCHEDULED": null,
+        "PLANNED": 77.30000723083226,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-02-07",
+        "LATE_DATE_PLANNED": 71.45682810911788,
+        "ACTUAL": 69.95270250480051,
+        "SCHEDULED": null,
+        "PLANNED": 78.2086818192774,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-02-21",
+        "LATE_DATE_PLANNED": 72.3661437872586,
+        "ACTUAL": 70.51870441571316,
+        "SCHEDULED": null,
+        "PLANNED": 79.9296198992504,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-02-28",
+        "LATE_DATE_PLANNED": 72.84415263316943,
+        "ACTUAL": 62.20183088779902,
+        "SCHEDULED": null,
+        "PLANNED": 80.60208730024826,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-03-20",
+        "LATE_DATE_PLANNED": 74.5611384302629,
+        "ACTUAL": 63.8790310829031,
+        "SCHEDULED": null,
+        "PLANNED": 82.83400419388272,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-03-27",
+        "LATE_DATE_PLANNED": 75.06387187165188,
+        "ACTUAL": 64.74410043737053,
+        "SCHEDULED": null,
+        "PLANNED": 83.85837209862855,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-04-10",
+        "LATE_DATE_PLANNED": 76.70668388231093,
+        "ACTUAL": 66.04525819932785,
+        "SCHEDULED": null,
+        "PLANNED": 85.53833546241172,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-04-17",
+        "LATE_DATE_PLANNED": 77.42919150572787,
+        "ACTUAL": 67.73695385034445,
+        "SCHEDULED": null,
+        "PLANNED": 86.51449781869893,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-05-01",
+        "LATE_DATE_PLANNED": 79.10222246641577,
+        "ACTUAL": 68.19597114495787,
+        "SCHEDULED": null,
+        "PLANNED": 88.3173853310516,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-05-22",
+        "LATE_DATE_PLANNED": 81.60215378698388,
+        "ACTUAL": 70.25334886802378,
+        "SCHEDULED": null,
+        "PLANNED": 90.75899636048109,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-05-29",
+        "LATE_DATE_PLANNED": 82.52795252877668,
+        "ACTUAL": 71.1140691505416,
+        "SCHEDULED": null,
+        "PLANNED": 91.66767094892622,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-06-05",
+        "LATE_DATE_PLANNED": 83.44825691601879,
+        "ACTUAL": 72.96407210145333,
+        "SCHEDULED": null,
+        "PLANNED": 92.53537082118152,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-06-12",
+        "LATE_DATE_PLANNED": 84.43724073514464,
+        "ACTUAL": 73.15746206605043,
+        "SCHEDULED": null,
+        "PLANNED": 93.40066041601388,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-06-26",
+        "LATE_DATE_PLANNED": 86.09378863218043,
+        "ACTUAL": 73.72195681290995,
+        "SCHEDULED": null,
+        "PLANNED": 95.17462459929138,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-07-10",
+        "LATE_DATE_PLANNED": 87.53880387901431,
+        "ACTUAL": 74.52384337870672,
+        "SCHEDULED": null,
+        "PLANNED": 96.53884162067054,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-07-17",
+        "LATE_DATE_PLANNED": 88.44262520260432,
+        "ACTUAL": 74.44459303575175,
+        "SCHEDULED": null,
+        "PLANNED": 96.79433102750127,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-07-25",
+        "LATE_DATE_PLANNED": 89.25304249883244,
+        "ACTUAL": 74.57092091590553,
+        "SCHEDULED": null,
+        "PLANNED": 96.98715322133577,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-07-31",
+        "LATE_DATE_PLANNED": 89.99752754045218,
+        "ACTUAL": 74.9686777832901,
+        "SCHEDULED": null,
+        "PLANNED": 97.1414109764034,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-08-07",
+        "LATE_DATE_PLANNED": 91.11288151424411,
+        "ACTUAL": 75.26895505747775,
+        "SCHEDULED": null,
+        "PLANNED": 97.24023235074357,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-08-14",
+        "LATE_DATE_PLANNED": 92.25570726078955,
+        "ACTUAL": 75.98483687529531,
+        "SCHEDULED": null,
+        "PLANNED": 97.33664344766083,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-08-21",
+        "LATE_DATE_PLANNED": 93.34908381637868,
+        "ACTUAL": 76.4328087886186,
+        "SCHEDULED": null,
+        "PLANNED": 97.4330545445781,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-08-28",
+        "LATE_DATE_PLANNED": 94.00016483063652,
+        "ACTUAL": 76.75257135696766,
+        "SCHEDULED": null,
+        "PLANNED": 97.52946564149535,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-09-04",
+        "LATE_DATE_PLANNED": 94.7858575313865,
+        "ACTUAL": 76.35862043197119,
+        "SCHEDULED": null,
+        "PLANNED": 97.60659451902914,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-09-11",
+        "LATE_DATE_PLANNED": 95.96989093706216,
+        "ACTUAL": 76.86734108566732,
+        "SCHEDULED": null,
+        "PLANNED": 97.79700643544071,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-09-25",
+        "LATE_DATE_PLANNED": 97.04129007444853,
+        "ACTUAL": 77.74288740264494,
+        "SCHEDULED": null,
+        "PLANNED": 98.18265082310974,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-10-02",
+        "LATE_DATE_PLANNED": 97.54677069311283,
+        "ACTUAL": 78.08347230127792,
+        "SCHEDULED": null,
+        "PLANNED": 98.37547301694426,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-10-09",
+        "LATE_DATE_PLANNED": 97.92588115711106,
+        "ACTUAL": 77.89301595675971,
+        "SCHEDULED": null,
+        "PLANNED": 98.47429439128443,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-10-23",
+        "LATE_DATE_PLANNED": 98.36817669844237,
+        "ACTUAL": 77.24799993687242,
+        "SCHEDULED": null,
+        "PLANNED": 98.66711658511895,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-10-30",
+        "LATE_DATE_PLANNED": 98.58795088047032,
+        "ACTUAL": 77.4125528734273,
+        "SCHEDULED": null,
+        "PLANNED": 98.7635276820362,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-11-06",
+        "LATE_DATE_PLANNED": 98.70058514875964,
+        "ACTUAL": 78.66099971242072,
+        "SCHEDULED": null,
+        "PLANNED": 98.85993877895346,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-11-27",
+        "LATE_DATE_PLANNED": 99.25002060382955,
+        "ACTUAL": 81.38680290819151,
+        "SCHEDULED": null,
+        "PLANNED": 99.34199426353973,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2024-12-11",
+        "LATE_DATE_PLANNED": 99.44781736765474,
+        "ACTUAL": 81.89540168157211,
+        "SCHEDULED": null,
+        "PLANNED": 99.51553423799078,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-01-08",
+        "LATE_DATE_PLANNED": 99.88736573171066,
+        "ACTUAL": 82.90550010631878,
+        "SCHEDULED": null,
+        "PLANNED": 99.90117862565981,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-01-22",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 82.87176821558374,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-01-28",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 83.14373455487326,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-02-05",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 83.81300725431845,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-02-12",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 84.81019372961798,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-03-05",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 85.66126401566748,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-03-12",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 86.06303188748296,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-03-26",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 85.38083969957198,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-04-02",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 85.69467444692708,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-04-09",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 85.66599591952576,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-04-23",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 86.18373966307702,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-04-30",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 86.31840313340972,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-05-07",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 86.56568203939499,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-05-14",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 86.9947257448109,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-05-28",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 86.43782798073293,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-06-04",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 87.63333318296804,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-06-11",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 88.37022668669692,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-06-25",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 89.01132453447735,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-07-02",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 89.45536077251622,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-07-09",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 89.09235482407165,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-07-23",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 88.42647045994072,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-07-30",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 88.24147403203906,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-08-06",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 88.61639846697587,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-08-13",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 89.18688294247534,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-08-27",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 89.2660391447288,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-09-03",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 90.16311637952847,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-09-10",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 90.635309538936,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-09-24",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 91.04027982940805,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-10-01",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 91.35965202322654,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-10-08",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 91.99428997553842,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-10-22",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 92.5423991826709,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-10-29",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 92.67922004618077,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-11-05",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 92.43662499068233,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-11-12",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 93.50282186230616,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-12-03",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 95.00537485595096,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2025-12-10",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 95.29058627039221,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-01-14",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 96.47472142698808,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-01-21",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 96.85958056505275,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-01-28",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 97.48763778454784,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-02-04",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 97.79258210532275,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-02-11",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 98.08092557595425,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-02-18",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 98.18117658119337,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-02-25",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 98.62564675863892,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-03-04",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 98.87670733915537,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-03-18",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 99.09513929494314,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-04-08",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 99.51226019955863,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-04-15",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 99.52055167147462,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-04-22",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 99.48688399133138,
+        "SCHEDULED": null,
+        "PLANNED": 100,
+        "PREDICTIVE": null
+      },
+      {
+        "DATE": "2026-04-29",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": 99.4949495712805,
+        "SCHEDULED": 99.49494957128049,
+        "PLANNED": 100,
+        "PREDICTIVE": 99.49494957128049
+      },
+      {
+        "DATE": "2026-05-29",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": null,
+        "SCHEDULED": 99.92321006577723,
+        "PLANNED": 100,
+        "PREDICTIVE": 99.92024831034824
+      },
+      {
+        "DATE": "2026-06-09",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": null,
+        "SCHEDULED": 100,
+        "PLANNED": 100,
+        "PREDICTIVE": 99.9924620748139
+      },
+      {
+        "DATE": "2026-06-11",
+        "LATE_DATE_PLANNED": 100,
+        "ACTUAL": null,
+        "SCHEDULED": 100,
+        "PLANNED": 100,
+        "PREDICTIVE": 100
+      }
+    ]
+  },
+  "milestones": {
+    "project_name": "Neiafu Tonga Temple",
+    "milestone_name": "Substantial Completion (Turnover to Owner)",
+    "project_location": "Neiafu, Vava'u",
+    "data_date": "2026-04-29",
+    "milestones": [
+      {
+        "order": 1,
+        "name": "Substantial Completion (Turnover to Owner)",
+        "contractual": "2025-05-20",
+        "current": "2026-06-09",
+        "days_late": 385,
+        "predicted": "2026-06-10",
+        "compression_pct": 0
+      },
+      {
+        "order": 2,
+        "name": "Full Schedule",
+        "contractual": null,
+        "current": "2026-09-08",
+        "days_late": 0,
+        "predicted": "2026-09-11",
+        "compression_pct": 83
+      }
+    ],
+    "critical_path_delays": {
+      "count": 7,
+      "items": [
+        "NTT10150 - IMPACT: Church AV Mobilization & Network Installation (7 days)"
+      ]
+    },
+    "critical_path_recoveries": {
+      "count": 0,
+      "items": []
+    },
+    "last_period_changes": {
+      "total": 2,
+      "critical_path": 1,
+      "acceleration_days": null
+    }
+  }
+}

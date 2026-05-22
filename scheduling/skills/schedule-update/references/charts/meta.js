@@ -20,6 +20,7 @@ import { META as META13 } from './13-missing-logic.js';
 import { META as META14 } from './14-average-total-float.js';
 import { META as META15 } from './15-high-total-float.js';
 import { META as META16 } from './16-critical-path-percentage.js';
+import { META as META_SUMMARY } from './summary-report.js';
 
 /** @type {Record<string, { svgWidth: number, svgHeight: number, title: string }>} */
 export const CHART_META = {
@@ -39,6 +40,7 @@ export const CHART_META = {
   '14-average-total-float':                META14,
   '15-high-total-float':                   META15,
   '16-critical-path-percentage':           META16,
+  'smartpm-summary-report':                META_SUMMARY,
 };
 
 /**

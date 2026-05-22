@@ -15,6 +15,7 @@ import { renderMissingLogic }       from './13-missing-logic.js';
 import { renderAverageTotalFloat }  from './14-average-total-float.js';
 import { renderHighTotalFloat }     from './15-high-total-float.js';
 import { renderCriticalPathPercentage } from './16-critical-path-percentage.js';
+import { renderSummaryReport }      from './summary-report.js';
 
 /** @typedef {import('./svg-lib.js').RenderFn<any>} RenderFn */
 
@@ -36,4 +37,5 @@ export const RENDERERS = {
   '14-average-total-float':                renderAverageTotalFloat,
   '15-high-total-float':                   renderHighTotalFloat,
   '16-critical-path-percentage':           renderCriticalPathPercentage,
+  'smartpm-summary-report':                renderSummaryReport,
 };
