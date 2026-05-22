@@ -8,6 +8,9 @@ import { renderEndDateVariance }    from './06-end-date-variance.js';
 import { renderScheduleCompression } from './07-schedule-compression.js';
 import { renderVelocity }           from './08-velocity.js';
 import { renderSpiOverTime }        from './09-spi-over-time.js';
+import { renderActivityHitRate }    from './10-activity-hit-rate.js';
+import { renderWindowStartAccuracy } from './11-window-start-accuracy.js';
+import { renderWindowFinishAccuracy } from './12-window-finish-accuracy.js';
 import { renderMissingLogic }       from './13-missing-logic.js';
 import { renderAverageTotalFloat }  from './14-average-total-float.js';
 import { renderHighTotalFloat }     from './15-high-total-float.js';
@@ -26,6 +29,9 @@ export const RENDERERS = {
   '07-schedule-compression-index-over-time': renderScheduleCompression,
   '08-velocity':                           renderVelocity,
   '09-spi-over-time':                      renderSpiOverTime,
+  '10-activity-hit-rate':                  renderActivityHitRate,
+  '11-window-start-accuracy':              renderWindowStartAccuracy,
+  '12-window-finish-accuracy':             renderWindowFinishAccuracy,
   '13-missing-logic':                      renderMissingLogic,
   '14-average-total-float':                renderAverageTotalFloat,
   '15-high-total-float':                   renderHighTotalFloat,

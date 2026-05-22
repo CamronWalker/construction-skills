@@ -13,6 +13,9 @@ import { META as META06 } from './06-end-date-variance.js';
 import { META as META07 } from './07-schedule-compression.js';
 import { META as META08 } from './08-velocity.js';
 import { META as META09 } from './09-spi-over-time.js';
+import { META as META10 } from './10-activity-hit-rate.js';
+import { META as META11 } from './11-window-start-accuracy.js';
+import { META as META12 } from './12-window-finish-accuracy.js';
 import { META as META13 } from './13-missing-logic.js';
 import { META as META14 } from './14-average-total-float.js';
 import { META as META15 } from './15-high-total-float.js';
@@ -29,6 +32,9 @@ export const CHART_META = {
   '07-schedule-compression-index-over-time': META07,
   '08-velocity':                           META08,
   '09-spi-over-time':                      META09,
+  '10-activity-hit-rate':                  META10,
+  '11-window-start-accuracy':              META11,
+  '12-window-finish-accuracy':             META12,
   '13-missing-logic':                      META13,
   '14-average-total-float':                META14,
   '15-high-total-float':                   META15,

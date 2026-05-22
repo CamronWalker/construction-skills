@@ -585,6 +585,47 @@ payload = {"hitRates": hit_resp}
 #   12-window-finish-accuracy.json
 ```
 
+Three renderer shapes, one MCP endpoint:
+
+- **`10-activity-hit-rate`** — single-series straight line (`#1476b7`,
+  darker blue) with per-point threshold-colored circle markers — red
+  `#b00020` when `totalOnTimeHitRate < 0.7`, yellow `#f2c031` when
+  `0.7 ≤ totalOnTimeHitRate < 0.9`, green `#1AA462` when
+  `totalOnTimeHitRate ≥ 0.9` — plus two horizontal dashed reference
+  plotlines (yellow `#f2c031` at 0.7, green `#388543` at 1.0 target).
+  No legend (single series, colors are self-explanatory by threshold).
+  Y-axis is percent (1.0 = 100 %), floor at 0, ceiling at
+  `max(1.05, observed max + 0.05)`. Same visualization shape as chart
+  09; written inline rather than via the `_hit-rate.js` helper because
+  the helper covers only the stacked-column shape.
+
+- **`11-window-start-accuracy`** — 3-series stacked column chart with
+  one stack per data date: Started On Time (`#388543` green), Started
+  Late (`#f2c031` yellow), Did Not Start (`#b00020` red). Reads
+  `startedOnTime`, `startedLate`, `didNotStart` from each row. Y-axis
+  is integer count (0 to max stack height with 5 % headroom). Legend
+  below the chart.
+
+- **`12-window-finish-accuracy`** — same stacked-column shape as chart
+  11 but reads `finishedOnTime`, `finishedLate`, `didNotFinish`. Legend
+  labels: Finished On Time / Finished Late / Did Not Finish.
+
+X-axis labels for all three are `MM/DD/YY`. All three renderers accept
+`{hitRates: [...]}` or a bare array.
+
+**Renderer:** charts 10, 11, and 12 are rendered by the JavaScript
+`@westland/charts` package (`references/charts/10-activity-hit-rate.js`,
+`references/charts/11-window-start-accuracy.js`,
+`references/charts/12-window-finish-accuracy.js`; charts 11 and 12 share
+`references/charts/_hit-rate.js`). To render these slugs standalone
+(e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
 ##### `smartpm-summary-curve`
 
 ```
