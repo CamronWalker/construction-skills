@@ -231,3 +231,104 @@ def render_stacked_png(draft, output_dir):
             pass
 
     return png_path
+
+
+def _items_for_email_body(items):
+    """Filter an item-list (successes / red_flags / etc.) for email rendering.
+
+    The .eml + COM builders accept lists of markdown strings (the canonical
+    rule: only `checked=True` and `status != 'archived'`). Matches
+    parse_email_html.parse_preview_html()'s "list of markdown strings" shape.
+    """
+    out = []
+    for item in items or []:
+        if not item.get('checked'):
+            continue
+        if item.get('status') == 'archived':
+            continue
+        text = item.get('text', '').strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _custom_paragraphs_for_email_body(items):
+    """Filter custom paragraphs to {label, text} dicts for the body builder."""
+    out = []
+    for item in items or []:
+        if not item.get('checked'):
+            continue
+        label = item.get('label', '').strip()
+        text = item.get('text', '').strip()
+        if label or text:
+            out.append({'label': label, 'text': text})
+    return out
+
+
+def _attachments_for_email_body(items):
+    """Filter attachments for email-body inclusion (filenames only).
+
+    Returns a list of FILENAMES (not absolute paths). The orchestrator
+    `generate_email_from_draft` resolves these against the dated project
+    folder before passing to the builders.
+    """
+    out = []
+    for item in items or []:
+        if not item.get('checked'):
+            continue
+        if item.get('status') == 'archived':
+            continue
+        filename = (item.get('filename') or '').strip()
+        if filename:
+            out.append(filename)
+    return out
+
+
+def editorial_to_kwargs(editorial):
+    """Translate draft.editorial -> kwargs for generate_update_email_eml/msg.
+
+    The shape generate_update_email_eml expects is documented in
+    references/generate_email_eml.py::generate_update_email_eml's docstring;
+    the shape parse_email_html.parse_preview_html() returns is the canonical
+    source of truth (per scheduling/CLAUDE.md). This function bridges the
+    JSON shape (which mirrors parse_preview_html's `_full` dict shape) to
+    the builder kwargs (which want the filtered markdown-string shape for
+    items, filtered filename list for attachments).
+
+    Procore-related fields (`skip_procore`, `attachments[].share_to_procore`)
+    are NOT in the returned kwargs — they're consumed by the procore phase,
+    not the email body. The procore phase reads them straight off the
+    draft.editorial dict.
+
+    Args:
+        editorial: The `editorial` sub-dict from a loaded draft.
+
+    Returns:
+        Dict suitable for `**kwargs` into generate_update_email_eml or
+        generate_update_email_msg.
+    """
+    return {
+        'project_info': dict(editorial.get('project_info') or {}),
+        'days_behind': int(editorial.get('days_behind') or 0),
+        'gain_loss': int(editorial.get('gain_loss') or 0),
+        'successes':     _items_for_email_body(editorial.get('successes')),
+        'red_flags':     _items_for_email_body(editorial.get('red_flags')),
+        'stalled_tasks': _items_for_email_body(editorial.get('stalled_tasks')),
+        'key_items':     _items_for_email_body(editorial.get('key_items')),
+        'gain_loss_narrative': editorial.get('gain_loss_narrative', '') or '',
+        'eot_recovery':        editorial.get('eot_recovery', '') or '',
+        'logic_changes':       editorial.get('logic_changes', '') or '',
+        'smartpm_changelog_url': editorial.get('smartpm_changelog_url', '') or '',
+        'custom_paragraphs': _custom_paragraphs_for_email_body(
+            editorial.get('custom_paragraphs')
+        ),
+        # Names only — orchestrator resolves paths.
+        'attachment_paths': _attachments_for_email_body(editorial.get('attachments')),
+        'subject':         editorial.get('subject', '') or '',
+        'from_address':    editorial.get('from', '') or '',
+        'to_recipients':   editorial.get('to', '') or '',
+        'cc_recipients':   editorial.get('cc', '') or '',
+        'signer_name':     editorial.get('signer_name', '') or '',
+        'signer_title':    editorial.get('signer_title', '') or '',
+        'signer_mobile':   editorial.get('signer_mobile', '') or '',
+    }

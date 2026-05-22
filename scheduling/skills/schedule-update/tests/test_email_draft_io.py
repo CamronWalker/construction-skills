@@ -131,5 +131,67 @@ class RenderStackedPngTests(unittest.TestCase):
                     email_draft_io.render_stacked_png(self.draft, output_dir=tmpdir)
 
 
+class EditorialToKwargsTests(unittest.TestCase):
+    def setUp(self):
+        self.draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
+        self.kwargs = email_draft_io.editorial_to_kwargs(self.draft['editorial'])
+
+    def test_passes_through_project_info_and_metrics(self):
+        self.assertEqual(self.kwargs['project_info']['project_name'], 'Lubumbashi MTC')
+        self.assertEqual(self.kwargs['project_info']['job_number'], 'G2203')
+        self.assertEqual(self.kwargs['days_behind'], 14)
+        self.assertEqual(self.kwargs['gain_loss'], -3)
+
+    def test_passes_through_subject_and_recipients(self):
+        self.assertIn('Lubumbashi', self.kwargs['subject'])
+        self.assertEqual(self.kwargs['to_recipients'], 'owner@example.com; pm@example.com')
+        self.assertEqual(self.kwargs['cc_recipients'], 'sub1@example.com; sub2@example.com')
+        self.assertIn('camron@westlandconstruction.com', self.kwargs['from_address'])
+
+    def test_passes_through_narrative_blocks(self):
+        self.assertIn('weather delays', self.kwargs['gain_loss_narrative'])
+        self.assertIn('EOT request 0017', self.kwargs['eot_recovery'])
+        self.assertIn('Reordered MEP', self.kwargs['logic_changes'])
+        self.assertEqual(self.kwargs['smartpm_changelog_url'],
+                         'https://app.smartpm.com/projects/12345/changelog')
+
+    def test_filters_item_lists_to_checked_and_not_archived(self):
+        # Sample has 3 successes: 2 active+checked, 1 archived
+        # The .eml builder receives only the 2 active checked items as markdown strings.
+        successes = self.kwargs['successes']
+        self.assertEqual(len(successes), 2)
+        self.assertIn('Foundation pour', successes[0])
+        self.assertIn('Steel delivery confirmed', successes[1])
+        # Archived item is excluded
+        self.assertFalse(any('Old success' in s for s in successes))
+
+    def test_filters_attachments_to_checked_and_not_archived(self):
+        # All 2 sample attachments are checked + active
+        att = self.kwargs['attachment_paths']
+        self.assertEqual(len(att), 2)
+        # By default they are NAMES not paths — the orchestrator resolves to absolute
+        # paths against a search root. editorial_to_kwargs returns just names.
+        self.assertTrue(att[0].endswith('Weekly Report 2026-05-21.pdf'))
+        self.assertTrue(att[1].endswith('EOT Request 0017.pdf'))
+
+    def test_passes_signer_block(self):
+        self.assertEqual(self.kwargs['signer_name'], 'Camron Walker')
+        self.assertEqual(self.kwargs['signer_title'], 'Scheduler')
+        self.assertEqual(self.kwargs['signer_mobile'], '555-0100')
+
+    def test_passes_custom_paragraphs_filtered_to_checked(self):
+        custom = self.kwargs['custom_paragraphs']
+        # Sample has 1 custom paragraph, checked=True
+        self.assertEqual(len(custom), 1)
+        # Format expected by the builders: list of {label, text} dicts
+        # (the existing _build_html_body iterates the same shape)
+        self.assertEqual(custom[0]['label'], 'Owner directive 2026-05-19')
+
+    def test_drops_skip_procore_and_share_to_procore_fields(self):
+        # Those fields drive the procore phase, not the .eml body.
+        self.assertNotIn('skip_procore', self.kwargs)
+        self.assertNotIn('share_to_procore', self.kwargs)
+
+
 if __name__ == '__main__':
     unittest.main()
