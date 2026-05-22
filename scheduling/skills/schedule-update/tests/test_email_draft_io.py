@@ -49,5 +49,53 @@ class LoadDraftTests(unittest.TestCase):
             os.unlink(path)
 
 
+class BuildStackedChartPageTests(unittest.TestCase):
+    def setUp(self):
+        self.draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
+        self.graph_html = self.draft['graph_html']
+        self.order = self.draft['editorial']['graph_order']
+
+    def test_emits_html5_document(self):
+        page = email_draft_io.build_stacked_chart_page(self.graph_html, self.order)
+        self.assertTrue(page.startswith('<!DOCTYPE html>'))
+        self.assertIn('<html', page)
+        self.assertIn('</html>', page)
+
+    def test_contains_every_slug_in_canonical_order(self):
+        page = email_draft_io.build_stacked_chart_page(self.graph_html, self.order)
+        positions = [page.find(slug) for slug in self.order]
+        # All present
+        self.assertTrue(all(p >= 0 for p in positions), f'positions: {positions}')
+        # Ascending — appears in canonical order
+        self.assertEqual(positions, sorted(positions))
+
+    def test_viewport_width_is_1200(self):
+        page = email_draft_io.build_stacked_chart_page(self.graph_html, self.order)
+        # Either via meta viewport or explicit body width — either signal is fine
+        self.assertTrue(
+            'width=1200' in page or 'width:1200px' in page or 'max-width:1200px' in page,
+            'expected a 1200px width signal in stacked page'
+        )
+
+    def test_skips_slugs_missing_from_graph_html(self):
+        page = email_draft_io.build_stacked_chart_page(
+            self.graph_html,
+            self.order + ['nonexistent-slug-xyz']
+        )
+        # Doesn't crash; doesn't include the missing slug verbatim
+        self.assertNotIn('nonexistent-slug-xyz', page)
+
+    def test_skips_slugs_with_blank_html(self):
+        graph_html = dict(self.graph_html)
+        graph_html['02-schedule-quality-grade-over-time'] = {
+            'status': 'ready',
+            'html': '',
+            'svgInner': ''
+        }
+        page = email_draft_io.build_stacked_chart_page(graph_html, self.order)
+        # Other slugs still present
+        self.assertIn('01-planned-vs-actual-percent-complete', page)
+
+
 if __name__ == '__main__':
     unittest.main()

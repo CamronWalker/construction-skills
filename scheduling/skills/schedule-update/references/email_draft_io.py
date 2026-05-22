@@ -79,3 +79,73 @@ def load_draft(path):
         )
 
     return draft
+
+
+_STACKED_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200">
+<title>Weekly schedule charts — stacked</title>
+<style>
+  /* CSS-scale 1728px native chart cards down to fit a 1200px viewport.
+     SVG scales crisply so this loses no fidelity. */
+  body {{
+    margin: 0;
+    padding: 0;
+    width: 1200px;
+    font-family: Inter, Arial, sans-serif;
+    background: #ffffff;
+  }}
+  .chart-stack {{
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+  }}
+  .chart-stack > .chart-card,
+  .chart-stack > .chart-card--placeholder {{
+    width: 100%;
+    /* Charts render at 1728px native; scale to container width. */
+    transform-origin: top left;
+  }}
+  .chart-stack > .chart-card svg,
+  .chart-stack > .chart-card--placeholder svg {{
+    width: 100%;
+    height: auto;
+    display: block;
+  }}
+</style>
+</head>
+<body>
+<div class="chart-stack">
+{cards}
+</div>
+</body>
+</html>
+"""
+
+
+def build_stacked_chart_page(graph_html, order):
+    """Concatenate per-slug chart HTML chunks into one tall HTML document.
+
+    Args:
+        graph_html: Dict keyed by slug, values are {status, html, svgInner}.
+                    Empty or missing entries are skipped silently.
+        order:      List of slugs in canonical render order. Slugs not present
+                    in graph_html are skipped.
+
+    Returns:
+        A complete HTML5 document string. Body has 1200px width so Playwright
+        screenshots it at the email-column scale.
+    """
+    cards = []
+    for slug in order:
+        chunk = graph_html.get(slug)
+        if not chunk:
+            continue
+        html = (chunk.get('html') or '').strip()
+        if not html:
+            continue
+        cards.append(html)
+    return _STACKED_PAGE_TEMPLATE.format(cards='\n'.join(cards))
