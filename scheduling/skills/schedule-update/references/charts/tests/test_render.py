@@ -217,7 +217,6 @@ class TestPlannedVsActualPercentComplete(unittest.TestCase):
         # alone is enough to assert the visual contract — palette + dashes.
         # Call the building blocks directly so this test stays fast and
         # doesn't depend on Chromium being installed.
-        charts.render_planned_vs_actual_percent_complete.__wrapped__ if False else None
         # Build only the HTML by going through the public function but
         # short-circuiting the rasterisation step.
         original = charts._html_to_png

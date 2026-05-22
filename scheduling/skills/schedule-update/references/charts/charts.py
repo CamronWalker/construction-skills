@@ -1271,13 +1271,15 @@ _HTML_SCALE  = 2     # device scale factor; Chromium renders at 2x for crisp PNG
 
 
 def _html_to_png(html_path, png_path, width=_HTML_CARD_W, height=_HTML_CARD_H,
-                 scale=_HTML_SCALE):
+                 scale=_HTML_SCALE, timeout=60):
     """Rasterise an HTML file to PNG by shelling out to ``html_to_png.js``.
 
     The Node helper reuses references/node_modules/playwright (already
     installed for capture-smartpm.js), so no extra dependency on the
     Python side. Raises RuntimeError with the helper's stderr on failure
     so the render pipeline's `failed` list carries a useful message.
+    A `timeout` seconds cap guards against Chromium-launch hangs (first-run
+    sandbox issues, locked-down corporate machines, etc.).
     """
     if shutil.which('node') is None:
         raise RuntimeError(
@@ -1286,12 +1288,18 @@ def _html_to_png(html_path, png_path, width=_HTML_CARD_W, height=_HTML_CARD_H,
     if not _HTML_TO_PNG_SCRIPT.is_file():
         raise RuntimeError(f'rasteriser missing: {_HTML_TO_PNG_SCRIPT}')
 
-    result = subprocess.run(
-        ['node', str(_HTML_TO_PNG_SCRIPT),
-         str(html_path), str(png_path),
-         str(width), str(height), str(scale)],
-        capture_output=True, text=True,
-    )
+    try:
+        result = subprocess.run(
+            ['node', str(_HTML_TO_PNG_SCRIPT),
+             str(html_path), str(png_path),
+             str(width), str(height), str(scale)],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f'html_to_png.js timed out after {timeout}s — Chromium may be '
+            f'hanging during launch. stdout so far: {(e.stdout or b"").decode("utf-8", errors="replace").strip()}'
+        ) from e
     if result.returncode != 0:
         raise RuntimeError(
             f'html_to_png.js failed (exit {result.returncode}):\n'
