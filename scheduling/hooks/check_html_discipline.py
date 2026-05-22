@@ -22,7 +22,11 @@ READ_MSG = """HEADS UP — direct Read on a managed HTML file ({path}).
 
 This file is 47-160 KB. Prefer the JSON parser:
   - project-context.html        -> parse_project_context_html.load_project_context(schedules_root)
-  - *-email-preview.html        -> parse_email_html.parse_preview_html(path)
+  - *-email-preview.html        -> LEGACY (pre-cloud-editor weeks only).
+                                   Fresh weeks use email-draft.json instead —
+                                   read via email_draft_io.load_draft(path).
+                                   For carry-forward from a legacy week, read
+                                   via parse_email_html.parse_preview_html(path).
 
 Reading via the parser gives you a dict and avoids token blow-up. You can
 proceed if you have a reason, but most reads should go through the parser.
@@ -32,11 +36,17 @@ proceed if you have a reason, but most reads should go through the parser.
 WRITE_MSG = """HEADS UP — direct write to a managed HTML file ({path}).
 
 W1177 (2026-05-07) corrupted the embedded base64 logo via a direct Write.
-Prefer the matching generator:
-  - project-context.html        -> generate_project_context_html.generate_project_context_html(path, ctx)
-  - *-email-preview.html        -> generate_email_preview_html.generate_email_preview_html(...)
 
-Not blocked, but pause: is this an edit the generator can do?
+This file is part of the LEGACY preview-HTML flow. The new flow uses
+email-draft.json instead — see scheduling/skills/schedule-update/references/
+email_draft_io.py. If you're carrying forward from a pre-2026-05-XX week,
+read via parse_email_html.parse_preview_html() (don't Edit). Otherwise this
+file shouldn't be getting written at all.
+
+For project-context.html writes, use
+generate_project_context_html.generate_project_context_html(path, ctx).
+
+Not blocked, but pause: is this an edit a generator should do?
 """
 
 
