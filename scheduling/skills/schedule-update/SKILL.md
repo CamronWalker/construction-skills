@@ -26,8 +26,7 @@ Each sub-command names the phase files you MUST read in full before acting. **Do
 | Invocation | Phase files to read first | Purpose |
 |---|---|---|
 | `/schedule-update copy` | `phases/copy.md` | Pre-meeting folder setup |
-| `/schedule-update screenshots` | `phases/screenshots.md` | SmartPM trend data via MCP → matplotlib PNGs (default) |
-| `/schedule-update screenshots --legacy` | `phases/screenshots.md` | Same phase file; runs the legacy Playwright capture |
+| `/schedule-update screenshots` | `phases/screenshots.md` | SmartPM trend data via MCP → HTML+SVG PNGs (JS CLI) |
 | `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md` | Camron's email draft path |
 | `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/draft.md`, `phases/procore.md` | Colleague flow, steps 6–10 |
 | `/schedule-update draft` | `phases/draft.md`, `phases/_attachments.md`, `phases/procore.md` | `.eml` / COM draft + Procore publish |

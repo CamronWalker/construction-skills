@@ -2,12 +2,11 @@
 /**
  * Rasterise a chart HTML file to PNG via headless Chromium.
  *
- * Each chart's Python renderer (in charts.py) emits a self-contained
- * HTML+SVG document next to its PNG output. This helper opens that HTML
- * in Chromium, waits for fonts to settle, and screenshots the
- * `.chart-card` element. The PNG is the artifact the email pipeline
- * attaches; the HTML stays alongside it as an auditable, browser-viewable
- * sibling that uses the same CSS the rasterised PNG was made from.
+ * Each chart's JS renderer (the per-slug files in this directory, e.g.
+ * 01-planned-vs-actual.js) emits a self-contained HTML+SVG document. The
+ * CLI (cli.js) writes that HTML alongside its PNG output, then calls this
+ * helper to rasterise it. The HTML stays as an auditable, browser-viewable
+ * sibling that uses the same CSS the PNG was made from.
  *
  * Usage:
  *   node html_to_png.js <htmlPath> <pngPath> [width=1728] [height=432] [scale=2]
@@ -17,9 +16,7 @@
  *   1 — Chromium / screenshot error
  *   2 — bad args / file missing
  *
- * Resolves Playwright from references/node_modules — runs from the
- * existing install used by smartpm/capture-smartpm.js (no separate
- * dependency tree).
+ * Resolves Playwright from references/node_modules.
  */
 
 const path = require('path');

@@ -2,52 +2,62 @@
 
 > Loaded by SKILL.md's router when the user invokes `/schedule-update screenshots`.
 
-Captures the SmartPM Summary Report parts and trend graphs listed in `project-context.html`'s `graph_screenshots`. Two paths share the same output filenames so the rest of the pipeline can't tell them apart:
+Captures the SmartPM Summary Report and trend graphs listed in `project-context.html`'s `graph_screenshots` by fetching each chart's data via SmartPM MCP and rendering it locally with the `@westland/charts` HTML+SVG → headless-Chromium pipeline. No SmartPM login, no browser automation against SmartPM itself.
 
-| Invocation | Path | When to use |
-|------------|------|-------------|
-| `/schedule-update screenshots` (no arg) | **matplotlib (new)** — MCP fetch + Python render | Default. No browser automation; no SmartPM login. |
-| `/schedule-update screenshots --legacy` | **Playwright (legacy)** — headless Chromium captures SmartPM | Fallback while matplotlib styling is being dialed in, or when a non-default chart isn't implemented yet. |
+The whole phase runs in two passes:
 
-Both paths write into `{dated_folder}/screenshots/` with the same PNG filenames.
+```text
+For each slug in graph_screenshots:
+  1. Call the documented MCP endpoint (per-slug recipes below).
+  2. Write the response as-is to {dated_folder}/.chart-payload/{slug}.json.
+
+Then, one batch render:
+  node scheduling/skills/schedule-update/references/charts/cli.js \
+       {dated_folder}/.chart-payload \
+       {dated_folder}/screenshots
+```
+
+The CLI dispatches each `{slug}.json` through `RENDERERS[slug]` from `charts/registry.js`, writes `{slug}.html` + `{slug}.png` to the output dir, and exits 0 if every payload rendered (exit 1 with a per-slug `failed[]` entry otherwise).
 
 ---
-
-## Default path: matplotlib (no `--legacy` arg)
 
 ### Step 0: Pre-flight
 
 Run these checks **before** Step 1 — failing early is cheaper than crashing on render.
 
-1. **Python deps.** Use the Bash tool:
+1. **Node + Playwright deps.** From the references folder:
    ```bash
-   python -c "import matplotlib, PIL; print('ok')"
+   cd "{skill_dir}/references"
+   node --version           # any 18+
+   ls node_modules/playwright 2>/dev/null || npm install
    ```
-   If it errors with `ModuleNotFoundError`, install:
-   ```bash
-   pip install -r "{skill_dir}/references/charts/requirements.txt"
-   ```
+   The first run on a machine installs Playwright into `references/node_modules/`. `html_to_png.cjs` uses the same install to rasterise each chart HTML to PNG.
 
 2. **SmartPM MCP tools.** Look at your tool list for any tool whose name matches `mcp__<uuid>__smartpm_*`. The `<uuid>` part is per-installation — don't hardcode it. Throughout this doc, when you see `smartpm_foo`, the real tool name is `mcp__<uuid>__smartpm_foo`. Use the `ToolSearch` tool with `query: "select:smartpm_post_project_summary,smartpm_get_project,smartpm_list_scenarios,smartpm_list_scenario_schedules_v2,smartpm_get_scenario_schedule_compression_trend,smartpm_get_scenario_velocity,smartpm_get_scenario_spi_trend,smartpm_get_scenario_should_start_finish_trend,smartpm_get_scenario_percent_complete_curve_v2,smartpm_list_scenario_change_log_by_type"` to load all the schemas at once.
 
    If `ToolSearch` reports "no matching deferred tools", the SmartPM connector isn't connected. Tell the colleague:
-   > "SmartPM MCP isn't available in this session. Run `/mcp` to reconnect, or use `/schedule-update screenshots --legacy` for the Playwright path."
+   > "SmartPM MCP isn't available in this session. Run `/mcp` to reconnect, then re-run `/schedule-update screenshots`."
    …and stop.
 
 ### Step 1: Read Project Context
 
 Apply standard folder resolution (see `phases/status.md` for the rule — use today's dated folder under the project's Schedules tree). Read `project-context.html` via `parse_project_context_html` if available, otherwise extract these four fields directly from the HTML:
 
-- `graph_screenshots` — list of slugs to render. If empty or missing, default to:
+- `graph_screenshots` — list of slugs to render. If empty or missing, default to all 17 slugs (16 trend charts + the summary composite):
   `["smartpm-summary-report",
     "01-planned-vs-actual-percent-complete",
     "02-schedule-quality-grade-over-time",
-    "06-end-date-variance", "07-schedule-compression-index-over-time",
-    "08-velocity", "09-spi-over-time", "10-activity-hit-rate",
-    "11-window-start-accuracy", "12-window-finish-accuracy"]`
+    "03-project-health-index-over-time",
+    "04-schedule-changes-over-time",
+    "05-schedule-delay-over-time",
+    "06-end-date-variance",
+    "07-schedule-compression-index-over-time",
+    "08-velocity", "09-spi-over-time",
+    "10-activity-hit-rate", "11-window-start-accuracy", "12-window-finish-accuracy",
+    "13-missing-logic", "14-average-total-float",
+    "15-high-total-float", "16-critical-path-percentage"]`
 - `smartpm_project_name` — string to match on SmartPM. Falls back to `project_name`.
 - `smartpm_url` — used by the email body, not by this phase. Just preserve.
-- `contractual_completion` — `YYYY-MM-DD`. Only needed for `06-end-date-variance` (see Step 3). If missing from project-context, Step 3 will fall back to `smartpm_post_project_summary` for it.
 
 If `project-context.html` is missing, stop with:
 > "No project-context.html found in {dated_folder}. Run `/schedule-update copy` first, then re-run this command."
@@ -113,23 +123,7 @@ resp = smartpm_get_scenario_percent_complete_curve_v2(
 payload = resp   # pass through as-is
 ```
 
-Same endpoint as the curve sub-payload assembled inside `smartpm-summary-report` (see below) — both consume `smartpm_get_scenario_percent_complete_curve_v2`. Chart 01 is the standalone trend page; the summary report's curve section is a simplified inline copy (no Progress Target band, no Late Date Planned series).
-
-**Renderer:** chart 01 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/01-planned-vs-actual.js`). To render this
-slug standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
-
-The CLI dispatches every payload in `.chart-payload/` through the JS
-registry; slugs without a JS renderer are reported in `failed` with
-reason `no renderer in registry` (those still go through the Python
-`charts.render` step below until they migrate). At this commit, only
-chart 01 is on the JS path.
+Same endpoint as the curve sub-payload assembled inside `smartpm-summary-report` (see below) — both consume `smartpm_get_scenario_percent_complete_curve_v2`. Chart 01 is the standalone trend page; the summary report's curve section is a simplified inline copy (no Progress Target band, no Late Date Planned series). Renderer: `references/charts/01-planned-vs-actual.js`.
 
 ##### `02-schedule-quality-grade-over-time`
 
@@ -163,20 +157,7 @@ Note: `smartpm_get_scenario_schedule_quality` (the dedicated MCP tool) only
 returns the latest data date — it does NOT support the `dataDate` query
 parameter historically. Use the raw GET path above for the full trend.
 
-**Renderer:** chart 02 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/02-schedule-quality.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
-
-The CLI dispatches every payload in `.chart-payload/` through the JS
-registry; slugs without a JS renderer are reported in `failed` with reason
-`no renderer in registry` (those still go through the Python `charts.render`
-step until they migrate).
+Renderer: `references/charts/02-schedule-quality.js`.
 
 ##### `03-project-health-index-over-time`
 
@@ -197,20 +178,7 @@ health indicator (GOOD=green / FINE=amber / BAD=red). Y-axis auto-fits to
 the visible data range (SmartPM convention). The renderer accepts both the
 raw flat-list form and a `{"trend": [...]}` envelope for forward-compatibility.
 
-**Renderer:** chart 03 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/03-project-health.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
-
-The CLI dispatches every payload in `.chart-payload/` through the JS
-registry; slugs without a JS renderer are reported in `failed` with reason
-`no renderer in registry` (those still go through the Python `charts.render`
-step until they migrate).
+Renderer: `references/charts/03-project-health.js`.
 
 ##### `04-schedule-changes-over-time`
 
@@ -245,20 +213,7 @@ from 0 to max observed value, rounded up to a sensible tick boundary.
 All-zero datasets (early-stage projects) render as an empty-but-valid chart
 frame — no crash.
 
-**Renderer:** chart 04 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/04-schedule-changes.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
-
-The CLI dispatches every payload in `.chart-payload/` through the JS
-registry; slugs without a JS renderer are reported in `failed` with reason
-`no renderer in registry` (those still go through the Python `charts.render`
-step until they migrate).
+Renderer: `references/charts/04-schedule-changes.js`.
 
 ##### `05-schedule-delay-over-time`
 
@@ -288,20 +243,7 @@ Y-axis auto-fits to span all three series with 10% padding and includes a
 heavier `#999` zero-line baseline. X-axis labels format as `MMM DD, YYYY`.
 The renderer accepts the raw flat list OR a `{"data": [...]}` envelope.
 
-**Renderer:** chart 05 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/05-schedule-delay.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
-
-The CLI dispatches every payload in `.chart-payload/` through the JS
-registry; slugs without a JS renderer are reported in `failed` with reason
-`no renderer in registry` (those still go through the Python `charts.render`
-step until they migrate).
+Renderer: `references/charts/05-schedule-delay.js`.
 
 ##### `13-missing-logic`
 
@@ -335,15 +277,7 @@ white outlines. Y-axis is percent (auto-fits with a 1% minimum span, always
 includes 0). X-axis labels format as `MM/DD/YY`. The renderer accepts the
 raw flat list OR a `{"trend": [...]}` envelope.
 
-**Renderer:** chart 13 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/13-missing-logic.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/13-missing-logic.js`.
 
 ##### `14-average-total-float`
 
@@ -367,15 +301,7 @@ Y-axis is numeric days; tick labels include the unit (`"30 days"`).
 X-axis labels format as `MM/DD/YY`. The renderer accepts the raw flat list
 OR a `{"trend": [...]}` envelope.
 
-**Renderer:** chart 14 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/14-average-total-float.js`). To render this
-slug standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/14-average-total-float.js`.
 
 ##### `15-high-total-float`
 
@@ -397,15 +323,7 @@ and white outlines. Y-axis is percent (auto-fits with a 1% minimum span).
 X-axis labels format as `MM/DD/YY`. The renderer accepts the raw flat list
 OR a `{"trend": [...]}` envelope.
 
-**Renderer:** chart 15 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/15-high-total-float.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/15-high-total-float.js`.
 
 ##### `16-critical-path-percentage`
 
@@ -427,15 +345,7 @@ markers and white outlines. Y-axis is percent (auto-fits with a 1% minimum
 span; includes 0). X-axis labels format as `MM/DD/YY`. The renderer accepts
 the raw flat list OR a `{"trend": [...]}` envelope.
 
-**Renderer:** chart 16 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/16-critical-path-percentage.js`). To render
-this slug standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/16-critical-path-percentage.js`.
 
 ##### `06-end-date-variance`
 
@@ -457,15 +367,7 @@ doesn't collapse to a flat line. X-axis labels format as `MMM DD, YYYY`
 array. `contractual_completion` is no longer needed at the payload level —
 baseline-from-first-import is the SmartPM web view's actual reference.
 
-**Renderer:** chart 06 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/06-end-date-variance.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/06-end-date-variance.js`.
 
 ##### `07-schedule-compression-index-over-time`
 
@@ -486,15 +388,7 @@ plotted as 0). Y-axis is percent with a 1% minimum span; X-axis labels
 format as `MM/DD/YY`. The renderer accepts `{trend: [...]}` or a bare
 array.
 
-**Renderer:** chart 07 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/07-schedule-compression.js`). To render this
-slug standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/07-schedule-compression.js`.
 
 ##### `08-velocity`
 
@@ -522,15 +416,7 @@ month), but preserves interior zero-months as zero-height placeholders so
 the X-axis stays evenly spaced. Renderer accepts `{velocityList: [...]}`
 or a bare array.
 
-**Renderer:** chart 08 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/08-velocity.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/08-velocity.js`.
 
 ##### `09-spi-over-time`
 
@@ -553,15 +439,7 @@ max + 0.1)`. X-axis labels are `MM/DD/YY`. Rows where `spi` is `null`
 or `0` are treated as gaps — the line breaks at those points and no
 marker is drawn. Renderer accepts `{trend: [...]}` or a bare array.
 
-**Renderer:** chart 09 is rendered by the JavaScript `@westland/charts`
-package (`references/charts/09-spi-over-time.js`). To render this slug
-standalone (e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+Renderer: `references/charts/09-spi-over-time.js`.
 
 ##### `10-activity-hit-rate`, `11-window-start-accuracy`, `12-window-finish-accuracy`
 
@@ -610,18 +488,10 @@ Three renderer shapes, one MCP endpoint:
 X-axis labels for all three are `MM/DD/YY`. All three renderers accept
 `{hitRates: [...]}` or a bare array.
 
-**Renderer:** charts 10, 11, and 12 are rendered by the JavaScript
-`@westland/charts` package (`references/charts/10-activity-hit-rate.js`,
+Renderers: `references/charts/10-activity-hit-rate.js`,
 `references/charts/11-window-start-accuracy.js`,
-`references/charts/12-window-finish-accuracy.js`; charts 11 and 12 share
-`references/charts/_hit-rate.js`). To render these slugs standalone
-(e.g. for previewing during development):
-
-```bash
-node scheduling/skills/schedule-update/references/charts/cli.js \
-     {dated_folder}/.chart-payload \
-     {dated_folder}/screenshots
-```
+`references/charts/12-window-finish-accuracy.js`. Charts 11 and 12 share
+`references/charts/_hit-rate.js`.
 
 ##### `smartpm-summary-report`
 
@@ -791,18 +661,17 @@ payload = {
 
 The composite renderer reads the merged payload and emits a single HTML document with three flexbox sections. The CLI rasteriser (`cli.js`) drives this through `html_to_png.cjs` to produce `smartpm-summary-report.png` — the same filename the email pipeline already embeds as `summary_screenshot_path`.
 
-#### Non-default slugs
+#### Unknown slugs
 
-For any slug in `graph_screenshots` that **isn't** in the recipes above, the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
+For any slug in `graph_screenshots` that isn't in the recipes above, skip the fetch. The CLI will report it in `failed[]` with reason `no renderer in registry` — surface that to the colleague in Step 5.
 
 ### Step 4: Render
 
 ```bash
-cd "{skill_dir}/references"
-python -m charts.render "{dated_folder}/.chart-payload" "{dated_folder}/screenshots"
+node "{skill_dir}/references/charts/cli.js" \
+     "{dated_folder}/.chart-payload" \
+     "{dated_folder}/screenshots"
 ```
-
-`charts/` is a regular Python package — no `PYTHONPATH` gymnastics needed when run as a module from the `references/` directory. Works identically on Windows PowerShell and bash.
 
 The script prints a JSON `{rendered: [...], failed: [...]}` to stdout.
 
@@ -816,11 +685,7 @@ For every slug in `graph_screenshots`: confirm `{dated_folder}/screenshots/{slug
 ls -la "{dated_folder}/screenshots/"
 ```
 
-For any slug in the orchestrator's `failed` list whose `reason` contains `NotImplementedError`, tell the colleague:
-
-> "Chart {slug} isn't implemented in the new matplotlib path yet. Run `/schedule-update screenshots --legacy` to capture it via the existing Playwright path."
-
-For any other failure (e.g. MCP error, JSON write error), surface the exact `reason` so the colleague can decide.
+For any slug in the CLI's `failed` list whose `reason` is `no renderer in registry`, the slug isn't a known chart — tell the colleague and offer to drop it from `graph_screenshots`. For any other failure (e.g. MCP error, JSON write error, renderer exception), surface the exact `reason` so the colleague can decide.
 
 ### Step 6: Clean up
 
@@ -838,83 +703,17 @@ rm -rf "{dated_folder}/.chart-payload"
 
 | Failure mode | Where it surfaces | Action |
 |---|---|---|
-| `ToolSearch` returns no matches for `smartpm_*` tools | Step 0 | Tell the colleague to `/mcp` reconnect or use `--legacy`. |
-| `ModuleNotFoundError: matplotlib` | Step 0 | `pip install -r {skill_dir}/references/charts/requirements.txt` |
+| `ToolSearch` returns no matches for `smartpm_*` tools | Step 0 | Tell the colleague to `/mcp` reconnect, then re-run. |
+| `node` / Playwright not installed | Step 0 | Install Node 18+ from https://nodejs.org, then `npm install` in `{skill_dir}/references/`. |
 | `smartpm_list_projects` returns no match for `smartpm_project_name` | Step 2.1 | Try case-insensitive match; if still no match, show the closest 3 names and ask. |
 | `smartpm_post_project_summary` 400 BAD_REQUEST | Step 3 | A column in the batch isn't in the canonical set. Re-check the tool description's "CANONICAL COLUMNS" list — don't invent column names. |
-| Renderer `failed` entry mentions `NotImplementedError` | Step 5 | Non-default slug. Quote the `--legacy` message above. |
-| Renderer `failed` entry mentions `KeyError` / `TypeError` | Step 5 | Payload shape doesn't match what the chart expects. Re-check the recipe in Step 3 for that slug — every chart's expected shape is inlined there. Don't `Read` the chart `.py` file. |
+| CLI `failed[]` entry: `no renderer in registry` | Step 5 | Slug isn't known. Drop it from `graph_screenshots` or fix the typo. |
+| CLI `failed[]` entry: renderer exception | Step 5 | Payload shape doesn't match what the chart expects. Re-check the recipe in Step 3 for that slug — every chart's expected shape is inlined there. Don't `Read` the chart `.js` file. |
+| CLI `failed[]` entry: `html_to_png.cjs exited` | Step 5 | Chromium rasteriser failed. Check that `references/node_modules/playwright` exists; re-run `npm install` if not. |
 | Renderer creates a PNG of size 0 | Step 5 | Likely an empty trend response (project too new). Show the colleague and offer to skip that slug. |
-
----
-
-## Legacy path: `--legacy`
-
-Everything in this section is the **unchanged** Playwright capture. It runs `references/smartpm/capture-smartpm.js` end-to-end. Use when a matplotlib chart isn't ready or doesn't look right yet.
-
-### Step 0: Pre-Flight — credentials + Node setup
-
-The script reads SmartPM credentials from `~/.claude/.env`:
-
-| Key | Required | Purpose |
-|-----|----------|---------|
-| `SMARTPM_EMAIL` | yes | Auto-login email |
-| `SMARTPM_PASSWORD` | yes | Auto-login password |
-| `SMARTPM_PROJECTS_URL` | no | v2 projects/cards URL (defaults to Westland's org URL) |
-| `SMARTPM_BASE_URL` | no | Defaults to `https://live.smartpmtech.com` |
-
-If credentials are missing, the script throws `ENV_MISSING`. To set them up:
-
-```bash
-node "{skill_dir}/references/smartpm/env-loader.js" setup
-```
-
-Or ask the colleague for them via `AskUserQuestion` (header: "SmartPM creds") and write them yourself by calling `upsertEnvFile({SMARTPM_EMAIL, SMARTPM_PASSWORD})` from `references/smartpm/env-loader.js`. Never log the password back to the user.
-
-Node + Playwright pre-flight:
-1. `node --version` (any 18+).
-2. Check `node_modules/` exists in `{skill_dir}/references/`. If missing, run `npm install` in that folder.
-3. Chromium is installed via `npx playwright install chromium` (the script handles this).
-
-### Step 1: Read Project Context
-
-Apply folder resolution. Read `project-context.html`. Extract `smartpm_project_name` (falls back to `project_name`).
-
-Output dir: `{dated_folder}/screenshots/`.
-
-### Step 2: Write Checklist
-
-Create `{dated_folder}/screenshots/` if it doesn't exist. Write `screenshots/checklist.md` from `{skill_dir}/references/checklist-template.md`.
-
-Print the checklist.
-
-### Step 3: Capture via Node script
-
-```bash
-node "{skill_dir}/references/smartpm/capture-smartpm.js" \
-  "{smartpm_project_name or project_name}" "{dated_folder}/screenshots"
-```
-
-stdout: JSON `{ status, total, screenshots: [{name, file, path, size}, ...], urls }`.
-
-Errors:
-- `ENV_MISSING` → run the setup command (Step 0) or ask the user for credentials.
-- Login redirect timeout → bad creds, MFA challenge, or captcha. Surface and ask the user to log in manually once via the headed debug helper.
-- "No chart cards found" → trends page didn't render. Likely upload-still-processing or stale cache; retry after 30 seconds.
-- Sign-in button stuck disabled → Angular form validation rejected the email. Confirm `SMARTPM_EMAIL`.
-
-### Step 4: Verify
-
-Read the captured PNGs visually. Confirm `smartpm-summary-report.png` shows the Summary Report modal, and each graph file shows the correct chart with data.
-
-**SmartPM processing warning:** If called within 30 minutes of XER upload, SmartPM may still be processing. Check the Workspace page status; offer to wait.
-
-### Step 5: Report
-
-Mark checklist complete. Report total screenshots captured, file paths and sizes, SmartPM URLs used.
 
 ---
 
 ## Iteration note
 
-The matplotlib path is brand new. Expect back-and-forth on styling — fonts, gridlines, axis labels, colors, table cell formatting — against live data. Tweak the relevant function in `references/charts/charts.py`; everything else (registry, orchestrator, tests) stays still. When a chart looks right, that's it — no formal sign-off step, just keep using it. Until each default chart is dialed in, `--legacy` is the safety net.
+Expect back-and-forth on styling — fonts, gridlines, axis labels, colors — against live data. Tweak the relevant `references/charts/{NN-name}.js` renderer; everything else (registry, CLI, tests) stays still. Each chart has a matching `{NN-name}.test.js` next to it — keep tests green when you tweak the chart. The HTML sibling next to each PNG (`{slug}.html`) is auditable and previews in any browser, so you can iterate without re-running the rasteriser every time.

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // cli.js — read {slug}.json payloads from a dir, dispatch via RENDERERS,
-// write {slug}.html + {slug}.png to an output dir. Mirrors render.py's
-// observable contract exactly.
+// write {slug}.html + {slug}.png to an output dir.
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
