@@ -14,7 +14,7 @@
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop, reviewer-feedback download for external reviewers (attribution-tagged JSON), and a single propsched dispatcher (iterate, paths, anchors, diff, walk, score, init, bootstrap-anchors, aggregate-postmortems, feedback, metadata, durations).",
-      "version": "5.4.19"
+      "version": "5.4.20"
     },
     {
       "name": "estimating",

@@ -12,3 +12,4 @@ export { CHART_META } from './meta.js';
 export { renderPlaceholder } from './meta.js';
 export { renderPlannedVsActual } from './01-planned-vs-actual.js';
 export { renderScheduleQuality } from './02-schedule-quality.js';
+export { renderProjectHealth }   from './03-project-health.js';

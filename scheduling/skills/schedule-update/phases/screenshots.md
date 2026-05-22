@@ -200,6 +200,21 @@ health indicator (GOOD=green / FINE=amber / BAD=red). Y-axis auto-fits to
 the visible data range (SmartPM convention). The renderer accepts both the
 raw flat-list form and a `{"trend": [...]}` envelope for forward-compatibility.
 
+**Renderer:** chart 03 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/03-project-health.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
+The CLI dispatches every payload in `.chart-payload/` through the JS
+registry; slugs without a JS renderer are reported in `failed` with reason
+`no renderer in registry` (those still go through the Python `charts.render`
+step until they migrate).
+
 ##### `04-schedule-changes-over-time`
 
 ```

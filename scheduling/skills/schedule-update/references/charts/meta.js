@@ -6,11 +6,13 @@
 import { htmlEnvelope, escapeHtml } from './svg-lib.js';
 import { META as META01 } from './01-planned-vs-actual.js';
 import { META as META02 } from './02-schedule-quality.js';
+import { META as META03 } from './03-project-health.js';
 
 /** @type {Record<string, { svgWidth: number, svgHeight: number, title: string }>} */
 export const CHART_META = {
   '01-planned-vs-actual-percent-complete': META01,
   '02-schedule-quality-grade-over-time':   META02,
+  '03-project-health-index-over-time':     META03,
 };
 
 /**
