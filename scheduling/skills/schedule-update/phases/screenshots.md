@@ -140,10 +140,12 @@ chart 01 is on the JS path.
 # No dedicated MCP tool as of 2026-05-21. Use smartpm_get (raw GET):
 resp = smartpm_get(
     path=f'/projects/{project_id}/scenarios/{default_scenario_id}/schedule-quality-trend')
-# resp is a list of objects, one per historical data date, each shaped:
+# resp is a FLAT LIST of objects (NOT wrapped in a {"trend": [...]} envelope),
+# one per historical data date, each shaped:
 #   { dataDate, metrics: [...full metrics array...], grade: { mark, indicator, score },
 #     qualityProfileId }
-# The metrics array is verbose — strip it down to just what the renderer needs:
+# The metrics array is verbose — strip it down to just what the renderer needs.
+# The renderer accepts either the flat list or a {"trend": [...]} envelope:
 
 payload = {
     "trend": [
@@ -153,13 +155,31 @@ payload = {
 }
 ```
 
-The renderer reads `trend[].grade.score` (0–100 numeric) for the Y-axis and
-`trend[].dataDate` (ISO-8601 string) for the X-axis. Background grade bands
-(A ≥ 90, B 73–89, C < 73) are hard-coded in the renderer.
+The renderer reads `trend[].grade.mark` (letter grade: `A+`, `A`, `A-`, `B+`, ...,
+`F` — categorical, NOT the numeric `score`) for Y positioning, and
+`trend[].dataDate` (ISO-8601 string) for the X-axis. Rows whose `grade.mark`
+is missing or not in the canonical 11-grade ladder are skipped. The Y-axis
+auto-fits to the observed grade range (pads ±1 rank when every row is the
+same grade). No background grade bands, no legend, no data-date plotline.
 
 Note: `smartpm_get_scenario_schedule_quality` (the dedicated MCP tool) only
 returns the latest data date — it does NOT support the `dataDate` query
 parameter historically. Use the raw GET path above for the full trend.
+
+**Renderer:** chart 02 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/02-schedule-quality.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
+The CLI dispatches every payload in `.chart-payload/` through the JS
+registry; slugs without a JS renderer are reported in `failed` with reason
+`no renderer in registry` (those still go through the Python `charts.render`
+step until they migrate).
 
 ##### `03-project-health-index-over-time`
 
