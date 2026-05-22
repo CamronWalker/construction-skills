@@ -138,10 +138,17 @@ export function renderSummaryReport(payload) {
   .report-subtitle { font-size: 12px; color: #555; margin: 0 0 16px 0; }
 
   /* ---- Cards section ---- */
+  /* Card widths mirror the Python matplotlib reference
+     (charts.py:874 width_ratios=[1, 2.2, 2.2]): Health is the narrow
+     thermometer card; Performance and Feasibility are the text-dense
+     cards that need ~2.2x the room. */
   .summary-cards { display: flex; gap: 16px; margin-bottom: 24px; }
-  .summary-card { flex: 1 1 0; background: #fff;
+  .summary-card { background: #fff;
     border: 1px solid #e6e6e6; border-radius: 12px;
     padding: 14px 18px; box-sizing: border-box; min-height: 230px; }
+  .summary-card.card-health { flex: 1 1 0; }
+  .summary-card.card-performance { flex: 2.2 1 0; }
+  .summary-card.card-feasibility { flex: 2.2 1 0; }
   .summary-card h4 { margin: 0 0 12px 0; font-size: 13px; font-weight: 700;
     color: #222; }
   .summary-card .sublabel { font-size: 11px; color: #444; line-height: 1.25; }
@@ -236,7 +243,7 @@ function renderHealthCard(cards) {
   <line x1="${barX - 6}" y1="${indY}" x2="${barX + barW + 6}" y2="${indY}" stroke="#222" stroke-width="2.5" />
 </svg>`;
 
-  return `<div class="summary-card">
+  return `<div class="summary-card card-health">
   <h4>Project Health Index&trade;</h4>
   <div style="display: flex; align-items: center; gap: 16px;">
     ${svg}
@@ -256,7 +263,7 @@ function renderPerformanceCard(cards) {
   const cpd = Math.round(Number(cards.critical_path_delay_days ?? 0));
   const pi  = Math.round(Number(cards.planned_impact_days ?? 0));
 
-  return `<div class="summary-card">
+  return `<div class="summary-card card-performance">
   <h4>Schedule Performance</h4>
   <div style="display: flex; gap: 16px;">
     <div style="flex: 1.4 1 0;">
@@ -295,10 +302,11 @@ function renderFeasibilityCard(cards) {
   const pcStr = String(cards.predicted_completion ?? '');
   const lastPcStr = cards.last_predicted_completion;
 
+  // Binary A/B-vs-else tiering matches the matplotlib reference
+  // (charts.py:990). A/B → green, everything else (C, C+, C-, D, F, …) → red.
   const qgUp = qg.toUpperCase();
   const qgColor =
     qgUp.startsWith('A') || qgUp.startsWith('B') ? SCI_GREEN
-    : qgUp.startsWith('C') ? SCI_YELLOW
     : SCI_RED;
 
   const compColor = comp >= 25 ? SCI_RED : comp >= 15 ? SCI_YELLOW : SCI_GREEN;
@@ -327,7 +335,7 @@ function renderFeasibilityCard(cards) {
     }
   }
 
-  return `<div class="summary-card">
+  return `<div class="summary-card card-feasibility">
   <h4>Schedule Feasibility</h4>
   <div style="display: flex; gap: 8px; align-items: center; justify-content: space-around;">
     <div style="text-align: center;">
