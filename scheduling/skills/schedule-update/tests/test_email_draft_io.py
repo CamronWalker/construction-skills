@@ -97,5 +97,39 @@ class BuildStackedChartPageTests(unittest.TestCase):
         self.assertIn('01-planned-vs-actual-percent-complete', page)
 
 
+class RenderStackedPngTests(unittest.TestCase):
+    def setUp(self):
+        self.draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
+
+    def test_returns_path_to_existing_png(self):
+        # Real integration: this requires html_to_png.cjs to exist + Node + Playwright
+        # Use a fake renderer to keep the unit test hermetic.
+        import unittest.mock as mock
+
+        def fake_render(html_path, png_path, *args, **kwargs):
+            Path(png_path).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16)
+            return png_path
+
+        with mock.patch.object(email_draft_io, '_run_html_to_png', side_effect=fake_render):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                out = email_draft_io.render_stacked_png(
+                    self.draft, output_dir=tmpdir
+                )
+                self.assertTrue(os.path.isfile(out))
+                self.assertTrue(out.endswith('.png'))
+                self.assertGreater(os.path.getsize(out), 0)
+
+    def test_raises_if_html_to_png_fails(self):
+        import unittest.mock as mock
+
+        def failing_render(*args, **kwargs):
+            raise email_draft_io.DraftError('html_to_png.cjs failed')
+
+        with mock.patch.object(email_draft_io, '_run_html_to_png', side_effect=failing_render):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                with self.assertRaises(email_draft_io.DraftError):
+                    email_draft_io.render_stacked_png(self.draft, output_dir=tmpdir)
+
+
 if __name__ == '__main__':
     unittest.main()

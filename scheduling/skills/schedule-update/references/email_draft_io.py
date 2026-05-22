@@ -149,3 +149,85 @@ def build_stacked_chart_page(graph_html, order):
             continue
         cards.append(html)
     return _STACKED_PAGE_TEMPLATE.format(cards='\n'.join(cards))
+
+
+# Path to the renderer agent's Node rasterizer. Resolved relative to this file
+# so the path works whether the skill is installed via plugin zip or from the repo.
+_HTML_TO_PNG_CJS = (
+    Path(__file__).resolve().parent / 'charts' / 'html_to_png.cjs'
+)
+
+
+def _run_html_to_png(html_path, png_path, width=1200, full_page=True):
+    """Shell out to Node html_to_png.cjs to rasterize HTML to PNG.
+
+    Separate function so tests can monkeypatch it cleanly.
+    """
+    if not _HTML_TO_PNG_CJS.is_file():
+        raise DraftError(
+            f'html_to_png.cjs not found at {_HTML_TO_PNG_CJS}. '
+            'The renderer agent\'s commit 1 must have landed for this to work.'
+        )
+
+    cmd = [
+        'node', str(_HTML_TO_PNG_CJS),
+        str(html_path), str(png_path),
+        f'--width={width}',
+    ]
+    if full_page:
+        cmd.append('--full-page')
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+    except subprocess.CalledProcessError as e:
+        raise DraftError(
+            f'html_to_png.cjs failed (exit {e.returncode}): '
+            f'stderr={e.stderr!r}'
+        ) from e
+    except subprocess.TimeoutExpired as e:
+        raise DraftError(f'html_to_png.cjs timed out after 120s') from e
+
+    return str(png_path)
+
+
+def render_stacked_png(draft, output_dir):
+    """Render the draft's stacked chart HTML to a single PNG file.
+
+    Writes a temp HTML file, shells out to html_to_png.cjs to rasterize,
+    then deletes the temp HTML. Returns the absolute PNG path.
+
+    Args:
+        draft: Parsed email-draft.json dict (from load_draft).
+        output_dir: Directory the PNG lands in. Filename is
+                    {project}-{report_date}-all-graphs-stacked.png.
+
+    Returns:
+        Absolute path to the written PNG.
+
+    Raises:
+        DraftError: if html_to_png.cjs is missing or fails.
+    """
+    graph_html = draft['graph_html']
+    order = draft['editorial']['graph_order']
+
+    page_html = build_stacked_chart_page(graph_html, order)
+
+    os.makedirs(output_dir, exist_ok=True)
+    png_name = f'{draft["project"]}-{draft["report_date"]}-all-graphs-stacked.png'
+    png_path = os.path.abspath(os.path.join(output_dir, png_name))
+
+    with tempfile.NamedTemporaryFile(
+        mode='w', suffix='.html', dir=output_dir, delete=False, encoding='utf-8'
+    ) as tmp:
+        tmp.write(page_html)
+        tmp_html_path = tmp.name
+
+    try:
+        _run_html_to_png(tmp_html_path, png_path, width=1200, full_page=True)
+    finally:
+        try:
+            os.unlink(tmp_html_path)
+        except OSError:
+            pass
+
+    return png_path
