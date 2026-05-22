@@ -10,3 +10,6 @@ src/
 **/test-results/
 **/tests/results.json
 playwright-report/
+
+# Chart renderer previews (HTML+PNG artifacts, regenerated on demand)
+chart-previews/

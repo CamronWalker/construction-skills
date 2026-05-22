@@ -1,4 +1,5 @@
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -179,14 +180,96 @@ class TestNonDefaultStubs(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_unimplemented_chart_is_reported_as_failed(self):
+        # Use slug 02 (still a stub) — slug 01 is implemented now via the
+        # HTML+SVG path. Replace with another remaining stub if 02 also
+        # gets implemented later.
         payload_dir = Path(self._tmp.name) / 'payload'
         payload_dir.mkdir()
-        (payload_dir / '01-planned-vs-actual-percent-complete.json').write_text('{}')
+        (payload_dir / '02-schedule-quality-grade-over-time.json').write_text('{}')
         results = render.render_payload(payload_dir, self.output_dir)
         self.assertEqual(results['rendered'], [])
         self.assertEqual(len(results['failed']), 1)
         self.assertIn('NotImplementedError', results['failed'][0]['reason'])
         self.assertIn('--legacy', results['failed'][0]['reason'])
+
+
+@unittest.skipIf(shutil.which('node') is None,
+                 'node executable not on PATH — HTML→PNG rasterisation needs it')
+class TestPlannedVsActualPercentComplete(unittest.TestCase):
+    """Chart 01 — HTML+SVG renderer + Chromium rasterisation. Verifies both
+    the HTML artifact (so QA can open it in a browser) and the PNG attachment
+    (what the email pipeline ships) are produced with the SmartPM-cloned
+    series colors and dash patterns intact."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '01-planned-vs-actual-percent-complete.png'
+        self.html   = self.output.with_suffix('.html')
+        self.data = json.loads(
+            (FIXTURE_DIR / '01-planned-vs-actual-percent-complete.json').read_text()
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_html_sibling_with_smartpm_palette_and_dasharray(self):
+        # The .png needs Chromium (~30s on a cold start); the .html artifact
+        # alone is enough to assert the visual contract — palette + dashes.
+        # Call the building blocks directly so this test stays fast and
+        # doesn't depend on Chromium being installed.
+        charts.render_planned_vs_actual_percent_complete.__wrapped__ if False else None
+        # Build only the HTML by going through the public function but
+        # short-circuiting the rasterisation step.
+        original = charts._html_to_png
+        try:
+            charts._html_to_png = lambda *a, **kw: None  # no-op
+            charts.render_planned_vs_actual_percent_complete(self.data, str(self.output))
+        finally:
+            charts._html_to_png = original
+
+        self.assertTrue(self.html.exists(), 'sibling HTML artifact missing')
+        body = self.html.read_text(encoding='utf-8')
+
+        # All six SmartPM series colors must be present.
+        for color in ('#808080', '#b00020', '#2caffe', '#1476b7', '#388543', '#cccccc'):
+            self.assertIn(color, body, f'palette color {color} missing from HTML')
+
+        # Scheduled Completion must carry the dashed pattern (this is the
+        # specific bug the rebuild fixes — the dashed line going missing on
+        # the legacy Playwright capture).
+        self.assertIn('stroke-dasharray="8,6"', body,
+                      '8,6 dash pattern (Scheduled Completion + data-date line) missing')
+
+        # Title and the legend labels show up verbatim.
+        self.assertIn('Planned VS Actual Percent Complete', body)
+        self.assertIn('Progress Target', body)
+        self.assertIn('Scheduled Completion', body)
+        self.assertIn('Late Date Planned', body)
+        self.assertIn('Early Date Planned', body)
+
+    def test_full_pipeline_writes_png_via_chromium(self):
+        # The full end-to-end: HTML written, then rasterised by html_to_png.js.
+        # Skipped if node isn't installed (class-level decorator above);
+        # individually skip when Playwright/Chromium isn't installed yet,
+        # since we don't want to auto-install in a test.
+        try:
+            charts.render_planned_vs_actual_percent_complete(self.data, str(self.output))
+        except RuntimeError as e:
+            msg = str(e)
+            if 'Playwright is not installed' in msg or 'Executable doesn' in msg:
+                self.skipTest(f'Playwright/Chromium not installed: {msg.splitlines()[0]}')
+            raise
+
+        self.assertTrue(self.output.exists(), 'PNG was not created')
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+        width, height = img.size
+        # Wide-and-short, like the matplotlib charts (≥ 1.8 aspect ratio).
+        self.assertGreater(width, height * 1.8,
+                           f'expected wide PNG, got {width}x{height}')
+        # 1728x432 nominal at 2× = 3456x864. Allow some slack for either DPR.
+        self.assertGreaterEqual(width, 1700)
+        img.close()
 
 
 class TestSummaryReportComposite(unittest.TestCase):

@@ -4,9 +4,21 @@ Each function is self-contained: it knows its data shape, its chart type, its
 title, axes, and styling. They don't share a base function — duplication is
 intentional so each chart can be tweaked in isolation without risk of breaking
 its neighbors.
+
+Two rendering paths coexist:
+  - matplotlib path (charts 06–12 + summary parts) — wide-and-short PNG output
+    via the standard matplotlib pipeline.
+  - HTML+SVG path (chart 01 today; the other 8 non-default trends as they're
+    implemented) — self-contained HTML+SVG document cloning SmartPM's
+    Highcharts CSS, rasterised to PNG via the sibling ``html_to_png.js``.
+    The HTML lives next to the PNG as an auditable artifact.
 """
 
+import html as _html_lib
+import shutil
+import subprocess
 from datetime import date, timedelta
+from pathlib import Path
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -1228,14 +1240,502 @@ def render_summary_milestones(data, output_path):
 
 
 # =====================================================================
-# Stubs for the 9 non-default trend graphs (slugs 01-05 and 13-16).
+# HTML+SVG chart renderers — clone SmartPM's Highcharts CSS, rasterise
+# to PNG via headless Chromium (sibling html_to_png.js). The matplotlib
+# path above stays for charts 06-12 and the summary parts; new
+# non-default trends slot in here as they're implemented.
 #
-# v1 ships the 7 default trends (06-12) + the SmartPM Summary Report parts
-# (smartpm-summary-{curve,cards,milestones}). A project whose
-# graph_screenshots list includes a non-default slug hits one of these
-# stubs, which fail loudly with a NotImplementedError pointing at
+# Why HTML+SVG over matplotlib for these:
+#   - 1:1 visual match to SmartPM (CSS clone, not approximation), so the
+#     emailed PNG and the SmartPM web view look like siblings.
+#   - Exact stroke-dasharray rendering. Matplotlib's was fine, but the
+#     legacy Playwright capture path was losing dashed lines during
+#     element-clipped screenshots (the Scheduled Completion line on
+#     chart 01 disappeared on the SGRWRF capture, 2026-05-21). This
+#     path screenshots the whole card via a fresh Chromium pass — no
+#     element clip, no dash drop.
+#   - Sibling .html artifact opens in a browser for QA.
+# =====================================================================
+
+# Path to the Node rasteriser (lives next to this module, reuses the
+# Playwright install in references/node_modules so there's no separate
+# dependency to manage).
+_HTML_TO_PNG_SCRIPT = Path(__file__).resolve().parent / 'html_to_png.js'
+
+# Card geometry — matches matplotlib 12in × 3in at 144dpi so the emitted
+# PNG drops into the existing email layout next to charts 06-12 without
+# size drift.
+_HTML_CARD_W = 1728
+_HTML_CARD_H = 432
+_HTML_SCALE  = 2     # device scale factor; Chromium renders at 2x for crisp PNGs
+
+
+def _html_to_png(html_path, png_path, width=_HTML_CARD_W, height=_HTML_CARD_H,
+                 scale=_HTML_SCALE):
+    """Rasterise an HTML file to PNG by shelling out to ``html_to_png.js``.
+
+    The Node helper reuses references/node_modules/playwright (already
+    installed for capture-smartpm.js), so no extra dependency on the
+    Python side. Raises RuntimeError with the helper's stderr on failure
+    so the render pipeline's `failed` list carries a useful message.
+    """
+    if shutil.which('node') is None:
+        raise RuntimeError(
+            'node is required to rasterise HTML→PNG but was not found on PATH'
+        )
+    if not _HTML_TO_PNG_SCRIPT.is_file():
+        raise RuntimeError(f'rasteriser missing: {_HTML_TO_PNG_SCRIPT}')
+
+    result = subprocess.run(
+        ['node', str(_HTML_TO_PNG_SCRIPT),
+         str(html_path), str(png_path),
+         str(width), str(height), str(scale)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f'html_to_png.js failed (exit {result.returncode}):\n'
+            f'  stdout: {result.stdout.strip()}\n'
+            f'  stderr: {result.stderr.strip()}'
+        )
+
+
+# ---- Chart 01: Planned VS Actual Percent Complete ----
+
+# Colors copied from Chrome MCP inspection of SmartPM's Highcharts SVG on
+# 2026-05-21 (SGRWRF Trends page). Each value here was taken directly off
+# a <path stroke="..."> or <path fill="..."> attribute; nothing invented.
+_PVA01_PROGRESS_TARGET_FILL = '#808080'    # gray Progress Target band (opacity 0.2)
+_PVA01_LATE_DATE_PLANNED    = '#b00020'    # dark red — solid 2px
+_PVA01_BASELINE_PLANNED     = '#2caffe'    # light blue — solid 2px
+_PVA01_ACTUAL               = '#1476b7'    # dark blue — solid 2px
+_PVA01_SCHEDULED_COMPLETION = '#388543'    # green — DASHED 8,6 2px
+_PVA01_EARLY_DATE_PLANNED   = '#388543'    # green — solid 2px (same green)
+_PVA01_DATA_DATE_LINE       = '#cccccc'    # gray, dashed 8,6
+_PVA01_GRID                 = '#e6e6e6'
+_PVA01_AXIS_TEXT            = '#666'
+_PVA01_TITLE_TEXT           = '#181d27'
+
+
+def _pva01_x(d, dmin, dmax, x0, x1):
+    """Map a date to an x-pixel inside the plot rect [x0..x1]."""
+    span = (dmax - dmin).days or 1
+    return x0 + ((d - dmin).days / span) * (x1 - x0)
+
+
+def _pva01_y(p, y0, y1):
+    """Map a percent (0..100) to y-pixel inside plot rect [y0..y1] (inverted)."""
+    return y1 - (max(0.0, min(100.0, p)) / 100.0) * (y1 - y0)
+
+
+def _pva01_smooth_path(pts):
+    """Catmull-Rom → cubic-Bezier smoothing through every point.
+
+    Highcharts' "spline" series uses an equivalent smooth interpolation.
+    Empty / two-point inputs fall back to straight polylines.
+    """
+    if not pts:
+        return ''
+    if len(pts) == 1:
+        x, y = pts[0]
+        return f'M {x:.2f},{y:.2f}'
+    if len(pts) == 2:
+        (x0, y0), (x1, y1) = pts
+        return f'M {x0:.2f},{y0:.2f} L {x1:.2f},{y1:.2f}'
+
+    out = [f'M {pts[0][0]:.2f},{pts[0][1]:.2f}']
+    n = len(pts)
+    for i in range(n - 1):
+        p0 = pts[i - 1] if i > 0 else pts[i]
+        p1 = pts[i]
+        p2 = pts[i + 1]
+        p3 = pts[i + 2] if i + 2 < n else p2
+        c1x = p1[0] + (p2[0] - p0[0]) / 6.0
+        c1y = p1[1] + (p2[1] - p0[1]) / 6.0
+        c2x = p2[0] - (p3[0] - p1[0]) / 6.0
+        c2y = p2[1] - (p3[1] - p1[1]) / 6.0
+        out.append(
+            f'C {c1x:.2f},{c1y:.2f} {c2x:.2f},{c2y:.2f} '
+            f'{p2[0]:.2f},{p2[1]:.2f}'
+        )
+    return ' '.join(out)
+
+
+def _pva01_x_ticks(dmin, dmax, max_ticks=10):
+    """Pick ~max_ticks evenly-spaced dates between dmin and dmax."""
+    span = (dmax - dmin).days
+    candidates = (7, 14, 30, 60, 90, 180, 365)
+    stride = 365
+    for c in candidates:
+        if (span / max(c, 1)) <= max_ticks:
+            stride = c
+            break
+    ticks = []
+    d = dmin
+    while d <= dmax:
+        ticks.append(d)
+        d += timedelta(days=stride)
+    if ticks[-1] != dmax:
+        ticks.append(dmax)
+    return ticks
+
+
+def _pva01_series_pts(rows, field, dmin, dmax, x0, x1, y0, y1):
+    """One series → list of (x, y) pixel positions; null entries skipped."""
+    out = []
+    for r in rows:
+        v = r.get(field)
+        if v is None:
+            continue
+        d = date.fromisoformat(r['DATE'])
+        out.append((_pva01_x(d, dmin, dmax, x0, x1),
+                    _pva01_y(float(v), y0, y1)))
+    return out
+
+
+def _pva01_marker_svg(kind, x, y, color, size=4):
+    """Inline SVG marker glyph at (x, y). `kind` matches the legend symbols."""
+    if kind == 'circle':
+        return (f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{size}" '
+                f'fill="{color}" stroke="none" />')
+    if kind == 'square':
+        s = size
+        return (f'<rect x="{x - s:.2f}" y="{y - s:.2f}" '
+                f'width="{s * 2}" height="{s * 2}" fill="{color}" />')
+    if kind == 'diamond':
+        s = size + 1
+        return (f'<polygon points="'
+                f'{x:.2f},{y - s:.2f} {x + s:.2f},{y:.2f} '
+                f'{x:.2f},{y + s:.2f} {x - s:.2f},{y:.2f}" '
+                f'fill="{color}" />')
+    if kind == 'triangle':
+        s = size + 1
+        return (f'<polygon points="'
+                f'{x:.2f},{y - s:.2f} {x + s:.2f},{y + s:.2f} '
+                f'{x - s:.2f},{y + s:.2f}" fill="{color}" />')
+    if kind == 'invtri':
+        s = size + 1
+        return (f'<polygon points="'
+                f'{x:.2f},{y + s:.2f} {x + s:.2f},{y - s:.2f} '
+                f'{x - s:.2f},{y - s:.2f}" fill="{color}" />')
+    return ''
+
+
+def _pva01_legend_item_html(kind, color, dash, label):
+    """One legend chip: SVG swatch + escaped text label."""
+    label_e = _html_lib.escape(label)
+    if kind == 'area':
+        swatch = (
+            '<svg width="22" height="10" viewBox="0 0 22 10">'
+            f'<rect x="0" y="0" width="22" height="10" fill="{color}" '
+            f'fill-opacity="0.2" stroke="{color}" stroke-width="1" />'
+            '</svg>'
+        )
+    else:
+        dash_attr = f' stroke-dasharray="{dash}"' if dash else ''
+        swatch = (
+            '<svg width="26" height="10" viewBox="0 0 26 10">'
+            f'<line x1="0" y1="5" x2="26" y2="5" stroke="{color}" '
+            f'stroke-width="2"{dash_attr} />'
+            + _pva01_marker_svg(kind, 13, 5, color, size=4)
+            + '</svg>'
+        )
+    return (
+        f'<span class="legend-item">{swatch}'
+        f'<span class="legend-label">{label_e}</span></span>'
+    )
+
+
+def _pva01_html_envelope(title, svg_w, svg_h, svg_inner, legend_html):
+    """Wrap SVG + legend in a styled card; self-contained, no external CSS/JS."""
+    title_e = _html_lib.escape(title)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{title_e}</title>
+<style>
+  html, body {{
+    margin: 0; padding: 0; background: #ffffff;
+    font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+    color: {_PVA01_TITLE_TEXT}; -webkit-font-smoothing: antialiased;
+  }}
+  .chart-card {{
+    width: {_HTML_CARD_W}px; height: {_HTML_CARD_H}px;
+    box-sizing: border-box; background: #ffffff; border-radius: 12px;
+    padding: 14px 18px 8px; display: flex; flex-direction: column;
+  }}
+  .chart-title {{
+    font-size: 14px; font-weight: 600; color: {_PVA01_TITLE_TEXT};
+    margin: 0 0 6px 0; line-height: 1.1;
+  }}
+  .chart-svg {{ display: block; flex: 0 0 auto; }}
+  .axis-text {{ font-size: 11px; fill: {_PVA01_AXIS_TEXT}; }}
+  .axis-text-y {{ text-anchor: end; }}
+  .axis-text-x {{ text-anchor: middle; }}
+  .axis-title-text {{
+    font-size: 12px; fill: {_PVA01_AXIS_TEXT}; text-anchor: middle;
+  }}
+  .grid-line {{
+    stroke: {_PVA01_GRID}; stroke-width: 1; stroke-dasharray: 2,3;
+  }}
+  .legend-row {{
+    display: flex; flex-wrap: wrap; justify-content: center;
+    align-items: center; gap: 6px 18px; font-size: 11px;
+    color: {_PVA01_TITLE_TEXT}; padding-top: 6px;
+  }}
+  .legend-item {{
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  }}
+  .legend-label {{ line-height: 1; }}
+</style>
+</head>
+<body>
+<div class="chart-card">
+  <h3 class="chart-title">{title_e}</h3>
+  <svg class="chart-svg" width="{svg_w}" height="{svg_h}"
+       viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg">
+{svg_inner}
+  </svg>
+  <div class="legend-row">
+{legend_html}
+  </div>
+</div>
+</body>
+</html>
+"""
+
+
+def _pva01_empty_html(title):
+    """Minimal HTML card used when the data payload is empty."""
+    title_e = _html_lib.escape(title)
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>{title_e}</title>
+<style>
+  html, body {{ margin: 0; padding: 0; background: #fff;
+    font-family: Inter, sans-serif; color: {_PVA01_TITLE_TEXT}; }}
+  .chart-card {{ width: {_HTML_CARD_W}px; height: {_HTML_CARD_H}px;
+    box-sizing: border-box; padding: 14px 18px 8px;
+    display: flex; align-items: center; justify-content: center; }}
+  .chart-title {{ font-size: 14px; font-weight: 600; }}
+</style></head><body>
+<div class="chart-card"><h3 class="chart-title">{title_e} — no data</h3></div>
+</body></html>
+"""
+
+
+def render_planned_vs_actual_percent_complete(data, output_path):
+    """Chart 01 — Planned VS Actual Percent Complete (HTML+SVG → PNG).
+
+    Clones SmartPM's Highcharts rendering. Six elements:
+      - gray Progress Target band (area between Planned and Late Date Planned)
+      - Late Date Planned (#b00020, solid 2px, diamond markers)
+      - Planned (All Schedules) (#2caffe, solid 2px, square markers)
+      - Actual (#1476b7, solid 2px, triangle markers)
+      - Scheduled Completion (#388543, DASHED 8,6 2px, inverted-triangle markers)
+      - Early Date Planned (#388543, solid 2px, circle markers)
+    Plus a gray dashed vertical plotline at the data date.
+
+    Drawn back-to-front so the dashed Scheduled Completion path lands on top of
+    the solid Early Date Planned line they share the same green with — without
+    this z-order, the dashed line vanishes wherever the two coincide.
+
+    Consumes the SmartPM MCP ``percent_complete_curve_v2`` shape directly:
+      {
+        "percentCompleteTypes": {
+          "LATE_DATE_PLANNED": "Late Date Planned (…)",
+          "BASELINE_PLANNED":  "Planned (All Schedules)",
+          "ACTUAL":            "Actual",
+          "SCHEDULED":         "Scheduled Completion",
+          "PLANNED":           "Early Date Planned (…)"
+        },
+        "data": [
+          {"DATE": "YYYY-MM-DD",
+           "LATE_DATE_PLANNED": float|null,
+           "BASELINE_PLANNED":  float|null,
+           "ACTUAL":            float|null,
+           "SCHEDULED":         float|null,
+           "PLANNED":           float|null},
+          ...
+        ]
+      }
+
+    The two long series labels (Late/Early Date Planned, which carry the
+    source XER filename in parentheses) come from ``percentCompleteTypes``
+    so the legend matches SmartPM's wording project-by-project.
+    """
+    rows = data.get('data') or []
+    types = data.get('percentCompleteTypes') or {}
+    output_path = Path(output_path)
+    html_path = output_path.with_suffix('.html')
+
+    title = 'Planned VS Actual Percent Complete'
+
+    if not rows:
+        html_path.write_text(_pva01_empty_html(title), encoding='utf-8')
+        _html_to_png(html_path, output_path)
+        return
+
+    # Plot geometry inside the SVG. svg_h leaves ~80px below the SVG inside
+    # the chart-card for the (HTML) legend row. pad_r is wide enough that
+    # the rightmost X-tick label (e.g. "02/27/27") doesn't get clipped by
+    # the SVG viewport.
+    svg_w, svg_h = 1692, 312
+    pad_t, pad_r, pad_b, pad_l = 14, 32, 30, 56
+    x0, x1 = pad_l, svg_w - pad_r
+    y0, y1 = pad_t, svg_h - pad_b
+
+    dates = [date.fromisoformat(r['DATE']) for r in rows]
+    dmin, dmax = min(dates), max(dates)
+
+    # Data date — last row where ACTUAL is non-null.
+    data_date = None
+    for r in rows:
+        if r.get('ACTUAL') is not None:
+            data_date = date.fromisoformat(r['DATE'])
+
+    pts_late  = _pva01_series_pts(rows, 'LATE_DATE_PLANNED', dmin, dmax, x0, x1, y0, y1)
+    pts_base  = _pva01_series_pts(rows, 'BASELINE_PLANNED',  dmin, dmax, x0, x1, y0, y1)
+    pts_act   = _pva01_series_pts(rows, 'ACTUAL',            dmin, dmax, x0, x1, y0, y1)
+    pts_sched = _pva01_series_pts(rows, 'SCHEDULED',         dmin, dmax, x0, x1, y0, y1)
+    pts_early = _pva01_series_pts(rows, 'PLANNED',           dmin, dmax, x0, x1, y0, y1)
+
+    # Progress Target band: gray area between BASELINE_PLANNED (upper) and
+    # LATE_DATE_PLANNED (lower), wherever both values are present. Closed
+    # path: top forward, then bottom reversed.
+    band_top, band_bot = [], []
+    for r in rows:
+        base = r.get('BASELINE_PLANNED')
+        late = r.get('LATE_DATE_PLANNED')
+        if base is None or late is None:
+            continue
+        d = date.fromisoformat(r['DATE'])
+        x = _pva01_x(d, dmin, dmax, x0, x1)
+        band_top.append((x, _pva01_y(float(base), y0, y1)))
+        band_bot.append((x, _pva01_y(float(late), y0, y1)))
+    band_path = ''
+    if band_top:
+        top_str = ' L '.join(f'{x:.2f},{y:.2f}' for x, y in band_top)
+        bot_str = ' L '.join(f'{x:.2f},{y:.2f}' for x, y in reversed(band_bot))
+        band_path = f'M {top_str} L {bot_str} Z'
+
+    # Gridlines + Y-axis labels at 0, 25, 50, 75, 100.
+    gridlines, y_labels = [], []
+    for pct in (0, 25, 50, 75, 100):
+        y = _pva01_y(pct, y0, y1)
+        gridlines.append(
+            f'<line x1="{x0}" y1="{y:.1f}" x2="{x1}" y2="{y:.1f}" class="grid-line" />'
+        )
+        y_labels.append(
+            f'<text x="{x0 - 8}" y="{y + 4:.1f}" class="axis-text axis-text-y">'
+            f'{pct} %</text>'
+        )
+
+    # X-axis tick labels.
+    x_labels = []
+    for d in _pva01_x_ticks(dmin, dmax):
+        x = _pva01_x(d, dmin, dmax, x0, x1)
+        x_labels.append(
+            f'<text x="{x:.1f}" y="{y1 + 18}" class="axis-text axis-text-x">'
+            f'{d.strftime("%m/%d/%y")}</text>'
+        )
+
+    plot_line = ''
+    if data_date is not None:
+        dx = _pva01_x(data_date, dmin, dmax, x0, x1)
+        plot_line = (
+            f'<line x1="{dx:.1f}" y1="{y0}" x2="{dx:.1f}" y2="{y1}" '
+            f'stroke="{_PVA01_DATA_DATE_LINE}" stroke-width="2" '
+            f'stroke-dasharray="8,6" />'
+        )
+
+    def _markers(pts, color, kind, size=4):
+        return '\n'.join(_pva01_marker_svg(kind, x, y, color, size) for x, y in pts)
+
+    # Series, back-to-front. The dashed Scheduled Completion goes LAST so it
+    # sits visually above the solid Early Date Planned where the two coincide
+    # (same #388543 color).
+    series_svg = []
+    if band_path:
+        series_svg.append(
+            f'<path d="{band_path}" fill="{_PVA01_PROGRESS_TARGET_FILL}" '
+            f'fill-opacity="0.2" stroke="none" />'
+        )
+    if plot_line:
+        series_svg.append(plot_line)
+    if pts_late:
+        series_svg.append(
+            f'<path d="{_pva01_smooth_path(pts_late)}" fill="none" '
+            f'stroke="{_PVA01_LATE_DATE_PLANNED}" stroke-width="2" />'
+        )
+        series_svg.append(_markers(pts_late, _PVA01_LATE_DATE_PLANNED, 'diamond'))
+    if pts_base:
+        series_svg.append(
+            f'<path d="{_pva01_smooth_path(pts_base)}" fill="none" '
+            f'stroke="{_PVA01_BASELINE_PLANNED}" stroke-width="2" />'
+        )
+        series_svg.append(_markers(pts_base, _PVA01_BASELINE_PLANNED, 'square'))
+    if pts_act:
+        series_svg.append(
+            f'<path d="{_pva01_smooth_path(pts_act)}" fill="none" '
+            f'stroke="{_PVA01_ACTUAL}" stroke-width="2" />'
+        )
+        series_svg.append(_markers(pts_act, _PVA01_ACTUAL, 'triangle'))
+    if pts_early:
+        series_svg.append(
+            f'<path d="{_pva01_smooth_path(pts_early)}" fill="none" '
+            f'stroke="{_PVA01_EARLY_DATE_PLANNED}" stroke-width="2" />'
+        )
+        series_svg.append(_markers(pts_early, _PVA01_EARLY_DATE_PLANNED, 'circle'))
+    if pts_sched:
+        series_svg.append(
+            f'<path d="{_pva01_smooth_path(pts_sched)}" fill="none" '
+            f'stroke="{_PVA01_SCHEDULED_COMPLETION}" stroke-width="2" '
+            f'stroke-dasharray="8,6" />'
+        )
+        series_svg.append(_markers(pts_sched, _PVA01_SCHEDULED_COMPLETION, 'invtri'))
+
+    frame = (
+        f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}" '
+        f'fill="none" stroke="{_PVA01_GRID}" stroke-width="1" />'
+    )
+    y_axis_title = (
+        f'<text x="{x0 - 40}" y="{(y0 + y1) / 2:.1f}" '
+        f'transform="rotate(-90 {x0 - 40} {(y0 + y1) / 2:.1f})" '
+        f'class="axis-title-text">Values</text>'
+    )
+
+    svg_inner = '\n'.join(
+        gridlines + [frame] + y_labels + x_labels + [y_axis_title] + series_svg
+    )
+
+    # Legend (HTML below the SVG so wrapping is free).
+    legend_items = [
+        ('area',     _PVA01_PROGRESS_TARGET_FILL, '',     'Progress Target'),
+        ('diamond',  _PVA01_LATE_DATE_PLANNED,    '',     types.get('LATE_DATE_PLANNED', 'Late Date Planned')),
+        ('square',   _PVA01_BASELINE_PLANNED,     '',     types.get('BASELINE_PLANNED', 'Planned (All Schedules)')),
+        ('triangle', _PVA01_ACTUAL,               '',     types.get('ACTUAL', 'Actual')),
+        ('invtri',   _PVA01_SCHEDULED_COMPLETION, '8,6',  types.get('SCHEDULED', 'Scheduled Completion')),
+        ('circle',   _PVA01_EARLY_DATE_PLANNED,   '',     types.get('PLANNED', 'Early Date Planned')),
+    ]
+    legend_html = '\n'.join(
+        _pva01_legend_item_html(kind, color, dash, label)
+        for kind, color, dash, label in legend_items
+    )
+
+    html_content = _pva01_html_envelope(title, svg_w, svg_h, svg_inner, legend_html)
+    html_path.write_text(html_content, encoding='utf-8')
+    _html_to_png(html_path, output_path)
+
+
+# =====================================================================
+# Stubs for the 8 non-default trend graphs (slugs 02-05 and 13-16).
+#
+# A project whose graph_screenshots list includes one of these slugs hits
+# the stub, which fails loudly with a NotImplementedError pointing at
 # `/schedule-update screenshots --legacy` as the fallback path.
-# Implement the real render functions in place of each stub as needed.
+# Replace each with a real renderer (matplotlib or HTML+SVG) as needed —
+# the HTML+SVG section above is the template for the visual-fidelity route.
 # =====================================================================
 
 def _stub(slug, description):
@@ -1252,9 +1752,6 @@ def _stub(slug, description):
     return _render
 
 
-render_planned_vs_actual_percent_complete = _stub(
-    '01-planned-vs-actual-percent-complete',
-    'Planned VS Actual Percent Complete')
 render_schedule_quality_grade_over_time = _stub(
     '02-schedule-quality-grade-over-time',
     'Schedule Quality Grade Over Time')

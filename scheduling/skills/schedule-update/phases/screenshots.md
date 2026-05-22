@@ -40,6 +40,7 @@ Apply standard folder resolution (see `phases/status.md` for the rule — use to
 
 - `graph_screenshots` — list of slugs to render. If empty or missing, default to:
   `["smartpm-summary-curve", "smartpm-summary-cards", "smartpm-summary-milestones",
+    "01-planned-vs-actual-percent-complete",
     "06-end-date-variance", "07-schedule-compression-index-over-time",
     "08-velocity", "09-spi-over-time", "10-activity-hit-rate",
     "11-window-start-accuracy", "12-window-finish-accuracy"]`
@@ -98,6 +99,23 @@ For each slug in `graph_screenshots`, call the MCP endpoint shown below, transfo
 **`smartpm_post_project_summary` warning:** This endpoint accepts a closed set of columns. ANY unknown column 400s the whole batch with no per-column detail. The valid columns are listed verbatim in the tool description (look for "CANONICAL COLUMNS:"). Don't invent names like `MILESTONES` or `LAST_PERIOD_CHANGES` — they don't exist on this endpoint.
 
 #### Recipe per slug
+
+##### `01-planned-vs-actual-percent-complete`
+
+```
+resp = smartpm_get_scenario_percent_complete_curve_v2(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: {"percentCompleteTypes": {...},
+#              "data": [{"DATE", "LATE_DATE_PLANNED", "BASELINE_PLANNED",
+#                        "ACTUAL", "SCHEDULED", "PLANNED"}, ...]}
+
+payload = resp   # pass through as-is
+```
+
+Same endpoint as `smartpm-summary-curve`, different consumer: the chart-01
+renderer is the HTML+SVG path (clones SmartPM's Highcharts CSS, emits a
+sibling `.html` next to the `.png`), while the summary-curve renderer is
+the matplotlib path used inside the Summary Report composite.
 
 ##### `06-end-date-variance`
 
@@ -323,7 +341,7 @@ This is the most complex one — 4 MCP calls total. Steps:
 
 #### Non-default slugs
 
-For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 9 non-default trends — `01`, `02`, `03`, `04`, `05`, `13`, `14`, `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
+For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 8 remaining non-default trends — `02`, `03`, `04`, `05`, `13`, `14`, `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
 
 ### Step 4: Render
 
