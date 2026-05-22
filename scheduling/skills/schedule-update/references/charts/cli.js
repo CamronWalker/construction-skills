@@ -3,7 +3,7 @@
 // write {slug}.html + {slug}.png to an output dir. Mirrors render.py's
 // observable contract exactly.
 
-import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,10 @@ function main() {
   const [payloadDir, outputDir] = process.argv.slice(2);
   if (!payloadDir || !outputDir) {
     console.error('Usage: node cli.js <payload_dir> <output_dir>');
+    process.exit(2);
+  }
+  if (!existsSync(payloadDir) || !statSync(payloadDir).isDirectory()) {
+    console.error(`payload dir not found or not a directory: ${payloadDir}`);
     process.exit(2);
   }
   mkdirSync(outputDir, { recursive: true });
@@ -45,13 +49,16 @@ function main() {
       const result = spawnSync('node',
         [HTML_TO_PNG, htmlPath, pngPath, String(CARD_W), String(CARD_H), String(SCALE)],
         { encoding: 'utf-8', timeout: 60_000 });
+      if (result.signal) {
+        throw new Error(`html_to_png.cjs killed by ${result.signal} (likely timeout after 60s)`);
+      }
       if (result.status !== 0) {
         const stderr = (result.stderr || '').trim();
         throw new Error(`html_to_png.cjs exited ${result.status}: ${stderr.slice(0, 500)}`);
       }
       rendered.push({ slug, path: pngPath });
     } catch (err) {
-      const e = /** @type {Error} */ (err);
+      const e = err instanceof Error ? err : new Error(String(err));
       failed.push({ slug, reason: `${e.name}: ${e.message}` });
     }
   }

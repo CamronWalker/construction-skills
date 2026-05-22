@@ -9,7 +9,7 @@
 
 export { RENDERERS } from './registry.js';
 export { CHART_META } from './meta.js';
-export { renderPlaceholder } from './svg-lib.js';
+export { renderPlaceholder } from './meta.js';
 // Per-chart re-exports get added as charts land:
 //   export { renderPlannedVsActual } from './01-planned-vs-actual.js';  // (commit 2)
 //   ...

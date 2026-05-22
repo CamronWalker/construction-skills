@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   dateToX, pctToY, smoothPath, xTicks, seriesPts,
-  markerSvg, legendItem, htmlEnvelope, emptyHtml, renderPlaceholder,
+  markerSvg, legendItem, htmlEnvelope, emptyHtml,
 } from './svg-lib.js';
 
 describe('dateToX', () => {
@@ -95,11 +95,79 @@ describe('htmlEnvelope', () => {
   });
 });
 
-describe('renderPlaceholder', () => {
-  it('throws on unknown slug', () => {
-    expect(() => renderPlaceholder('not-a-real-slug')).toThrow(/unknown slug/i);
+describe('seriesPts', () => {
+  it('returns empty array for empty rows', () => {
+    expect(seriesPts([], 'FIELD',
+      new Date('2026-01-01T00:00:00Z'), new Date('2026-12-31T00:00:00Z'),
+      100, 900, 100, 400)).toEqual([]);
   });
-  // Note: the "matches CHART_META dimensions" test moves into chart commits as
-  // CHART_META gets populated. At commit 1, CHART_META is empty, so we only
-  // verify the throw behavior here.
+
+  it('skips rows where the field value is null or undefined', () => {
+    const dmin = new Date('2026-01-01T00:00:00Z');
+    const dmax = new Date('2026-01-02T00:00:00Z');
+    const out = seriesPts(
+      [
+        { DATE: '2026-01-01', V: 50 },
+        { DATE: '2026-01-01', V: null },
+        { DATE: '2026-01-02', V: undefined },
+        { DATE: '2026-01-02', V: 75 },
+      ],
+      'V', dmin, dmax, 100, 900, 100, 400,
+    );
+    expect(out).toHaveLength(2);
+    expect(out[0][1]).toBeCloseTo(pctToY(50, 100, 400), 6);
+    expect(out[1][1]).toBeCloseTo(pctToY(75, 100, 400), 6);
+  });
+
+  it('maps DATE+value to (dateToX, pctToY) coordinates', () => {
+    const dmin = new Date('2026-01-01T00:00:00Z');
+    const dmax = new Date('2026-01-31T00:00:00Z');
+    const out = seriesPts(
+      [{ DATE: '2026-01-31', V: 100 }],
+      'V', dmin, dmax, 0, 1000, 0, 500,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0][0]).toBeCloseTo(1000, 6); // x at dmax
+    expect(out[0][1]).toBeCloseTo(0, 6);    // y at 100% (top of plot)
+  });
 });
+
+describe('legendItem', () => {
+  it('emits an area swatch for kind="area"', () => {
+    const html = legendItem('area', '#808080', '', 'Progress Target');
+    expect(html).toContain('fill="#808080"');
+    expect(html).toContain('fill-opacity="0.2"');
+    expect(html).toContain('Progress Target');
+  });
+
+  it('emits a line + marker swatch for non-area kinds with dash pattern', () => {
+    const html = legendItem('invtri', '#388543', '8,6', 'Scheduled Completion');
+    expect(html).toContain('stroke="#388543"');
+    expect(html).toContain('stroke-dasharray="8,6"');
+    expect(html).toContain('<polygon');
+    expect(html).toContain('Scheduled Completion');
+  });
+
+  it('escapes the label', () => {
+    expect(legendItem('circle', '#000', '', 'A <Bad> Name')).toContain('A &lt;Bad&gt; Name');
+  });
+});
+
+describe('emptyHtml', () => {
+  it('escapes the title and contains the "no data" marker', () => {
+    const html = emptyHtml('My <Title>');
+    expect(html).toContain('&lt;Title&gt;');
+    expect(html).toContain('no data');
+  });
+});
+
+describe('htmlEnvelope (non-ASCII)', () => {
+  it('preserves UTF-8 characters in the title', () => {
+    const html = htmlEnvelope({
+      title: 'Schedule Quality Grade™ — Trend',
+      svgW: 1692, svgH: 312, svgInner: '<g/>', legendHtml: '',
+    });
+    expect(html).toContain('Schedule Quality Grade™ — Trend');
+  });
+});
+
