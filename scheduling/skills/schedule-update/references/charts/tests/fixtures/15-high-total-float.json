@@ -1,0 +1,33 @@
+{
+  "trend": [
+    { "dataDate": "2025-09-30T08:00:00", "value": 0.55 },
+    { "dataDate": "2025-10-07T08:00:00", "value": 0.58 },
+    { "dataDate": "2025-10-14T08:00:00", "value": 0.62 },
+    { "dataDate": "2025-10-21T08:00:00", "value": 0.65 },
+    { "dataDate": "2025-11-04T08:00:00", "value": 0.68 },
+    { "dataDate": "2025-11-25T08:00:00", "value": 0.71 },
+    { "dataDate": "2025-12-02T08:00:00", "value": 0.74 },
+    { "dataDate": "2025-12-09T08:00:00", "value": 0.76 },
+    { "dataDate": "2025-12-16T08:00:00", "value": 0.78 },
+    { "dataDate": "2026-01-06T08:00:00", "value": 0.81 },
+    { "dataDate": "2026-01-13T08:00:00", "value": 0.83 },
+    { "dataDate": "2026-01-20T08:00:00", "value": 0.84 },
+    { "dataDate": "2026-01-27T08:00:00", "value": 0.86 },
+    { "dataDate": "2026-02-03T08:00:00", "value": 0.87 },
+    { "dataDate": "2026-02-17T08:00:00", "value": 0.88 },
+    { "dataDate": "2026-02-24T08:00:00", "value": 0.89 },
+    { "dataDate": "2026-03-03T08:00:00", "value": 0.90 },
+    { "dataDate": "2026-03-10T08:00:00", "value": 0.91 },
+    { "dataDate": "2026-03-17T08:00:00", "value": 0.91 },
+    { "dataDate": "2026-03-24T08:00:00", "value": 0.92 },
+    { "dataDate": "2026-03-31T08:00:00", "value": 0.92 },
+    { "dataDate": "2026-04-07T08:00:00", "value": 0.92 },
+    { "dataDate": "2026-04-14T08:00:00", "value": 0.93 },
+    { "dataDate": "2026-04-21T08:00:00", "value": 0.93 },
+    { "dataDate": "2026-04-28T08:00:00", "value": 0.93 },
+    { "dataDate": "2026-05-05T08:00:00", "value": 0.93 },
+    { "dataDate": "2026-05-12T08:00:00", "value": 0.93 },
+    { "dataDate": "2026-05-19T08:00:00", "value": 0.93 }
+  ],
+  "_note": "Synthesized from Wellington (113385/1644) trajectory: HIGH_FLOAT_ACTIVITIES normalizedValue (per schedule-quality endpoint) climbs from ~55% at scenario start to 93% at latest 2026-05-19 import. Per-scenario trend endpoint not in public OAS as of 2026-05-22 — consumer should iterate per-date schedule-quality calls or use page-internal summary-trend."
+}

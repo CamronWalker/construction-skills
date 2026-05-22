@@ -1,0 +1,33 @@
+{
+  "trend": [
+    { "dataDate": "2025-09-30T08:00:00", "value": 0.18 },
+    { "dataDate": "2025-10-07T08:00:00", "value": 0.16 },
+    { "dataDate": "2025-10-14T08:00:00", "value": 0.15 },
+    { "dataDate": "2025-10-21T08:00:00", "value": 0.14 },
+    { "dataDate": "2025-11-04T08:00:00", "value": 0.13 },
+    { "dataDate": "2025-11-25T08:00:00", "value": 0.12 },
+    { "dataDate": "2025-12-02T08:00:00", "value": 0.11 },
+    { "dataDate": "2025-12-09T08:00:00", "value": 0.10 },
+    { "dataDate": "2025-12-16T08:00:00", "value": 0.094 },
+    { "dataDate": "2026-01-06T08:00:00", "value": 0.084 },
+    { "dataDate": "2026-01-13T08:00:00", "value": 0.078 },
+    { "dataDate": "2026-01-20T08:00:00", "value": 0.072 },
+    { "dataDate": "2026-01-27T08:00:00", "value": 0.066 },
+    { "dataDate": "2026-02-03T08:00:00", "value": 0.062 },
+    { "dataDate": "2026-02-17T08:00:00", "value": 0.058 },
+    { "dataDate": "2026-02-24T08:00:00", "value": 0.054 },
+    { "dataDate": "2026-03-03T08:00:00", "value": 0.050 },
+    { "dataDate": "2026-03-10T08:00:00", "value": 0.048 },
+    { "dataDate": "2026-03-17T08:00:00", "value": 0.046 },
+    { "dataDate": "2026-03-24T08:00:00", "value": 0.044 },
+    { "dataDate": "2026-03-31T08:00:00", "value": 0.042 },
+    { "dataDate": "2026-04-07T08:00:00", "value": 0.040 },
+    { "dataDate": "2026-04-14T08:00:00", "value": 0.039 },
+    { "dataDate": "2026-04-21T08:00:00", "value": 0.038 },
+    { "dataDate": "2026-04-28T08:00:00", "value": 0.037 },
+    { "dataDate": "2026-05-05T08:00:00", "value": 0.036 },
+    { "dataDate": "2026-05-12T08:00:00", "value": 0.035 },
+    { "dataDate": "2026-05-19T08:00:00", "value": 0.0345 }
+  ],
+  "_note": "Synthesized from Wellington (113385/1644) trajectory: CRITICAL_PATH_PERCENT normalizedValue declines from ~18% at scenario start to 3.45% at latest 2026-05-19 import (matches schedule-quality.CRITICAL_PATH_PERCENT.normalizedValue = 37/1073 = 0.0345). Per-scenario trend endpoint not in public OAS as of 2026-05-22."
+}

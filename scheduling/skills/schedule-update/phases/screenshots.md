@@ -380,6 +380,66 @@ node scheduling/skills/schedule-update/references/charts/cli.js \
      {dated_folder}/screenshots
 ```
 
+##### `15-high-total-float`
+
+```
+# Same trend-source caveat as 13-missing-logic. Iterate per-scenario
+# schedule-quality calls and pull the HIGH_FLOAT_ACTIVITIES metric's
+# normalizedValue (a fraction 0..1).
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": fraction_0_to_1}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line (`#2caffe`) with **red** `#b00020` circle markers
+and white outlines. Y-axis is percent (auto-fits with a 1% minimum span).
+X-axis labels format as `MM/DD/YY`. The renderer accepts the raw flat list
+OR a `{"trend": [...]}` envelope.
+
+**Renderer:** chart 15 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/15-high-total-float.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
+##### `16-critical-path-percentage`
+
+```
+# Same trend-source caveat as 13-missing-logic. Iterate per-scenario
+# schedule-quality calls and pull the CRITICAL_PATH_PERCENT metric's
+# normalizedValue (a fraction 0..1).
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": fraction_0_to_1}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line (`#2caffe`) with **yellow** `#f2c031` circle
+markers and white outlines. Y-axis is percent (auto-fits with a 1% minimum
+span; includes 0). X-axis labels format as `MM/DD/YY`. The renderer accepts
+the raw flat list OR a `{"trend": [...]}` envelope.
+
+**Renderer:** chart 16 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/16-critical-path-percentage.js`). To render
+this slug standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
 ##### `06-end-date-variance`
 
 ```
@@ -604,7 +664,7 @@ This is the most complex one — 4 MCP calls total. Steps:
 
 #### Non-default slugs
 
-For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 2 remaining non-default trends — `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
+For any slug in `graph_screenshots` that **isn't** in the recipes above, the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
 
 ### Step 4: Render
 

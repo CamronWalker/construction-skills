@@ -17,3 +17,5 @@ export { renderScheduleChanges }    from './04-schedule-changes.js';
 export { renderScheduleDelay }      from './05-schedule-delay.js';
 export { renderMissingLogic }       from './13-missing-logic.js';
 export { renderAverageTotalFloat }  from './14-average-total-float.js';
+export { renderHighTotalFloat }     from './15-high-total-float.js';
+export { renderCriticalPathPercentage } from './16-critical-path-percentage.js';

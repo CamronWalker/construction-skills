@@ -52,18 +52,20 @@ export function renderMissingLogic(payload) {
 }
 
 /**
- * Single-series straight-line trend renderer. Shared by charts 13 (%) and 14 (days).
- * Kept inline (not factored into svg-lib) because (a) charts 13/14 are the only
- * straight-line single-series consumers right now, and (b) Task 10 will introduce
- * a separate `_trend-line.js` shared module for the hit-rate trio.
+ * Single-series straight-line trend renderer. Shared by charts 13 (%), 14 (days),
+ * 15 (% with red marker) and 16 (% with yellow marker).
+ * Kept inline (not factored into svg-lib) because (a) these straight-line
+ * single-series consumers are the only ones right now, and (b) Task 10 will
+ * introduce a separate `_trend-line.js` shared module for the hit-rate trio.
  *
  * @param {Array<{ dataDate: string, value: number }>} rows
  * @param {string} title
  * @param {(v: number) => string} fmt   Y-axis tick formatter (input is the raw value).
  * @param {number} minSpan              Minimum Y-axis span (in value units).
+ * @param {string} [markerFill]         Circle-marker fill color (default `#388543` green).
  * @returns {import('./svg-lib.js').RenderResult}
  */
-export function renderTrendLine(rows, title, fmt, minSpan) {
+export function renderTrendLine(rows, title, fmt, minSpan, markerFill = MARKER_FILL) {
   const parsed = (rows ?? [])
     .filter(r => r && typeof r.value === 'number' && !Number.isNaN(r.value))
     .map(r => ({ d: parseDate(String(r.dataDate)), v: Number(r.value) }));
@@ -118,7 +120,7 @@ export function renderTrendLine(rows, title, fmt, minSpan) {
   const series = [
     `<path d="${linePath}" fill="none" stroke="${LINE_COLOR}" stroke-width="2" />`,
     ...pts.map(([x, y]) =>
-      `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="4" fill="${MARKER_FILL}" stroke="${MARKER_STROKE}" stroke-width="1" />`
+      `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="4" fill="${markerFill}" stroke="${MARKER_STROKE}" stroke-width="1" />`
     ),
   ];
 
