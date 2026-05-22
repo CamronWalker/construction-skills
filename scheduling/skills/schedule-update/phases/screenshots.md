@@ -248,6 +248,21 @@ from 0 to max observed value, rounded up to a sensible tick boundary.
 All-zero datasets (early-stage projects) render as an empty-but-valid chart
 frame — no crash.
 
+**Renderer:** chart 04 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/04-schedule-changes.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
+The CLI dispatches every payload in `.chart-payload/` through the JS
+registry; slugs without a JS renderer are reported in `failed` with reason
+`no renderer in registry` (those still go through the Python `charts.render`
+step until they migrate).
+
 ##### `06-end-date-variance`
 
 ```
