@@ -145,6 +145,25 @@ Note: `smartpm_get_scenario_schedule_quality` (the dedicated MCP tool) only
 returns the latest data date — it does NOT support the `dataDate` query
 parameter historically. Use the raw GET path above for the full trend.
 
+##### `03-project-health-index-over-time`
+
+```
+resp = smartpm_get_scenario_project_health_trend(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: flat list (NOT wrapped in {"trend": [...]}):
+#   [{"dataDate": "YYYY-MM-DDTHH:MM:SS",
+#     "health": int (0-100),
+#     "risk": "GOOD"|"FINE"|"BAD"}, ...]
+# Note: the indicator field is named "risk", not "indicator".
+
+payload = resp   # pass through as-is (flat list)
+```
+
+Single light-blue line with per-point circle markers color-coded by the
+health indicator (GOOD=green / FINE=amber / BAD=red). Y-axis auto-fits to
+the visible data range (SmartPM convention). The renderer accepts both the
+raw flat-list form and a `{"trend": [...]}` envelope for forward-compatibility.
+
 ##### `06-end-date-variance`
 
 ```
@@ -369,7 +388,7 @@ This is the most complex one — 4 MCP calls total. Steps:
 
 #### Non-default slugs
 
-For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 8 remaining non-default trends — `02`, `03`, `04`, `05`, `13`, `14`, `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
+For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 6 remaining non-default trends — `04`, `05`, `13`, `14`, `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
 
 ### Step 4: Render
 

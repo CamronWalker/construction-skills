@@ -171,6 +171,58 @@ class TestWindowFinishAccuracy(unittest.TestCase):
         self.assertEqual(img.format, 'PNG')
 
 
+@unittest.skipIf(shutil.which('node') is None,
+                 'node executable not on PATH — HTML→PNG rasterisation needs it')
+class TestProjectHealthIndexOverTime(unittest.TestCase):
+    """Chart 03 — line + per-point indicator-colored markers; numeric % Y-axis."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '03-project-health-index-over-time.png'
+        self.html = self.output.with_suffix('.html')
+        self.data = json.loads(
+            (FIXTURE_DIR / '03-project-health-index-over-time.json').read_text()
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_html_with_smartpm_palette(self):
+        original = charts._html_to_png
+        try:
+            charts._html_to_png = lambda *a, **kw: None
+            charts.render_project_health_index_over_time(self.data, str(self.output))
+        finally:
+            charts._html_to_png = original
+
+        self.assertTrue(self.html.exists())
+        body = self.html.read_text(encoding='utf-8')
+
+        self.assertIn('#2caffe', body, 'line color missing')
+        self.assertIn('#1AA462', body, 'GOOD marker color missing (SGRWRF should be all GOOD)')
+        self.assertIn('Project Health Index™ Over Time', body)
+        # Numeric percent Y-axis.
+        self.assertIn(' %', body)
+        # No legend.
+        self.assertNotIn('legend-item', body[body.find('<div class="legend-row">'):])
+
+    def test_full_pipeline_writes_png_via_chromium(self):
+        try:
+            charts.render_project_health_index_over_time(self.data, str(self.output))
+        except RuntimeError as e:
+            msg = str(e)
+            if 'Playwright is not installed' in msg or 'Executable doesn' in msg:
+                self.skipTest(msg.splitlines()[0])
+            raise
+
+        self.assertTrue(self.output.exists())
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+        w, h = img.size
+        self.assertGreater(w, h * 1.8)
+        img.close()
+
+
 class TestNonDefaultStubs(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -180,12 +232,12 @@ class TestNonDefaultStubs(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_unimplemented_chart_is_reported_as_failed(self):
-        # Use slug 03 (still a stub) — slugs 01 and 02 are now implemented
-        # via the HTML+SVG path. Replace with another remaining stub if 03
+        # Use slug 04 (still a stub) — slugs 01/02/03 are now implemented
+        # via the HTML+SVG path. Replace with another remaining stub if 04
         # also gets implemented later.
         payload_dir = Path(self._tmp.name) / 'payload'
         payload_dir.mkdir()
-        (payload_dir / '03-project-health-index-over-time.json').write_text('{}')
+        (payload_dir / '04-schedule-changes-over-time.json').write_text('{}')
         results = render.render_payload(payload_dir, self.output_dir)
         self.assertEqual(results['rendered'], [])
         self.assertEqual(len(results['failed']), 1)

@@ -1878,8 +1878,172 @@ def render_schedule_quality_grade_over_time(data, output_path):
     _html_to_png(html_path, output_path)
 
 
+# ---- Chart 03: Project Health Index Over Time ----
+
+# Colors copied from Chrome MCP inspection of SmartPM's chart 03 DOM on 2026-05-21.
+# Single light-blue line with per-point circle markers color-coded by health
+# indicator (GOOD/FINE/BAD).
+_PVA03_LINE_COLOR    = '#2caffe'     # light blue, stroke-width 2
+_PVA03_MARKER_GOOD   = '#1AA462'     # green — observed on SGRWRF (all data points GOOD)
+_PVA03_MARKER_FINE   = '#FFC000'     # amber — inferred from SmartPM's standard indicator palette
+_PVA03_MARKER_BAD    = '#D01010'     # red — inferred from SmartPM's standard indicator palette
+
+
+def _pva03_marker_color(indicator):
+    """Map indicator string to marker fill. Defaults to GOOD if unknown."""
+    if indicator == 'BAD':
+        return _PVA03_MARKER_BAD
+    if indicator == 'FINE':
+        return _PVA03_MARKER_FINE
+    return _PVA03_MARKER_GOOD
+
+
+def render_project_health_index_over_time(data, output_path):
+    """Chart 03 — Project Health Index™ Over Time (HTML+SVG → PNG).
+
+    Mirrors SmartPM's "Project Health Index™ Over Time" trend:
+      - Single light-blue (#2caffe) line, straight segments (NOT spline),
+        stroke-width 2.
+      - Circle markers radius 4 at each data point, fill color-coded by
+        the health indicator (GOOD=green / FINE=amber / BAD=red).
+      - Y-axis numeric percent (0-100), auto-fits visible range to the data
+        with ~2 % padding on each side.
+      - X-axis dates MM/DD/YY.
+      - No bands, no legend, no data-date plotline.
+      - Title "Project Health Index™ Over Time".
+
+    Consumes the SmartPM MCP shape from smartpm_get_scenario_project_health_trend.
+    The API returns a flat list (not wrapped in {"trend": [...]}), with the
+    indicator field named "risk" (not "indicator"):
+      [
+          {"dataDate": "YYYY-MM-DDTHH:MM:SS",
+           "health": int,                   # 0-100
+           "risk": "GOOD"|"FINE"|"BAD"},
+          ...
+      ]
+    The renderer accepts both the flat-list form and the {"trend": [...]} envelope
+    form for forward-compatibility.
+    """
+    import math
+
+    # Accept both the raw MCP list form and the {"trend": [...]} envelope.
+    raw = data if isinstance(data, list) else (data.get('trend') or [])
+
+    output_path = Path(output_path)
+    html_path = output_path.with_suffix('.html')
+    title = 'Project Health Index™ Over Time'
+
+    # Parse rows. The field is "health"; indicator is under "risk".
+    parsed = []
+    for r in raw:
+        value = r.get('health')
+        if value is None:
+            continue
+        d = date.fromisoformat(r['dataDate'][:10])
+        # "risk" is the indicator field in the MCP response.
+        indicator = r.get('risk') or r.get('indicator') or 'GOOD'
+        parsed.append((d, float(value), indicator))
+
+    if not parsed:
+        html_path.write_text(_pva01_empty_html(title), encoding='utf-8')
+        _html_to_png(html_path, output_path)
+        return
+
+    # SVG geometry (same proportions as chart 01 / 02).
+    svg_w, svg_h = 1692, 312
+    pad_t, pad_r, pad_b, pad_l = 14, 32, 30, 56
+    x0, x1 = pad_l, svg_w - pad_r
+    y0, y1 = pad_t, svg_h - pad_b
+
+    dates = [d for d, _, _ in parsed]
+    dmin, dmax = min(dates), max(dates)
+
+    # Y range: auto-fit to data with 2% padding above and below, but clamp
+    # to [0, 100]. SmartPM uses tight auto-fit (visible range was 84-100
+    # for SGRWRF which spans ~85-100).
+    values = [v for _, v, _ in parsed]
+    v_min = max(0.0, min(values) - 2.0)
+    v_max = min(100.0, max(values) + 2.0)
+    if v_max - v_min < 1.0:
+        v_max = v_min + 10.0  # single-value sanity
+
+    def value_to_y(v):
+        return y1 - ((v - v_min) / (v_max - v_min)) * (y1 - y0)
+
+    # Y-axis tick values: integer % at sensible spacing. Aim for ~5-7 ticks.
+    span = v_max - v_min
+    if span > 50:
+        y_tick_step = 10
+    elif span > 20:
+        y_tick_step = 5
+    elif span > 10:
+        y_tick_step = 2
+    else:
+        y_tick_step = 1
+
+    # Round v_min down to nearest tick step, v_max up to nearest tick step.
+    tick_lo = math.floor(v_min / y_tick_step) * y_tick_step
+    tick_hi = math.ceil(v_max / y_tick_step) * y_tick_step
+    y_ticks = []
+    t = tick_lo
+    while t <= tick_hi:
+        if v_min - y_tick_step / 2 <= t <= v_max + y_tick_step / 2:
+            y_ticks.append(int(t))
+        t += y_tick_step
+
+    # Points (straight line).
+    pts = [(_pva01_x(d, dmin, dmax, x0, x1), value_to_y(v)) for d, v, _ in parsed]
+    line_path = 'M ' + ' L '.join(f'{x:.2f},{y:.2f}' for x, y in pts)
+
+    # Gridlines + Y labels.
+    gridlines = []
+    y_labels = []
+    for tick in y_ticks:
+        y = value_to_y(tick)
+        gridlines.append(
+            f'<line x1="{x0}" y1="{y:.1f}" x2="{x1}" y2="{y:.1f}" class="grid-line" />'
+        )
+        y_labels.append(
+            f'<text x="{x0 - 8}" y="{y + 4:.1f}" class="axis-text axis-text-y">'
+            f'{tick} %</text>'
+        )
+
+    # X-axis tick labels.
+    x_labels = []
+    for d in _pva01_x_ticks(dmin, dmax):
+        x = _pva01_x(d, dmin, dmax, x0, x1)
+        x_labels.append(
+            f'<text x="{x:.1f}" y="{y1 + 18}" class="axis-text axis-text-x">'
+            f'{d.strftime("%m/%d/%y")}</text>'
+        )
+
+    # Frame.
+    frame = (
+        f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}" '
+        f'fill="none" stroke="{_PVA01_GRID}" stroke-width="1" />'
+    )
+
+    # Series: line + indicator-colored markers.
+    series_svg = [
+        f'<path d="{line_path}" fill="none" '
+        f'stroke="{_PVA03_LINE_COLOR}" stroke-width="2" />'
+    ]
+    for (x, y), (_, _, indicator) in zip(pts, parsed):
+        color = _pva03_marker_color(indicator)
+        series_svg.append(
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="4" fill="{color}" />'
+        )
+
+    svg_inner = '\n'.join(gridlines + [frame] + y_labels + x_labels + series_svg)
+
+    # No legend (single series, indicator colors explain themselves).
+    html_content = _pva01_html_envelope(title, svg_w, svg_h, svg_inner, legend_html='')
+    html_path.write_text(html_content, encoding='utf-8')
+    _html_to_png(html_path, output_path)
+
+
 # =====================================================================
-# Stubs for the 7 remaining non-default trend graphs (slugs 03-05, 13-16).
+# Stubs for the 6 remaining non-default trend graphs (slugs 04-05, 13-16).
 #
 # A project whose graph_screenshots list includes one of these slugs hits
 # the stub, which fails loudly with a NotImplementedError pointing at
@@ -1900,11 +2064,6 @@ def _stub(slug, description):
         )
     _render.__name__ = f'render_{slug.replace("-", "_")}'
     return _render
-
-
-render_project_health_index_over_time = _stub(
-    '03-project-health-index-over-time',
-    'Project Health Index Over Time')
 render_schedule_changes_over_time = _stub(
     '04-schedule-changes-over-time',
     'Schedule Changes Over Time')
