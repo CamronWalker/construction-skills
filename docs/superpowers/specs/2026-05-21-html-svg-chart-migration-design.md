@@ -1,5 +1,9 @@
 # HTML+SVG chart migration — phase out matplotlib
 
+> **Status: SUPERSEDED 2026-05-21** by [2026-05-21 HTML+SVG chart migration (TypeScript)](2026-05-21-html-svg-chart-migration-typescript-design.md).
+>
+> The four Python renderers committed under this spec (chart 01 in `b6a58ee`, chart 02 fix in `d26fe78`, chart 03 in `b707b79`, chart 04 in `1ea9b22`) stay on the branch as a visual-contract reference during the TS port. They're removed wholesale in the TS-spec's 12th cleanup commit, along with all matplotlib code and the legacy `--legacy` Playwright SmartPM-capture path. The decision to pivot to TypeScript was driven by a separate branch that wraps these renderers in a Deno-based Supabase Edge Function — keeping Python would have forced a second hosting service. The visual contract per chart does not change; the runtime/language does.
+
 **Date:** 2026-05-21
 **Branch:** `blissful-tharp-ad03c2` → `feat/html-svg-chart-migration`
 **Plugin scope:** `scheduling` (chart renderer rewrite + phase doc updates + matplotlib removal)

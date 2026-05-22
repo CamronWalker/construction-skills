@@ -1,5 +1,7 @@
 # HTML+SVG chart migration — Implementation Plan
 
+> **Status: SUPERSEDED 2026-05-21** — pivoted from Python to TypeScript. See [the new spec](../specs/2026-05-21-html-svg-chart-migration-typescript-design.md). A TypeScript implementation plan will be written next at `docs/superpowers/plans/2026-05-21-html-svg-chart-migration-typescript.md`. Tasks 1–4 of *this* plan are partially complete (chart 01 / 02 / 03 / 04 Python renderers committed); they stay on the branch as a visual reference during the TS port and are removed in the TS plan's cleanup task. Do not continue executing this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate every chart renderer in the schedule-update skill from matplotlib to HTML+SVG cloned from SmartPM's Highcharts CSS, then delete matplotlib and the legacy Playwright capture path.
