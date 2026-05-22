@@ -1,62 +1,132 @@
-# Phase: `draft` — Create Outlook Draft + Procore Publish
+# Phase: draft
 
-> Loaded by SKILL.md's router when the user invokes `/schedule-update draft`.
-> Also requires `_attachments.md` and `procore.md`.
+## Goal
 
-Turns the approved email content into a draft the user opens, reviews, and sends from Outlook. Also fans out to the Procore Documents upload as a single user-visible step.
+Produce `{dated_folder}/email-draft.json` — the complete state Claude and the colleague will iterate on in the browser before the `.eml` build step.
 
-## Step 1: Locate Source File
+## Inputs
 
-Prefer the edited HTML preview: `{dated_folder}/{YYYY-MM-DD}-email-preview.html`. Read it via `references/parse_email_html.py` to extract the reviewed values.
+- `{dated_folder}/project-context.html` — recipients, signer info, SmartPM IDs (via `parse_project_context_html`).
+- Last week's `{prev_dated_folder}/email-draft.json` — for carry-forward of items and narratives. If the previous week's run still has a `{prev_dated_folder}/*-email-preview.html` instead (legacy flow), fall back to `parse_email_html.parse_preview_html()` for the carry-forward shape.
+- This week's `{dated_folder}/*.xer` + last week's XER for delta analysis (use the schedule plugin's XER parser).
+- This week's meeting transcript at `{dated_folder}/meeting-transcript.md` if present.
 
-If the HTML preview is missing, fall back to `{dated_folder}/{YYYY-MM-DD}-update-email.md` (the archive markdown). If both are missing:
-> "No update email file found for today's folder. Run `/schedule-update email` or `/schedule-update report` first."
+## Outputs
 
-## Step 2: Generate the draft (default: `.eml` on disk)
+- `{dated_folder}/email-draft.seed.json` — Claude's synthesized seed (carry-forward + new content). Persisted before the MCP call so Refresh can re-render against the same seed.
+- `{dated_folder}/email-draft.json` — the cloud-finalized state (editorial + graph_data + graph_html).
 
-Default path — `references/generate_email_eml.py:generate_update_email_eml()`. The function:
-- Builds the HTML body with the canonical `_build_html_body` from `generate_email_msg.py` so the rendered email is byte-identical to the COM path.
-- Encodes the body as base64 (NOT quoted-printable — Outlook's compose-mode loader corrupts QP soft line breaks, post-mortem W1177 #15.1).
-- Attaches inline screenshots as `multipart/related` parts with `Content-ID` only and no `filename=` (so Outlook shows them inline only, not in the attachment pane — post-mortem W1177 #15.2).
-- Attaches the files listed in the preview's Attachments card (parser returns `attachment_paths` — checked & non-archived only). Skips Office temp lock files (`~$Foo.xlsm`).
-- Includes the Westland email signature (inline logo, name, title, office phone, optional mobile).
-- Sets `X-Unsent: 1` so opening the file lands the user in compose mode with editable To/Cc/Subject and a real Send button.
+## Process
 
-Output: `{dated_folder}/{YYYY-MM-DD}-update-email.eml`.
+### 1. Read prior state + this week's signals
 
-No external dependencies — everything is stdlib (`email.message.EmailMessage`).
+Use the existing parsers. Do not Read the HTML files directly (see scheduling/CLAUDE.md's "HTML CRUD goes through the parse/generate pair" rule):
 
-### Step 2 (alternative): COM Outlook draft
+```python
+import sys; sys.path.insert(0, 'scheduling/skills/schedule-update/references')
+from parse_project_context_html import load_project_context
+from email_draft_io import load_draft
 
-If the user explicitly asks to skip the `.eml` ("save it straight to Outlook Drafts" / "use the Outlook draft path"), call `references/generate_email_msg.py:generate_update_email_msg()` instead. Same kwargs, same body — just writes via Outlook COM automation rather than to disk.
+ctx = load_project_context(schedules_root)            # current project context
+prev_draft = None
+if os.path.isfile(prev_dated_folder + '/email-draft.json'):
+    prev_draft = load_draft(prev_dated_folder + '/email-draft.json')
+elif os.path.isfile(prev_dated_folder + f'/{prev_date}-email-preview.html'):
+    # Legacy fallback for the first run after this branch lands.
+    from parse_email_html import parse_preview_html
+    prev_draft = {'editorial': parse_preview_html(prev_dated_folder + f'/{prev_date}-email-preview.html')}
+```
 
-**Pre-conditions for COM path:**
-- Classic Outlook must be open (not just installed — open it from Start menu so it syncs to Exchange and the draft shows up in new Outlook)
-- `pywin32` must be installed (`pip install pywin32`)
+Read the XERs and the meeting transcript with the standard tools (Read + the XER parser).
 
-If `pywin32` is missing, prompt: "Install pywin32 with `pip install pywin32`, then retry." If Outlook COM fails entirely, fall back to the `.eml` path automatically and tell the user.
+### 2. Synthesize the seed
 
-## Step 3: Procore publish (fans out, fires unless skipped)
+Build a dict matching the canonical editorial shape (per scheduling/CLAUDE.md "Email-preview JSON shape" + the cloud-editor spec's seed shape). The rule is **carry-forward then revise**: copy `prev_draft['editorial']` field-by-field, then apply this week's deltas. Standard moves:
 
-If `parsed['skip_procore'] == True`, log "Procore: skipped this week (per master toggle)." and proceed to Step 4.
+- **Subject:** swap last week's date for this week's; keep project name + job number.
+- **Items (successes / red_flags / stalled_tasks / key_items):** carry forward each entry's `text` + `status` + `date_archived`; reset `checked=True` for items that are still active; set `checked=False` for items that already shipped last week.
+- **Narrative blocks (gain_loss_narrative, eot_recovery, logic_changes):** rewrite based on this week's XER deltas + transcript. Leave smartpm_changelog_url unchanged unless the URL pattern has shifted.
+- **Attachments:** carry forward last week's attachments; mark items that no longer exist on disk as `status='archived'`. Add this week's new attachments (changes report PDF, etc.). Preserve `share_to_procore` flags from last week.
+- **Signer block:** unchanged unless the colleague has rotated.
+- **days_behind / gain_loss:** compute from XER comparison (week-over-week delta on contractual completion + schedule variance).
+- **graph_order:** unchanged unless the colleague has reordered. Default order is the `graph_screenshots` list from project-context.html plus `smartpm-summary-report` last.
 
-Otherwise, follow `procore.md` to:
-1. Import the XER to the Procore Schedule tool.
-2. Create / reuse the dated `YYYY-MM-DD` subfolder under the configured documents folder.
-3. Upload each attachment with `share_to_procore=True AND checked=True AND status != 'archived'`.
-4. Verify each upload via folder listing; retry once on failure.
+Write the seed JSON to disk:
 
-`procore.md` returns a per-operation result table. Include it in the summary.
+```python
+with open(dated_folder + '/email-draft.seed.json', 'w') as f:
+    json.dump({'project': ctx['project']['job_number'],
+                'report_date': report_date_iso,
+                'editorial': seed_editorial,
+                'smartpm': {'project_name': ctx['project']['smartpm_project_name'],
+                            'scenario_id': None}},  # MCP resolves
+              f, indent=2)
+```
 
-## Step 4: Confirm
+### 3. Generate the cloud draft
 
-For the `.eml` path:
+Call the `generate_weekly_email_draft` MCP tool (mounted at `/weekly-email/mcp` on westland-mcps):
 
-> "Draft written to `{eml_path}`. {procore_summary} Double-click the `.eml` to open in Outlook (classic or new), review, then Send."
+```
+mcp.generate_weekly_email_draft(
+    project=ctx['project']['job_number'],
+    report_date=report_date_iso,
+    seed_json=<loaded seed>
+)
+```
 
-Where `{procore_summary}` is one of:
-- `"Procore: XER imported · folder {folder_id} · {N} uploaded · {M} skipped/failed. Retry with /schedule-update procore if needed."`
-- `"Procore: skipped this week (per master toggle)."`
-- `"Procore: not initialized — see \`phases/procore.md\` for first-time setup."`
+The tool returns `{editor_url, expires_at, graphs_ready_count, graphs_total, smartpm_import_status}`.
 
-For the COM path: same but mention Outlook Drafts instead of the `.eml`.
+### 4. Hand the URL to the colleague
+
+Print the editor URL clearly. Tell them:
+- Click it to open the editor in their browser.
+- Edits autosave; no Save button needed.
+- If `smartpm_import_status == 'processing'`, graphs are placeholders right now — they can start editing the narrative; ask Claude to refresh once SmartPM finishes (~20 min after XER upload).
+- When done editing, come back here and say "done" (or equivalent — the next phase polls status).
+
+### 5. (Optional, on colleague request) Refresh graphs
+
+If the colleague asks Claude to refresh — typically because SmartPM was still processing at generate time — call `generate_weekly_email_draft` again with the **same seed** (read `email-draft.seed.json` from disk). The MCP tool preserves the editorial layer server-side and only refreshes graph_data + graph_html. Returns a new URL with a fresh signed token (same draft, new bookmark).
+
+```python
+seed = json.load(open(dated_folder + '/email-draft.seed.json'))
+mcp.generate_weekly_email_draft(**seed)
+```
+
+The colleague's open browser tab keeps working; if it had been left open, autosaves continue against the same `(project, report_date)` key. They can hit Refresh in the editor (the button calls `/refresh-graphs` directly — no need to come back to Claude for the typical case). The Claude-driven path is the fallback when the URL has expired.
+
+### 6. Wait for the colleague to finish
+
+The colleague tells Claude they're done. Optionally call `get_weekly_email_status` to verify `status == 'editing'` and `last_edited_at` is recent enough to be plausible.
+
+### 7. Finalize
+
+Call `finalize_weekly_email`. Save the returned working JSON to disk:
+
+```python
+result = mcp.finalize_weekly_email(
+    project=ctx['project']['job_number'],
+    report_date=report_date_iso,
+)
+with open(dated_folder + '/email-draft.json', 'w') as f:
+    json.dump(result['working_json'], f, indent=2)
+```
+
+`result['graphs_ready_count'] < result['graphs_total']` means some charts are still placeholders or errored — warn the colleague before proceeding to `phases/email.md`. They can choose to ship with placeholders (rare; only if the data is truly unavailable) or wait + re-run from step 3.
+
+## What this phase replaces
+
+The old flow wrote `{dated_folder}/{YYYY-MM-DD}-email-preview.html` and asked the colleague to open it in a browser to edit. That artifact is no longer produced. `references/generate_email_preview_html.py` and `references/parse_email_html.py` remain in the repo for one release cycle as a fallback for reading legacy preview HTML during the carry-forward step.
+
+## What this phase explicitly does NOT do
+
+- Build the `.eml` (that's `phases/email.md`).
+- Upload to Procore (that's `phases/procore.md` — and it reads `email-draft.json` directly for `skip_procore` + `attachments[].share_to_procore`).
+- Render chart PNGs in isolation (the cloud function renders + stores HTML+SVG chunks; the `.eml` build stacks them into one PNG).
+
+## Cross-references
+
+- Shape canonical to all email-related artifacts: scheduling/CLAUDE.md "Email-preview JSON shape — single source of truth".
+- The MCP tools and HTTP routes: docs/superpowers/specs/2026-05-21-weekly-email-cloud-editor-design.md.
+- The chart renderer package the cloud function uses: docs/superpowers/specs/2026-05-22-html-svg-chart-migration-javascript-design.md.
