@@ -180,12 +180,12 @@ class TestNonDefaultStubs(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_unimplemented_chart_is_reported_as_failed(self):
-        # Use slug 02 (still a stub) — slug 01 is implemented now via the
-        # HTML+SVG path. Replace with another remaining stub if 02 also
-        # gets implemented later.
+        # Use slug 03 (still a stub) — slugs 01 and 02 are now implemented
+        # via the HTML+SVG path. Replace with another remaining stub if 03
+        # also gets implemented later.
         payload_dir = Path(self._tmp.name) / 'payload'
         payload_dir.mkdir()
-        (payload_dir / '02-schedule-quality-grade-over-time.json').write_text('{}')
+        (payload_dir / '03-project-health-index-over-time.json').write_text('{}')
         results = render.render_payload(payload_dir, self.output_dir)
         self.assertEqual(results['rendered'], [])
         self.assertEqual(len(results['failed']), 1)
@@ -267,6 +267,67 @@ class TestPlannedVsActualPercentComplete(unittest.TestCase):
         self.assertGreater(width, height * 1.8,
                            f'expected wide PNG, got {width}x{height}')
         # 1728x432 nominal at 2× = 3456x864. Allow some slack for either DPR.
+        self.assertGreaterEqual(width, 1700)
+        img.close()
+
+
+@unittest.skipIf(shutil.which('node') is None,
+                 'node executable not on PATH — HTML→PNG rasterisation needs it')
+class TestScheduleQualityGradeOverTime(unittest.TestCase):
+    """Chart 02 — HTML+SVG renderer + Chromium rasterisation. Verifies the
+    HTML artifact carries the SmartPM-cloned grade-band colors and title,
+    and that the PNG is rendered at the expected wide aspect."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / '02-schedule-quality-grade-over-time.png'
+        self.html   = self.output.with_suffix('.html')
+        self.data = json.loads(
+            (FIXTURE_DIR / '02-schedule-quality-grade-over-time.json').read_text()
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_renders_html_sibling_with_smartpm_palette(self):
+        """HTML contract test — fast, no Chromium. Asserts the visual contract:
+        grade-band colors, line color, and title text are all present."""
+        original = charts._html_to_png
+        try:
+            charts._html_to_png = lambda *a, **kw: None  # no-op
+            charts.render_schedule_quality_grade_over_time(self.data, str(self.output))
+        finally:
+            charts._html_to_png = original
+
+        self.assertTrue(self.html.exists(), 'sibling HTML artifact missing')
+        body = self.html.read_text(encoding='utf-8')
+
+        # All three grade-band colors must be present.
+        for color in ('#54a854', '#f5a623', '#c0223a'):
+            self.assertIn(color, body, f'palette color {color} missing from HTML')
+
+        # Title appears verbatim.
+        self.assertIn('Schedule Quality Grade Over Time', body)
+
+        # Legend labels present.
+        self.assertIn('Quality Score', body)
+
+    def test_full_pipeline_writes_png_via_chromium(self):
+        """End-to-end smoke test: HTML written, rasterised to wide PNG."""
+        try:
+            charts.render_schedule_quality_grade_over_time(self.data, str(self.output))
+        except RuntimeError as e:
+            msg = str(e)
+            if 'Playwright is not installed' in msg or 'Executable doesn' in msg:
+                self.skipTest(f'Playwright/Chromium not installed: {msg.splitlines()[0]}')
+            raise
+
+        self.assertTrue(self.output.exists(), 'PNG was not created')
+        img = Image.open(self.output)
+        self.assertEqual(img.format, 'PNG')
+        width, height = img.size
+        self.assertGreater(width, height * 1.8,
+                           f'expected wide PNG, got {width}x{height}')
         self.assertGreaterEqual(width, 1700)
         img.close()
 

@@ -1,0 +1,100 @@
+{
+  "trend": [
+    {
+      "dataDate": "2026-02-26T08:00:00",
+      "grade": {
+        "mark": "B+",
+        "indicator": "GOOD",
+        "score": 89.5
+      }
+    },
+    {
+      "dataDate": "2026-03-05T08:00:00",
+      "grade": {
+        "mark": "B+",
+        "indicator": "GOOD",
+        "score": 89.5
+      }
+    },
+    {
+      "dataDate": "2026-03-12T08:00:00",
+      "grade": {
+        "mark": "B+",
+        "indicator": "GOOD",
+        "score": 89.5
+      }
+    },
+    {
+      "dataDate": "2026-03-19T08:00:00",
+      "grade": {
+        "mark": "B+",
+        "indicator": "GOOD",
+        "score": 89.5
+      }
+    },
+    {
+      "dataDate": "2026-03-26T08:00:00",
+      "grade": {
+        "mark": "B+",
+        "indicator": "GOOD",
+        "score": 89.5
+      }
+    },
+    {
+      "dataDate": "2026-04-02T08:00:00",
+      "grade": {
+        "mark": "A-",
+        "indicator": "GOOD",
+        "score": 92
+      }
+    },
+    {
+      "dataDate": "2026-04-09T08:00:00",
+      "grade": {
+        "mark": "A-",
+        "indicator": "GOOD",
+        "score": 92
+      }
+    },
+    {
+      "dataDate": "2026-04-16T08:00:00",
+      "grade": {
+        "mark": "A-",
+        "indicator": "GOOD",
+        "score": 92
+      }
+    },
+    {
+      "dataDate": "2026-04-23T08:00:00",
+      "grade": {
+        "mark": "A-",
+        "indicator": "GOOD",
+        "score": 92
+      }
+    },
+    {
+      "dataDate": "2026-04-30T08:00:00",
+      "grade": {
+        "mark": "A-",
+        "indicator": "GOOD",
+        "score": 92
+      }
+    },
+    {
+      "dataDate": "2026-05-07T08:00:00",
+      "grade": {
+        "mark": "A-",
+        "indicator": "GOOD",
+        "score": 92
+      }
+    },
+    {
+      "dataDate": "2026-05-21T08:00:00",
+      "grade": {
+        "mark": "A-",
+        "indicator": "GOOD",
+        "score": 92
+      }
+    }
+  ]
+}

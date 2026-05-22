@@ -41,6 +41,7 @@ Apply standard folder resolution (see `phases/status.md` for the rule — use to
 - `graph_screenshots` — list of slugs to render. If empty or missing, default to:
   `["smartpm-summary-curve", "smartpm-summary-cards", "smartpm-summary-milestones",
     "01-planned-vs-actual-percent-complete",
+    "02-schedule-quality-grade-over-time",
     "06-end-date-variance", "07-schedule-compression-index-over-time",
     "08-velocity", "09-spi-over-time", "10-activity-hit-rate",
     "11-window-start-accuracy", "12-window-finish-accuracy"]`
@@ -116,6 +117,33 @@ Same endpoint as `smartpm-summary-curve`, different consumer: the chart-01
 renderer is the HTML+SVG path (clones SmartPM's Highcharts CSS, emits a
 sibling `.html` next to the `.png`), while the summary-curve renderer is
 the matplotlib path used inside the Summary Report composite.
+
+##### `02-schedule-quality-grade-over-time`
+
+```
+# No dedicated MCP tool as of 2026-05-21. Use smartpm_get (raw GET):
+resp = smartpm_get(
+    path=f'/projects/{project_id}/scenarios/{default_scenario_id}/schedule-quality-trend')
+# resp is a list of objects, one per historical data date, each shaped:
+#   { dataDate, metrics: [...full metrics array...], grade: { mark, indicator, score },
+#     qualityProfileId }
+# The metrics array is verbose — strip it down to just what the renderer needs:
+
+payload = {
+    "trend": [
+        {"dataDate": r["dataDate"], "grade": r.get("grade", {})}
+        for r in resp
+    ]
+}
+```
+
+The renderer reads `trend[].grade.score` (0–100 numeric) for the Y-axis and
+`trend[].dataDate` (ISO-8601 string) for the X-axis. Background grade bands
+(A ≥ 90, B 73–89, C < 73) are hard-coded in the renderer.
+
+Note: `smartpm_get_scenario_schedule_quality` (the dedicated MCP tool) only
+returns the latest data date — it does NOT support the `dataDate` query
+parameter historically. Use the raw GET path above for the full trend.
 
 ##### `06-end-date-variance`
 
