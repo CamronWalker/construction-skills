@@ -275,7 +275,7 @@ class TestPlannedVsActualPercentComplete(unittest.TestCase):
                  'node executable not on PATH — HTML→PNG rasterisation needs it')
 class TestScheduleQualityGradeOverTime(unittest.TestCase):
     """Chart 02 — HTML+SVG renderer + Chromium rasterisation. Verifies the
-    HTML artifact carries the SmartPM-cloned grade-band colors and title,
+    HTML artifact carries the verified SmartPM palette and categorical Y-axis,
     and that the PNG is rendered at the expected wide aspect."""
 
     def setUp(self):
@@ -289,28 +289,35 @@ class TestScheduleQualityGradeOverTime(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def test_renders_html_sibling_with_smartpm_palette(self):
-        """HTML contract test — fast, no Chromium. Asserts the visual contract:
-        grade-band colors, line color, and title text are all present."""
+    def test_renders_html_with_smartpm_palette(self):
         original = charts._html_to_png
         try:
-            charts._html_to_png = lambda *a, **kw: None  # no-op
+            charts._html_to_png = lambda *a, **kw: None
             charts.render_schedule_quality_grade_over_time(self.data, str(self.output))
         finally:
             charts._html_to_png = original
 
-        self.assertTrue(self.html.exists(), 'sibling HTML artifact missing')
+        self.assertTrue(self.html.exists())
         body = self.html.read_text(encoding='utf-8')
 
-        # All three grade-band colors must be present.
-        for color in ('#54a854', '#f5a623', '#c0223a'):
-            self.assertIn(color, body, f'palette color {color} missing from HTML')
+        # The verified palette (SmartPM DOM inspection 2026-05-21): single
+        # light-blue line, NO background bands, NO legend.
+        self.assertIn('#2caffe', body, 'line color missing')
+        self.assertNotIn('#54a854', body, 'old (wrong) green color still present')
+        self.assertNotIn('#f5a623', body, 'old (wrong) amber color still present')
+        self.assertNotIn('#c0223a', body, 'old (wrong) red color still present')
 
-        # Title appears verbatim.
-        self.assertIn('Schedule Quality Grade Over Time', body)
+        # Title includes the trademark symbol.
+        self.assertIn('Schedule Quality Grade™ Over Time', body)
 
-        # Legend labels present.
-        self.assertIn('Quality Score', body)
+        # Categorical Y-axis — at least one grade letter appears.
+        # (Actual visible grades depend on the data; SGRWRF should show A+/A/A-/B+/B.)
+        grade_chars = sum(g in body for g in ('A+', 'A-', 'B+', 'B', 'B-'))
+        self.assertGreaterEqual(grade_chars, 2, 'no grade letter labels in Y-axis')
+
+        # No legend (single-series chart).
+        self.assertNotIn('Quality Score', body)
+        self.assertNotIn('Grade Bands', body)
 
     def test_full_pipeline_writes_png_via_chromium(self):
         """End-to-end smoke test: HTML written, rasterised to wide PNG."""

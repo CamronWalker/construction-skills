@@ -1738,177 +1738,142 @@ def render_planned_vs_actual_percent_complete(data, output_path):
 
 # ---- Chart 02: Schedule Quality Grade Over Time ----
 
-# Colors derived from SmartPM's Highcharts grade-band chart conventions.
-# (Chrome MCP sandbox could not reach app.smartpmtech.com during 2026-05-21
-# session — network isolation. Palette was inferred from SmartPM's documented
-# brand colors: green A-band matches their brand lime; amber B-band matches
-# their standard warning amber; red C-band matches _SMARTPM_RED already in
-# this file. Update from live DOM inspection when access is available.
-# See chart-previews/inspection-02-schedule-quality-grade.json for details.)
-_PVA02_LINE_COLOR   = '#54a854'   # green trend line
-_PVA02_GRADE_A_BAND = '#54a854'   # green fill — A range (score ≥ 90)
-_PVA02_GRADE_B_BAND = '#f5a623'   # amber fill — B range (73 ≤ score < 90)
-_PVA02_GRADE_C_BAND = '#c0223a'   # red fill   — C and below (score < 73)
+# ---- Chart 02: Schedule Quality Grade Over Time ----
 
-# Grade band boundaries (score 0-100). SmartPM standard thresholds.
-_PVA02_GRADE_A_MIN = 90.0   # A range starts here
-_PVA02_GRADE_B_MIN = 73.0   # B range starts here; below = C and below
+# Colors copied from Chrome MCP inspection of SmartPM's chart 02 DOM on 2026-05-21
+# (SGRWRF trends page). Single-series chart, NO bands, NO legend, NO markers.
+_PVA02_LINE_COLOR = '#2caffe'   # light blue, stroke-width 2
+
+# Canonical SmartPM grade scale, top (A+) to bottom (F). Index = rank.
+# Renderer maps trend[].grade.mark to its index for Y positioning; the
+# Y-axis labels the visible range only (matches SmartPM's auto-fit).
+_PVA02_GRADE_RANKS = (
+    'A+', 'A', 'A-',
+    'B+', 'B', 'B-',
+    'C+', 'C', 'C-',
+    'D',  'F',
+)
 
 
 def render_schedule_quality_grade_over_time(data, output_path):
-    """Chart 02 — Schedule Quality Grade Over Time (HTML+SVG → PNG).
+    """Chart 02 — Schedule Quality Grade™ Over Time (HTML+SVG → PNG).
 
-    Line chart of historical schedule quality score (0–100) per data date.
-    Background grade bands (green A / amber B / red C+) make the trend
-    direction obvious at a glance — mirrors SmartPM's Highcharts chart 02.
+    Mirrors SmartPM's "Schedule Quality Grade Over Time" trend exactly:
+      - Single light-blue (#2caffe) line, straight segments (NOT spline),
+        stroke-width 2, no point markers.
+      - Y-axis is CATEGORICAL letter grades (A+, A, A-, B+, ... F);
+        renderer auto-fits the visible Y range to the data (min observed
+        grade through max observed grade, no padding) matching SmartPM's
+        behavior.
+      - X-axis: dates in MM/DD/YY.
+      - No background grade bands. No legend. No data-date plotline.
+      - Title "Schedule Quality Grade™ Over Time" (note the ™).
 
-    Endpoint: raw GET /projects/{id}/scenarios/{id}/schedule-quality-trend
-    (no dedicated MCP tool as of 2026-05-21; use smartpm_get raw).
-    Response shape (full): list of {dataDate, metrics: [...], grade: {mark,
-    indicator, score}, qualityProfileId}. Renderer consumes the trimmed
-    payload assembled by phases/screenshots.md:
+    Consumes the payload shape produced by phases/screenshots.md (raw GET
+    via smartpm_get against /projects/{id}/scenarios/{id}/schedule-quality-trend,
+    then mapped to):
       {"trend": [
-        {"dataDate": "YYYY-MM-DDTHH:MM:SS",
-         "grade": {"mark": str, "indicator": str, "score": float}},
-        ...
+          {"dataDate": "YYYY-MM-DDTHH:MM:SS",
+           "grade": {"mark": "A-", "indicator": "GOOD", "score": 92.5}},
+          ...
       ]}
+    Reads trend[].grade.mark for Y positioning (looked up in the canonical
+    grade list). Skips rows where mark is missing or unrecognised.
     """
     rows = (data.get('trend') or [])
     output_path = Path(output_path)
     html_path = output_path.with_suffix('.html')
-    title = 'Schedule Quality Grade Over Time'
+    title = 'Schedule Quality Grade™ Over Time'
 
-    if not rows:
+    # Parse and filter rows: keep only those with a recognised grade mark.
+    grade_to_rank = {g: i for i, g in enumerate(_PVA02_GRADE_RANKS)}
+    parsed = []
+    for r in rows:
+        grade = (r.get('grade') or {}).get('mark')
+        if grade not in grade_to_rank:
+            continue
+        d = date.fromisoformat(r['dataDate'][:10])
+        parsed.append((d, grade_to_rank[grade], grade))
+
+    if not parsed:
         html_path.write_text(_pva01_empty_html(title), encoding='utf-8')
         _html_to_png(html_path, output_path)
         return
 
-    # Plot geometry — match chart-01 for layout consistency.
+    # SVG geometry (same proportions as chart 01).
     svg_w, svg_h = 1692, 312
     pad_t, pad_r, pad_b, pad_l = 14, 32, 30, 56
     x0, x1 = pad_l, svg_w - pad_r
     y0, y1 = pad_t, svg_h - pad_b
 
-    # Build list of (date, score) pairs from the trend rows.
-    pts_raw = []
-    for r in rows:
-        grade = r.get('grade') or {}
-        score = grade.get('score')
-        if score is None:
-            continue
-        d = date.fromisoformat(r['dataDate'][:10])
-        pts_raw.append((d, float(score)))
-    pts_raw.sort(key=lambda t: t[0])
-
-    if not pts_raw:
-        html_path.write_text(_pva01_empty_html(title), encoding='utf-8')
-        _html_to_png(html_path, output_path)
-        return
-
-    dates = [t[0] for t in pts_raw]
+    dates = [d for d, _, _ in parsed]
     dmin, dmax = min(dates), max(dates)
 
-    # Map data to pixel coords. Y-axis is 0-100 quality score.
+    # Y range = visible grade rank window. SmartPM auto-fits to data; copy
+    # that behavior — show the min observed rank through the max observed
+    # rank, no padding.
+    ranks = [r for _, r, _ in parsed]
+    y_rank_top = min(ranks)      # best grade observed (lowest rank index = top of axis)
+    y_rank_bot = max(ranks)      # worst grade observed (highest rank index = bottom)
+    # Guard against single-grade datasets — give it 1 rank of breathing room.
+    if y_rank_top == y_rank_bot:
+        y_rank_top = max(0, y_rank_top - 1)
+        y_rank_bot = min(len(_PVA02_GRADE_RANKS) - 1, y_rank_bot + 1)
+    rank_span = y_rank_bot - y_rank_top
+    if rank_span == 0:
+        rank_span = 1  # safety
+
+    def rank_to_y(rank):
+        # rank=y_rank_top → y0 (top of plot); rank=y_rank_bot → y1 (bottom).
+        return y0 + ((rank - y_rank_top) / rank_span) * (y1 - y0)
+
+    # Points (straight-line series).
     pts = [
-        (_pva01_x(d, dmin, dmax, x0, x1), _pva01_y(score, y0, y1))
-        for d, score in pts_raw
+        (_pva01_x(d, dmin, dmax, x0, x1), rank_to_y(rank))
+        for d, rank, _ in parsed
     ]
+    line_path = 'M ' + ' L '.join(f'{x:.2f},{y:.2f}' for x, y in pts)
 
-    # --- Grade band rects (back layer) ---
-    # Each band is a horizontal rect clipped to the plot area.
-    # A-band: score 90–100  (top of plot to the 90% line)
-    # B-band: score 73–90
-    # C-band: score 0–73    (73% line to bottom of plot)
-    def _band_rect(score_lo, score_hi, fill):
-        y_top = _pva01_y(score_hi, y0, y1)
-        y_bot = _pva01_y(score_lo, y0, y1)
-        return (
-            f'<rect x="{x0:.1f}" y="{y_top:.1f}" '
-            f'width="{x1 - x0:.1f}" height="{y_bot - y_top:.1f}" '
-            f'fill="{fill}" fill-opacity="0.15" />'
-        )
-
-    bands = [
-        _band_rect(90.0, 100.0, _PVA02_GRADE_A_BAND),
-        _band_rect(73.0,  90.0, _PVA02_GRADE_B_BAND),
-        _band_rect(0.0,   73.0, _PVA02_GRADE_C_BAND),
-    ]
-
-    # --- Gridlines (horizontal, every 10 points) ---
+    # Gridlines + Y-axis grade labels (one per visible rank).
     gridlines = []
-    for score_val in range(0, 101, 20):
-        gy = _pva01_y(float(score_val), y0, y1)
-        gridlines.append(
-            f'<line x1="{x0:.1f}" y1="{gy:.1f}" x2="{x1:.1f}" y2="{gy:.1f}" '
-            f'class="grid-line" />'
-        )
-
-    # --- Y-axis labels (0, 20, 40, 60, 80, 100) ---
     y_labels = []
-    for score_val in range(0, 101, 20):
-        gy = _pva01_y(float(score_val), y0, y1)
+    for rank in range(y_rank_top, y_rank_bot + 1):
+        y = rank_to_y(rank)
+        gridlines.append(
+            f'<line x1="{x0}" y1="{y:.1f}" x2="{x1}" y2="{y:.1f}" class="grid-line" />'
+        )
         y_labels.append(
-            f'<text x="{x0 - 8}" y="{gy + 4:.1f}" '
-            f'class="axis-text axis-text-y">{score_val}</text>'
+            f'<text x="{x0 - 8}" y="{y + 4:.1f}" class="axis-text axis-text-y">'
+            f'{_PVA02_GRADE_RANKS[rank]}</text>'
         )
 
-    # --- Y-axis grade letter labels on band mid-points ---
-    grade_labels_svg = []
-    for score_mid, letter in ((95.0, 'A'), (81.5, 'B'), (36.5, 'C')):
-        gy = _pva01_y(score_mid, y0, y1)
-        grade_labels_svg.append(
-            f'<text x="{x1 + 10}" y="{gy + 4:.1f}" '
-            f'class="axis-text" style="font-weight:600;font-size:12px;">'
-            f'{letter}</text>'
-        )
-
-    # --- X-axis labels ---
+    # X-axis tick labels.
     x_labels = []
-    for tick_d in _pva01_x_ticks(dmin, dmax):
-        tx = _pva01_x(tick_d, dmin, dmax, x0, x1)
-        label = tick_d.strftime('%m/%d/%y')
+    for d in _pva01_x_ticks(dmin, dmax):
+        x = _pva01_x(d, dmin, dmax, x0, x1)
         x_labels.append(
-            f'<text x="{tx:.1f}" y="{y1 + 16}" '
-            f'class="axis-text axis-text-x">{label}</text>'
+            f'<text x="{x:.1f}" y="{y1 + 18}" class="axis-text axis-text-x">'
+            f'{d.strftime("%m/%d/%y")}</text>'
         )
 
-    # --- Line series ---
-    line_path = (
-        f'<path d="{_pva01_smooth_path(pts)}" fill="none" '
-        f'stroke="{_PVA02_LINE_COLOR}" stroke-width="2" />'
-    )
-
-    # --- Circle markers at each data point ---
-    markers = '\n'.join(
-        _pva01_marker_svg('circle', x, y, _PVA02_LINE_COLOR, size=4)
-        for x, y in pts
-    )
-
-    # --- Plot border frame ---
+    # Frame.
     frame = (
         f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}" '
         f'fill="none" stroke="{_PVA01_GRID}" stroke-width="1" />'
     )
 
-    svg_inner = '\n'.join(
-        bands + gridlines + [frame]
-        + y_labels + grade_labels_svg + x_labels
-        + [line_path, markers]
-    )
-
-    # Legend — one item: the quality score line + grade band swatches.
-    legend_items = [
-        ('circle', _PVA02_LINE_COLOR,   '', 'Quality Score'),
-        ('area',   _PVA02_GRADE_A_BAND, '', 'A  (≥ 90)'),
-        ('area',   _PVA02_GRADE_B_BAND, '', 'B  (73–89)'),
-        ('area',   _PVA02_GRADE_C_BAND, '', 'C and below'),
+    # Series.
+    series_svg = [
+        f'<path d="{line_path}" fill="none" '
+        f'stroke="{_PVA02_LINE_COLOR}" stroke-width="2" />'
     ]
-    legend_html = '\n'.join(
-        _pva01_legend_item_html(kind, color, dash, label)
-        for kind, color, dash, label in legend_items
+
+    svg_inner = '\n'.join(
+        gridlines + [frame] + y_labels + x_labels + series_svg
     )
 
-    html_content = _pva01_html_envelope(title, svg_w, svg_h, svg_inner, legend_html)
+    # No legend (single series).
+    html_content = _pva01_html_envelope(title, svg_w, svg_h, svg_inner, legend_html='')
     html_path.write_text(html_content, encoding='utf-8')
     _html_to_png(html_path, output_path)
 
