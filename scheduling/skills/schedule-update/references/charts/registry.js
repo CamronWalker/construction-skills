@@ -6,6 +6,8 @@ import { renderScheduleChanges }    from './04-schedule-changes.js';
 import { renderScheduleDelay }      from './05-schedule-delay.js';
 import { renderEndDateVariance }    from './06-end-date-variance.js';
 import { renderScheduleCompression } from './07-schedule-compression.js';
+import { renderVelocity }           from './08-velocity.js';
+import { renderSpiOverTime }        from './09-spi-over-time.js';
 import { renderMissingLogic }       from './13-missing-logic.js';
 import { renderAverageTotalFloat }  from './14-average-total-float.js';
 import { renderHighTotalFloat }     from './15-high-total-float.js';
@@ -22,6 +24,8 @@ export const RENDERERS = {
   '05-schedule-delay-over-time':           renderScheduleDelay,
   '06-end-date-variance':                  renderEndDateVariance,
   '07-schedule-compression-index-over-time': renderScheduleCompression,
+  '08-velocity':                           renderVelocity,
+  '09-spi-over-time':                      renderSpiOverTime,
   '13-missing-logic':                      renderMissingLogic,
   '14-average-total-float':                renderAverageTotalFloat,
   '15-high-total-float':                   renderHighTotalFloat,

@@ -513,6 +513,28 @@ payload = {
 }
 ```
 
+Grouped column chart with 4 series per month — Current Starts (`#B4C7E7`,
+light blue), Current Finishes (`#4472C4`, medium blue), Baseline Starts
+(`#cccccc`, light gray), Baseline Finishes (`#808080`, dark gray) — plus
+an orange `#F2A623` average line connecting per-month `(currentStarts +
+currentFinishes) / 2`, plus a dashed gray data-date plotline at the last
+month with any non-zero Current* activity. X-axis labels are `MMM YYYY`.
+The renderer trims all-zero months from the head and tail (so a 2020-start
+fixture with the first six months empty starts at the first data-bearing
+month), but preserves interior zero-months as zero-height placeholders so
+the X-axis stays evenly spaced. Renderer accepts `{velocityList: [...]}`
+or a bare array.
+
+**Renderer:** chart 08 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/08-velocity.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
+```
+
 ##### `09-spi-over-time`
 
 ```
@@ -521,6 +543,27 @@ resp = smartpm_get_scenario_spi_trend(
 # resp: list of {dataDate, spi}
 
 payload = {"trend": resp}
+```
+
+Single-series straight line (`#1476b7`, darker than chart 13's `#2caffe`)
+with per-point threshold-colored circle markers — red `#b00020` when
+SPI < 0.7, yellow `#f2c031` when 0.7 ≤ SPI < 0.9, green `#1AA462` when
+SPI ≥ 0.9 — plus two horizontal dashed reference plotlines (yellow
+`#f2c031` at SPI = 0.7, green `#388543` at SPI = 1.0 target). No legend
+(single series, colors are self-explanatory by threshold). Y-axis is
+percent of SPI (1.0 = 100 %), floor at 0, ceiling at `max(1.2, observed
+max + 0.1)`. X-axis labels are `MM/DD/YY`. Rows where `spi` is `null`
+or `0` are treated as gaps — the line breaks at those points and no
+marker is drawn. Renderer accepts `{trend: [...]}` or a bare array.
+
+**Renderer:** chart 09 is rendered by the JavaScript `@westland/charts`
+package (`references/charts/09-spi-over-time.js`). To render this slug
+standalone (e.g. for previewing during development):
+
+```bash
+node scheduling/skills/schedule-update/references/charts/cli.js \
+     {dated_folder}/.chart-payload \
+     {dated_folder}/screenshots
 ```
 
 ##### `10-activity-hit-rate`, `11-window-start-accuracy`, `12-window-finish-accuracy`
