@@ -63,9 +63,9 @@ Enforced at the tool layer by the `westland` plugin's PreToolUse hook (`westland
 | Artifact | Lives at | Read with | Write with |
 |----------|----------|-----------|------------|
 | `project-context.html` | Schedules root | `parse_project_context_html.parse_project_context_html(path)` | `generate_project_context_html.generate_project_context_html(path, ctx)` |
-| `{YYYY-MM-DD}-email-preview.html` | dated folder | `parse_email_html.parse_preview_html(path)` | `generate_email_preview_html.generate_email_preview_html(...)` |
+| `{YYYY-MM-DD}-email.json` | dated folder | `email_draft_io.load_draft(path)` | Worker-side: `finalize_weekly_schedule_update_email` (no local writer) |
 
-**Why:** the email preview is 100–160 KB and carries rich state. Reading it directly often exceeds 30K tokens; editing by hand silently corrupts the `contenteditable` state machine. `project-context.html` is ~47 KB with an embedded base64 logo that has historically corrupted mid-payload during direct tool I/O (W1177 Lubumbashi, 2026-05-07). Keep all HTML I/O inside the script pair.
+**Why:** `project-context.html` is ~47 KB with an embedded base64 logo that has historically corrupted mid-payload during direct tool I/O (W1177 Lubumbashi, 2026-05-07). Keep all HTML I/O inside the script pair. The weekly email no longer round-trips through HTML — content lives in the cloud editor and ships back as `{YYYY-MM-DD}-email.json` per the contract in scheduling/CLAUDE.md.
 
 **Cowork note:** when the Schedules / dated folder lives on a non-`C:\` drive (e.g. `\\orem-fs\Common\Westland Project Files` mounted as `G:\`), the bash sandbox may not see it. The discipline still holds. Run the generator with `output_path` pointing at the real destination if reachable; otherwise hand the invocation to a local Claude Code session — never round-trip the HTML through `Write` to "deliver" it.
 

@@ -1,12 +1,10 @@
 """
-Unit tests for generate_email_eml.py and the formatting parity fixes
-(post-mortem W1177 #13, #14, #15).
+Unit tests for generate_email_eml.py — body rendering + .eml envelope.
 
-The .eml writer is a thin RFC 5322 envelope around the same
-`_build_html_body` the COM Outlook path uses. Tests cover both:
-    1. The body itself — Successes processes markdown, **bold** /
-       ==highlight== both render as bold + red (parity with the
-       preview HTML and with the ordered lists below).
+Tests cover:
+    1. The body — item text arrives as HTML from the cloud editor and
+       is passed through verbatim (no markdown conversion). Inline
+       `<strong>` and priority-red spans render in Outlook.
     2. The .eml shape — base64 HTML alternative, inline images carry
        Content-ID but no `attachment` disposition, X-Unsent header
        present, plain-text fallback included.
@@ -28,6 +26,9 @@ import generate_email_msg as gen_msg  # noqa: E402
 import generate_email_eml as gen_eml  # noqa: E402
 
 
+# HTML item text — Trix-editor conventions from the cloud editor.
+_PRIORITY_RED = 'color:#C94444;font-weight:bold'
+
 SAMPLE_KW = dict(
     project_info={
         'project_name': 'Sample Roundtrip Temple',
@@ -39,16 +40,16 @@ SAMPLE_KW = dict(
     gain_loss=-3,
     successes=[
         'Foundation poured.',
-        '**Big milestone hit this week.**',
-        '==Closed all four IMPACT items.==',
+        '<strong>Big milestone hit this week.</strong>',
+        f'<span style="{_PRIORITY_RED}">Closed all four IMPACT items.</span>',
     ],
     red_flags=[
-        '**Steel delivery slipped two weeks.**',
+        f'<span style="{_PRIORITY_RED}">Steel delivery slipped two weeks.</span>',
         'Weather delays resolved.',
     ],
     stalled_tasks=[],
     key_items=[
-        '==Coordinate elevator delivery this week.==',
+        f'<span style="{_PRIORITY_RED}">Coordinate elevator delivery this week.</span>',
     ],
     gain_loss_narrative='Lost 3 days to weather; recovery plan filed.',
     eot_recovery='No EOT this update.',
@@ -78,12 +79,11 @@ def _read_eml(path):
         return email.message_from_bytes(f.read(), policy=email.policy.default)
 
 
-class FormattingParityTests(unittest.TestCase):
-    """Post-mortem #13 + #14: Successes must process markdown like the
-    other lists, and `**bold**` items must render with `<b>` (not red-
-    only). The preview HTML treats ** and == identically; the email
-    must too, so reviewers approving a bold-red item in the preview
-    don't get red-only in the sent email."""
+class HtmlPassthroughTests(unittest.TestCase):
+    """Item text arrives as HTML from the cloud editor's Trix surface and
+    is passed through verbatim — no markdown conversion. The builder
+    does not transform inline `<strong>` / priority-red / highlight
+    spans; Outlook's Word renderer respects them inline."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -94,46 +94,42 @@ class FormattingParityTests(unittest.TestCase):
         gen_eml.generate_update_email_eml(self.path, **SAMPLE_KW)
         return _read_eml_html(self.path)
 
-    def test_successes_process_bold_marker(self):
-        """#13: `**foo**` in a Success item must wrap the text in <b>,
-        not leak literal asterisks."""
+    def test_strong_tag_passes_through_verbatim(self):
         body = self._body()
-        self.assertIn('<b>Big milestone hit this week.</b>', body)
-        self.assertNotIn('**Big milestone hit', body)
+        self.assertIn(
+            '<strong>Big milestone hit this week.</strong>', body,
+        )
 
-    def test_successes_process_highlight_marker(self):
-        """#13: `==foo==` in a Success item must wrap the text in <b>
-        too — same priority as **bold**."""
+    def test_priority_red_span_passes_through_verbatim(self):
         body = self._body()
-        self.assertIn('<b>Closed all four IMPACT items.</b>', body)
-        self.assertNotIn('==Closed all four', body)
+        self.assertIn(
+            '<span style="color:#C94444;font-weight:bold">'
+            'Closed all four IMPACT items.</span>',
+            body,
+        )
 
-    def test_red_flags_bold_renders_with_b_tag(self):
-        """#14: `**foo**` in an ordered list must wrap the text in <b>,
-        not just color it red. Otherwise the preview shows bold+red
-        but the sent email shows red-only — reviewers can't trust
-        what they're approving."""
+    def test_red_flag_priority_span_renders(self):
         body = self._body()
-        self.assertIn('<b>Steel delivery slipped two weeks.</b>', body)
+        self.assertIn(
+            '<span style="color:#C94444;font-weight:bold">'
+            'Steel delivery slipped two weeks.</span>',
+            body,
+        )
 
-    def test_no_literal_markdown_leaks_into_body(self):
-        """No `**...**` or `==...==` substrings should survive into
-        the rendered HTML. The COM and .eml paths share `_build_html_body`,
-        so this guards both."""
+    def test_no_legacy_markdown_delimiters_in_input_round_trip(self):
+        """Sanity check: the HTML input itself does not contain markdown
+        delimiters, so the rendered output shouldn't either."""
         body = self._body()
-        # The HTML escapes the literal characters — searching for the
-        # markdown delimiter pairs is the practical regression check.
+        # The test inputs use no `**` or `==` — confirm output is also clean.
         self.assertNotIn('**', body)
         self.assertNotIn('==', body)
 
-    def test_plain_successes_unchanged(self):
-        """Non-marked items should render plain (no <b>, default color),
-        same as before."""
+    def test_plain_items_render_plain(self):
+        """Items with no HTML formatting render as plain <li> content."""
         body = self._body()
-        # Plain item appears between <li> tags without <b> wrapping.
         self.assertIn('Foundation poured.', body)
-        # Plain items don't get <b>Foundation poured.</b>
-        self.assertNotIn('<b>Foundation poured.</b>', body)
+        # No <strong> wrapping a plain item.
+        self.assertNotIn('<strong>Foundation poured.</strong>', body)
 
 
 class EmlEnvelopeTests(unittest.TestCase):
@@ -278,12 +274,11 @@ class CrossPathParityTests(unittest.TestCase):
             gen_eml.generate_update_email_eml(p, **SAMPLE_KW)
             eml_body = _read_eml_html(p)
         # Smoke check: every list item from the shared builder is
-        # in the .eml body.
+        # in the .eml body. Items are HTML strings — they pass through
+        # verbatim, so the input string itself appears in the body.
         for item in SAMPLE_KW['successes'] + SAMPLE_KW['red_flags'] + SAMPLE_KW['key_items']:
-            # Strip markdown delimiters before checking
-            text = item.strip('*=').strip()
-            self.assertIn(text, eml_body,
-                          f'item {text!r} missing from .eml body')
+            self.assertIn(item, eml_body,
+                          f'item {item!r} missing from .eml body')
 
 
 class TestSubjectDateSuffix(unittest.TestCase):

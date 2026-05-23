@@ -1,15 +1,15 @@
 """
-State-transition helpers for the schedule update email preview.
+State-transition helpers for the schedule update email seed.
 
-The preview tracks per-item status across weeks like a mini git diff:
+The seed tracks per-item status across weeks like a mini git diff:
     active   -> normal (checked; was in last week's email too)
     new      -> green  (just added this update)
     removed  -> red    (unchecked this update; was in last update)
     archived -> gray, collapsed (still unchecked after another update)
 
-When generating THIS week's preview from LAST week's edited HTML, call
-`transition_items()` with the parsed items to compute new statuses, then
-pass the result to generate_email_preview_html.
+When generating THIS week's seed from LAST week's {YYYY-MM-DD}-email.json,
+call `reconcile_items()` with the parsed lists to compute new statuses and
+prev_idx pointers — the cloud editor's diff overlays consume the result.
 
 The rules:
 
@@ -127,37 +127,46 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
                     max_archived_days=MAX_ARCHIVED_DAYS):
     """Reconcile this week's generated texts with last week's tracked items.
 
-    This is the main entry point for the skill when generating a new preview:
-    given what Claude produced this week, and what was in last week's preview,
-    compute the full item list (with statuses, previous_text for edits, and
-    90-day-pruned archives) ready to pass to generate_preview_html.
+    Returns (this_week_rows, last_week_rows_as_baseline):
+        - `this_week_rows`: dicts shaped {text, checked, status, date_archived,
+          prev_idx} where `prev_idx` is the index into `last_week_rows_as_baseline`
+          (the second element of the tuple). `prev_idx` is None when status='new'.
+        - `last_week_rows_as_baseline`: a normalized echo of `last_week_items`
+          shaped {text, checked, status, date_archived}. Pass-through copy so
+          callers can write it into the seed's `last_week.<list>` slot without
+          re-normalizing.
+
+    Diff overlays in the cloud editor and "strikethrough-previous-metric"
+    badges in the .eml builder are computed by walking from
+    `this_week.<list>[i]` → `last_week.<list>[this_week.<list>[i].prev_idx]`.
+    The denormalized `previous_text` field that the legacy flow used is gone —
+    callers walk `last_week.<list>[prev_idx]` for the prior text.
 
     Args:
-        last_week_items: list of dicts from parse_preview_html() of last
-                         week's preview (e.g. result['red_flags_full']).
-        this_week_texts: list of plain text strings Claude wrote for this
-                         update's version of this field.
+        last_week_items: list of dicts from last week's `email-draft.json`
+                         (e.g. `last_week_draft['this_week']['red_flags']`).
+                         Each dict should have at minimum a `text` field.
+        this_week_texts: list of HTML strings Claude wrote for this update's
+                         version of this field. Pass through verbatim — items
+                         are HTML now, not markdown (see scheduling/CLAUDE.md).
         today_iso: 'YYYY-MM-DD' for transitions & pruning. Defaults to today.
         similarity_threshold: difflib ratio cutoff for fuzzy-matching an item
                               across weeks. 0.6 ≈ shares ~60% of content.
         max_archived_days: prune archived items older than this.
 
-    Returns:
-        list of {text, previous_text, status, checked, date_archived} dicts.
-        Pass directly as e.g. red_flags= kwarg to generate_preview_html.
-
     Semantics (matched cases):
         - this_week_text fuzzy-matches a last-week active/new item:
-              status='active', previous_text=last_week_text if differs
-              (renders with amber outline + inline diff when the text was
-              tweaked).
+              status='active', prev_idx=index into last_week_rows_as_baseline.
         - this_week_text fuzzy-matches a last-week removed/archived item:
-              status='new' (Claude pulled it back in — visually "new again").
+              status='new', prev_idx=None
+              (Claude pulled it back in — visually "new again").
         - this_week_text has no match:
-              status='new' (truly new this update).
+              status='new', prev_idx=None (truly new this update).
 
     Semantics (unmatched last-week items — Claude dropped them):
-        - last status was active or new: status='removed' this week.
+        - last status was active or new: status='removed' this week
+          (carried into this_week_rows so the editor can show the strike-out).
+          prev_idx points to its slot in last_week_rows_as_baseline.
         - last status was removed (and not re-checked by user): status=
               'archived' this week with date_archived=today.
         - last status was archived: stays archived (original date preserved).
@@ -167,6 +176,20 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
     today = date.fromisoformat(today_iso)
 
     last_items = list(last_week_items or [])
+
+    # Normalized echo of last week — pass-through copy preserving each row's
+    # text/checked/status/date_archived. This is what gets written to
+    # this week's seed under `last_week.<list>`.
+    last_week_baseline = [
+        {
+            'text': (it.get('text') or ''),
+            'checked': bool(it.get('checked', True)),
+            'status': it.get('status', 'active'),
+            'date_archived': it.get('date_archived', '') or '',
+        }
+        for it in last_items
+    ]
+
     used = set()
 
     # --- Match phase: this week's texts ↔ last week's items --------
@@ -193,29 +216,32 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
         if best_idx >= 0 and best_ratio >= similarity_threshold:
             used.add(best_idx)
             prev = last_items[best_idx]
-            prev_text = (prev.get('text') or '').strip()
             prev_status = prev.get('status', 'active')
-            # Resurrecting a removed/archived item counts as "new".
+            # Resurrecting a removed/archived item counts as "new" — no prev_idx
+            # so the editor renders it without a diff overlay.
             if prev_status in ('removed', 'archived'):
-                status = 'new'
-                previous_text = ''
+                matched.append({
+                    'text': text,
+                    'checked': True,
+                    'status': 'new',
+                    'date_archived': '',
+                    'prev_idx': None,
+                })
             else:
-                status = 'active'
-                previous_text = prev_text if prev_text != text else ''
-            matched.append({
-                'text': text,
-                'previous_text': previous_text,
-                'status': status,
-                'checked': True,
-                'date_archived': '',
-            })
+                matched.append({
+                    'text': text,
+                    'checked': True,
+                    'status': 'active',
+                    'date_archived': '',
+                    'prev_idx': best_idx,
+                })
         else:
             matched.append({
                 'text': text,
-                'previous_text': '',
-                'status': 'new',
                 'checked': True,
+                'status': 'new',
                 'date_archived': '',
+                'prev_idx': None,
             })
 
     # --- Drop phase: last-week items Claude didn't include ---------
@@ -252,13 +278,14 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
 
         dropped.append({
             'text': prev_text,
-            'previous_text': '',
-            'status': new_status,
             'checked': new_checked,
+            'status': new_status,
             'date_archived': new_archived,
+            'prev_idx': i,
         })
 
-    return matched + dropped
+    this_week_rows = matched + dropped
+    return this_week_rows, last_week_baseline
 
 
 def transition_items(last_week_items, new_texts=None, today_iso=None,
@@ -267,7 +294,8 @@ def transition_items(last_week_items, new_texts=None, today_iso=None,
 
     Args:
         last_week_items: list of dicts {text, checked, status, date_archived}
-                         from parse_preview_html() of last week's preview.
+                         from last week's `email-draft.json`
+                         (e.g. `last_draft['this_week']['red_flags']`).
         new_texts: list of plain strings — items discovered this week that
                    were not in last week's list. Each gets status='new'.
         today_iso: 'YYYY-MM-DD'. Used as date_archived when transitioning
@@ -276,7 +304,7 @@ def transition_items(last_week_items, new_texts=None, today_iso=None,
                            pruned from the result (default 90).
 
     Returns:
-        list of dicts ready for generate_preview_html's list kwargs.
+        list of dicts ready for the seed's `this_week.<list>` slot.
     """
     if today_iso is None:
         today_iso = date.today().isoformat()
@@ -362,15 +390,16 @@ def transition_attachments(last_week_attachments, fresh_filenames=None,
         archived   -> archived (original date preserved, 90-day prune)
 
     Args:
-        last_week_attachments: list of dicts from last week's preview parse.
+        last_week_attachments: list of dicts from last week's
+            `email-draft.json` (`last_draft['this_week']['attachments']`).
         fresh_filenames: this week's freshly-resolved filenames (from
             project-context.md globs matched against the dated folder).
         today_iso: 'YYYY-MM-DD' for transitions & pruning (defaults to today).
         max_archived_days: drop archives older than this (default 90).
 
     Returns:
-        list of {filename, checked, status, date_archived} dicts ready to
-        pass to generate_email_preview_html as the `attachments` kwarg.
+        list of {filename, checked, status, date_archived, share_to_procore}
+        dicts ready for the seed's `this_week.attachments` slot.
     """
     if today_iso is None:
         today_iso = date.today().isoformat()

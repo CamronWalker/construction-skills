@@ -56,20 +56,17 @@ def _esc(text):
 
 
 def _md_inline_to_html(text):
-    """Convert inline markdown (==…== and **…**) to HTML for rendering."""
-    if not text:
-        return ''
-    s = _esc(text)
-    s = re.sub(
-        r'==(.+?)==',
-        f'<b style="color:{RED};">\\1</b>',
-        s, flags=re.DOTALL,
-    )
-    s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s, flags=re.DOTALL)
-    return s
+    """Passthrough — input is HTML from the cloud editor's Trix surface.
+
+    Kept as a thin passthrough so existing render callsites don't change
+    shape during the cloud-editor migration. New code should not call
+    this — pass HTML through directly.
+    """
+    return text or ''
 
 
-# --- HTML-aware word diff (mirrors the JS in generate_email_preview_html) ---
+# --- HTML-aware word diff (used by the changes-report PDF for week-over-week
+#     inline diff markup on edited narratives) ---
 
 _FMT_TAGS = {'b', 'strong', 'i', 'em', 'span'}
 _TOKEN_RE = re.compile(r'<(/?)(\w+)([^>]*)>|(\s+)|([^\s<]+)')

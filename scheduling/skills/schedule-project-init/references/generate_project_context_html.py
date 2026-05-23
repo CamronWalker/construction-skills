@@ -5,9 +5,8 @@ Replaces project-context.md as the source of truth for every scheduling
 skill (recipients, signer, SmartPM URLs, expected attachments, graph
 ordering, project log).
 
-Mirrors the generate_email_preview_html pattern: self-contained HTML with
-contenteditable fields, Save Edits button (File System Access API + fall-
-back download), Copy for Claude JSON export.
+Self-contained HTML with contenteditable fields, Save Edits button
+(File System Access API + fallback download), Copy for Claude JSON export.
 
 Project Log semantics:
     - Each entry has an ISO date and a body.

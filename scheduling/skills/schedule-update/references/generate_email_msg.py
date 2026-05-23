@@ -51,19 +51,18 @@ Usage:
         signer_mobile='',
     )
 
-Markdown bold convention for list items:
-    Items wrapped in **double asterisks** in the project context .md file
-    are treated as high priority — they render bold + red in the email.
+List items carry HTML, not markdown.
 
-    Example in project-context.md:
-        Red Flags:
-        1. **Extended durations for work that should be complete.**
-        2. Rework for several trades.
-        3. Stone delivery delayed — **3 additional weeks**.
+    Item text is produced by the cloud editor's Trix surface and arrives
+    here as HTML strings (e.g. `<strong>Steel delivery slipped two
+    weeks.</strong>` or `<span style="color:#C94444;font-weight:bold">…
+    </span>`). The builder passes this HTML through verbatim into the
+    `<li>` element — Outlook's Word renderer respects inline span styles.
 
-    Item 1: entire item bold + red (high priority)
-    Item 2: normal
-    Item 3: normal text, "3 additional weeks" rendered bold inline
+    Westland's priority conventions (canonical to scheduling/CLAUDE.md):
+        <strong>...</strong>                                            — bold
+        <span style="color:#C94444;font-weight:bold">...</span>          — priority red
+        <span style="background-color:#FFF59D">...</span>                — highlight
 """
 
 import os
@@ -117,89 +116,12 @@ PR_ATTACHMENT_HIDDEN = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_LOGO_PATH = os.path.join(_SCRIPT_DIR, 'westland-logo.png')
 
-# Regex patterns for markdown formatting
-_HIGHLIGHT_RE = re.compile(r'==(.+?)==')
-_BOLD_RE = re.compile(r'\*\*(.+?)\*\*')
-
-
 def _esc(text):
-    """HTML-escape text."""
+    """HTML-escape text — used only for labels, addresses, and other
+    non-HTML inputs. Item text and custom-paragraph body text already
+    arrive as HTML and are passed through verbatim (see scheduling/CLAUDE.md
+    "Email JSON shape")."""
     return html_mod.escape(str(text))
-
-
-def _md_to_html(text):
-    """Convert markdown formatting to HTML.
-
-    Two priority levels for list items (both render bold + red — the
-    distinction kept in the return value lets future styling diverge):
-        ==highlighted== → bold + red
-        **bold**        → bold + red
-        plain text      → normal
-
-    Returns (html_string, priority) where priority is:
-        'highlight' — entire item wrapped in ==...==
-        'bold'      — entire item wrapped in **...**
-        None        — normal item (may contain inline markers)
-
-    The preview HTML treats `**...**` and `==...==` interchangeably as
-    bold-red priority items, so the email must too. Earlier the email
-    rendered `**bold**` as red-only without the `<b>` tag, breaking
-    parity between the review surface and the sent email (post-mortem
-    W1177 2026-05-07 #14).
-    """
-    stripped = text.strip()
-
-    # Check if entire item is ==highlighted==
-    if (stripped.startswith('==') and stripped.endswith('==')
-            and stripped.count('==') == 2):
-        inner = stripped[2:-2]
-        return _esc(inner), 'highlight'
-
-    # Check if entire item is **bold**
-    if (stripped.startswith('**') and stripped.endswith('**')
-            and stripped.count('**') == 2):
-        inner = stripped[2:-2]
-        return _esc(inner), 'bold'
-
-    # Otherwise, convert inline ==highlight== and **bold** markers
-    # Process ==highlight== first (bold+red inline), then **bold** (bold inline)
-    parts = _HIGHLIGHT_RE.split(text)
-    result = []
-    for i, part in enumerate(parts):
-        if i % 2 == 1:
-            # Inside ==...== → bold + red inline
-            result.append(
-                f'<b style="color:{RED};">{_esc(part)}</b>'
-            )
-        else:
-            # Process remaining **bold** markers in this segment
-            bold_parts = _BOLD_RE.split(part)
-            for j, bp in enumerate(bold_parts):
-                if j % 2 == 1:
-                    result.append(f'<b>{_esc(bp)}</b>')
-                else:
-                    result.append(_esc(bp))
-    return ''.join(result), None
-
-
-def _inline_md_to_html(text):
-    """Convert inline **bold** and ==highlight== (bold+red) markers to HTML.
-
-    Used by body paragraphs like custom closing paragraphs. HTML-escapes
-    surrounding text so raw angle brackets stay safe.
-    """
-    if not text:
-        return ''
-    # Escape everything, then re-introduce our specific tags
-    s = _esc(text)
-    s = re.sub(
-        r'==(.+?)==',
-        f'<b style="color:{RED};">\\1</b>',
-        s,
-        flags=re.DOTALL,
-    )
-    s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s, flags=re.DOTALL)
-    return s
 
 
 def _build_signature(signer_name, signer_title, signer_mobile, has_logo):
@@ -298,12 +220,18 @@ def _build_html_body(
     signer_title='',
     signer_mobile='',
     has_logo=False,
+    closing_line='',
+    salutation='',
+    prev_days_behind=None,
+    prev_gain_loss=None,
 ):
     """Build an Outlook-compatible HTML email body.
 
     Uses inline styles only (no <style> blocks) for compatibility with
-    Outlook's Word-based HTML renderer. Items wrapped in **markdown bold**
-    render as bold + red (high priority).
+    Outlook's Word-based HTML renderer. Item text + custom-paragraph
+    body text arrive as HTML (from the cloud editor's Trix surface) and
+    are passed through verbatim — Outlook respects inline span styles
+    for priority red / highlight.
     """
     successes = successes or []
     red_flags = red_flags or []
@@ -351,11 +279,27 @@ def _build_html_body(
         value_color = GREEN
         label = 'Days Ahead/Behind Schedule'
         value = 'On Schedule'
+    # Strikethrough previous-metric badge when last week's days_behind
+    # is supplied and differs from this week's.
+    prev_badge_html = ''
+    if (prev_days_behind is not None
+            and prev_days_behind != days_behind):
+        prev_value = (
+            f'{prev_days_behind} Days' if prev_days_behind > 0
+            else f'{abs(prev_days_behind)} Days' if prev_days_behind < 0
+            else 'On Schedule'
+        )
+        prev_badge_html = (
+            f' <span style="color:#9a3333; text-decoration:line-through; '
+            f'font-weight:normal; font-size:10pt;">'
+            f'{_esc(prev_value)}</span>'
+        )
     parts.append(
         f'<p style="{font} font-weight:bold; font-size:12pt; '
         f'margin:12pt 0 18pt 0;">'
         f'<span style="color:{TEAL};">{_esc(label)}:</span> '
         f'<span style="color:{value_color};">{_esc(value)}</span>'
+        f'{prev_badge_html}'
         f'</p>'
     )
 
@@ -398,10 +342,24 @@ def _build_html_body(
     else:
         gl_color = GREEN
         gl_text = 'No change since last update.'
+    prev_gl_badge_html = ''
+    if (prev_gain_loss is not None
+            and prev_gain_loss != gain_loss):
+        prev_gl_text = (
+            f'{prev_gain_loss} Day Gain' if prev_gain_loss > 0
+            else f'{abs(prev_gain_loss)} Day Loss' if prev_gain_loss < 0
+            else 'No change since last update.'
+        )
+        prev_gl_badge_html = (
+            f' <span style="color:#9a3333; text-decoration:line-through; '
+            f'font-weight:normal; font-size:10pt;">'
+            f'{_esc(prev_gl_text)}</span>'
+        )
     parts.append(
         f'<p style="{heading} margin:12pt 0 4pt 0;">'
         f'Schedule Gain / Loss Since The Last Update: '
-        f'<span style="color:{gl_color};">{_esc(gl_text)}</span></p>'
+        f'<span style="color:{gl_color};">{_esc(gl_text)}</span>'
+        f'{prev_gl_badge_html}</p>'
     )
     if gain_loss_narrative:
         parts.append(
@@ -498,11 +456,10 @@ def _build_html_body(
         for p in custom_paragraphs:
             if not p.get('checked', True):
                 continue
-            body_md = p.get('text', '').strip()
-            if not body_md:
+            body_html = (p.get('text') or '').strip()
+            if not body_html:
                 continue
-            # Allow inline **bold** / ==priority== in the body text
-            body_html = _inline_md_to_html(body_md)
+            # Body text arrives as HTML from the cloud editor — pass through.
             parts.append(
                 f'<p style="{font} margin:12pt 0 6pt 0;">{body_html}</p>'
             )
@@ -530,13 +487,17 @@ def _build_html_body(
             )
 
     # --- Closing ---
+    # closing_line + salutation are HTML strings from the cloud editor; the
+    # legacy "Please let me know..." / "Thanks," strings are the defaults
+    # when the editor leaves the fields blank.
+    closing_html = closing_line or 'Please let me know if you have any questions.'
+    salutation_html = salutation or 'Thanks,'
     parts.append(
-        f'<p style="{font} margin:12pt 0 0 0;">'
-        'Please let me know if you have any questions.</p>'
+        f'<p style="{font} margin:12pt 0 0 0;">{closing_html}</p>'
     )
-    # Blank spacer paragraph — Camron prefers a visible gap before "Thanks,"
+    # Blank spacer paragraph — Camron prefers a visible gap before the salutation.
     parts.append(f'<p style="{font} margin:0;">&nbsp;</p>')
-    parts.append(f'<p style="{font} margin:0 0 12pt 0;">Thanks,</p>')
+    parts.append(f'<p style="{font} margin:0 0 12pt 0;">{salutation_html}</p>')
 
     # --- Email Signature ---
     if signer_name:
@@ -548,21 +509,14 @@ def _build_html_body(
 
 
 def _format_list_item(item_text, font):
-    """Return one `<li>` HTML string with markdown priority applied.
+    """Return one `<li>` HTML string with item HTML passed through verbatim.
 
-    Used by both the ordered lists (red flags, stalled tasks, key items)
-    and the unordered Successes list — keeps formatting in lockstep so
-    `**bold**` lands the same way everywhere in the email.
+    Item text arrives as HTML (from the cloud editor's Trix surface);
+    bold / priority-red / highlight are encoded as inline-style spans
+    that Outlook's Word renderer respects. The builder does not
+    transform the HTML — what the editor produced, the email renders.
     """
-    html_text, priority = _md_to_html(item_text)
-    if priority in ('highlight', 'bold'):
-        # Bold + red: <b> tag is explicit because Outlook's Word renderer
-        # ignores CSS font-weight on <li>.
-        return (
-            f'<li style="{font} color:{RED};">'
-            f'<b>{html_text}</b></li>'
-        )
-    return f'<li style="{font}">{html_text}</li>'
+    return f'<li style="{font}">{item_text}</li>'
 
 
 def _filter_list_items(items):
@@ -582,16 +536,11 @@ def _filter_list_items(items):
 
 
 def _build_list(items, font):
-    """Build an HTML ordered list with markdown bold → bold + red.
+    """Build an HTML ordered list. Item text passes through as HTML.
 
-    Two priority levels (see `_md_to_html`):
-        ==highlighted== → bold + red
-        **bold**        → bold + red
-        plain text      → normal
-
-    Accepts list items as plain strings OR as dicts (from the preview
-    parser with {text, checked, status}). Dict items that are unchecked
-    or archived are skipped.
+    Accepts list items as plain HTML strings OR as dicts
+    ({text, checked, status, ...}). Dict items that are unchecked or
+    archived are skipped.
     """
     rendered = _filter_list_items(items)
     if not rendered:
@@ -645,6 +594,10 @@ def generate_update_email_msg(
     signer_title='SCHEDULER',
     signer_mobile='',
     logo_path=None,
+    closing_line='',
+    salutation='',
+    prev_days_behind=None,
+    prev_gain_loss=None,
 ):
     """Generate a Westland schedule update email as an Outlook draft.
 
@@ -654,8 +607,9 @@ def generate_update_email_msg(
     folder. The draft syncs to Exchange and appears in new Outlook —
     open Drafts and click Send.
 
-    List items support markdown bold: wrap an item in **double asterisks**
-    in the project context .md to mark it as high priority (bold + red).
+    Item text arrives as HTML — use inline spans for high priority
+    (see scheduling/CLAUDE.md "Email JSON shape" for the canonical
+    `<strong>` / priority-red / highlight conventions).
 
     Args:
         output_path: Identifier for this email (not saved to disk)
@@ -663,14 +617,14 @@ def generate_update_email_msg(
                       contractual_completion, projected_completion
         days_behind: Positive = behind (red), negative = ahead (green)
         gain_loss: Positive = days gained (green), negative = days lost (red)
-        successes: List of success strings
+        successes: List of HTML strings
         gain_loss_narrative: Explanation of what drove the gain/loss
         eot_recovery: EOT / recovery efforts narrative
         logic_changes: Significant logic changes narrative
         smartpm_changelog_url: URL to SmartPM change log
-        red_flags: List of strings (wrap in **bold** for high priority)
-        stalled_tasks: List of strings (wrap in **bold** for high priority)
-        key_items: List of strings (wrap in **bold** for high priority)
+        red_flags: List of HTML strings (use priority-red span for high priority)
+        stalled_tasks: List of HTML strings
+        key_items: List of HTML strings
         include_compliance_report: Whether to include compliance report paragraph
         include_procurement_sheets: Whether to include procurement sheets paragraph
         summary_screenshot_path: Path to SmartPM summary report PNG (optional)
@@ -741,6 +695,10 @@ def generate_update_email_msg(
         signer_title=signer_title,
         signer_mobile=signer_mobile,
         has_logo=has_logo,
+        closing_line=closing_line,
+        salutation=salutation,
+        prev_days_behind=prev_days_behind,
+        prev_gain_loss=prev_gain_loss,
     )
 
     # Create Outlook MailItem via COM

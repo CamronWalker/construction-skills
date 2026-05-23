@@ -11,32 +11,32 @@ import re
 import sys
 
 
-# basename match: project-context.html  OR  YYYY-MM-DD-email-preview.html
-PROTECTED_RE = re.compile(
-    r'(?:^project-context\.html$|^\d{4}-\d{2}-\d{2}-email-preview\.html$)',
-    re.IGNORECASE,
-)
+# basename match: project-context.html (the only HTML artifact still
+# managed via parse/generate after the cloud-editor migration; the
+# weekly email lives in {YYYY-MM-DD}-email.json now).
+PROTECTED_RE = re.compile(r'^project-context\.html$', re.IGNORECASE)
 
 
 READ_MSG = """HEADS UP — direct Read on a managed HTML file ({path}).
 
-This file is 47-160 KB. Prefer the JSON parser:
-  - project-context.html        -> parse_project_context_html.load_project_context(schedules_root)
-  - *-email-preview.html        -> parse_email_html.parse_preview_html(path)
+project-context.html is ~47 KB with an embedded base64 logo. Prefer the
+parser:
+  parse_project_context_html.load_project_context(schedules_root)
 
-Reading via the parser gives you a dict and avoids token blow-up. You can
-proceed if you have a reason, but most reads should go through the parser.
+Reading via the parser gives you a dict and avoids token blow-up. You
+can proceed if you have a reason, but most reads should go through the
+parser.
 """
 
 
 WRITE_MSG = """HEADS UP — direct write to a managed HTML file ({path}).
 
 W1177 (2026-05-07) corrupted the embedded base64 logo via a direct Write.
-Prefer the matching generator:
-  - project-context.html        -> generate_project_context_html.generate_project_context_html(path, ctx)
-  - *-email-preview.html        -> generate_email_preview_html.generate_email_preview_html(...)
 
-Not blocked, but pause: is this an edit the generator can do?
+For project-context.html writes, use
+generate_project_context_html.generate_project_context_html(path, ctx).
+
+Not blocked, but pause: is this an edit a generator should do?
 """
 
 

@@ -5,13 +5,12 @@
       "id": 0,
       "name": "add-attachment",
       "prompt": "I forgot to include the building enclosure photos PDF on this week's update email. Add `Building Enclosure Photos 2026-05-07.pdf` to the attachments list. The Schedules folder is at {SCHEDULES_PATH}. The dated folder for this week is `2026-05-07/`.",
-      "expected_output": "{YYYY-MM-DD}-email-preview.html with the new attachment row inserted via the generator. Existing attachments preserved. CRUD discipline strictly enforced (no Edit/Read/Write on the preview HTML).",
+      "expected_output": "Seed JSON rebuilt with the new attachment row in `this_week.attachments`, then handed to `generate_weekly_schedule_update_email_draft` so the colleague can finalize in the cloud editor. Existing attachments preserved.",
       "expectations": [
-        "The agent invoked parse_email_html (read-side of CRUD)",
-        "The agent invoked generate_email_preview_html (write-side of CRUD)",
-        "The agent did NOT use the Edit tool on the email-preview HTML",
-        "The agent did NOT use the Read tool on the email-preview HTML",
-        "The new attachment 'Building Enclosure Photos 2026-05-07.pdf' is present in the resulting attachments list",
+        "The agent invoked email_draft_io.load_draft on the prior week's {prev_date}-email.json (read-side carry-forward)",
+        "The agent called the generate_weekly_schedule_update_email_draft MCP tool with the rebuilt seed",
+        "The agent did NOT manually Edit / Write the {YYYY-MM-DD}-email.json or invent its own preview HTML",
+        "The new attachment 'Building Enclosure Photos 2026-05-07.pdf' is present in the seed's this_week.attachments list",
         "All three pre-existing attachments are preserved (Report 01, Procurement Tracker, Salt Flats Schedule)",
         "Days-behind metric is unchanged (still 7)"
       ]
@@ -19,14 +18,14 @@
     {
       "id": 1,
       "name": "add-redflag",
-      "prompt": "Add a new red flag to this week's update email: 'Concrete supplier confirmed price increase, 8% effective next month.' (Make it bold/red since it's a real flag.) The Schedules folder is at {SCHEDULES_PATH}; this week's dated folder is `2026-05-07/`.",
-      "expected_output": "{YYYY-MM-DD}-email-preview.html with a new red-flag list item. Existing red flags preserved with their original status. CRUD discipline strictly enforced.",
+      "prompt": "Add a new red flag to this week's update email: 'Concrete supplier confirmed price increase, 8% effective next month.' (Make it priority-red since it's a real flag.) The Schedules folder is at {SCHEDULES_PATH}; this week's dated folder is `2026-05-07/`.",
+      "expected_output": "Seed JSON rebuilt with a new red-flag row whose `text` is an HTML string wrapped in the Westland priority-red span (color:#C94444;font-weight:bold). Existing red flags preserved with their original status.",
       "expectations": [
-        "The agent invoked parse_email_html",
-        "The agent invoked generate_email_preview_html",
-        "The agent did NOT use the Edit tool on the email-preview HTML",
-        "The agent did NOT use the Read tool on the email-preview HTML",
-        "A new red-flag item containing 'Concrete supplier' and 'price increase' is present in the resulting red_flags list",
+        "The agent invoked email_draft_io.load_draft on the prior week's {prev_date}-email.json",
+        "The agent called the generate_weekly_schedule_update_email_draft MCP tool with the rebuilt seed",
+        "The agent did NOT manually Edit / Write the {YYYY-MM-DD}-email.json",
+        "A new red-flag item containing 'Concrete supplier' and 'price increase' is present in the seed's this_week.red_flags list",
+        "The new item's `text` contains an inline <span> with color:#C94444 (priority red), not legacy markdown `**...**` or `==...==`",
         "Both pre-existing red flags ('Stone supplier behind schedule' and 'Crane permit pending') are preserved",
         "Other lists (successes, stalled_tasks, key_items) are unchanged from the seed"
       ]
@@ -35,13 +34,12 @@
       "id": 2,
       "name": "fix-narrative",
       "prompt": "Update the gain/loss narrative on this week's update email. Replace the existing text with: 'Recovered 5 days. Stone install accelerated and the mechanical sequence was reordered to unblock follow-on trades.' The Schedules folder is at {SCHEDULES_PATH}; this week's dated folder is `2026-05-07/`.",
-      "expected_output": "{YYYY-MM-DD}-email-preview.html with the new gain_loss_narrative. All other fields preserved. CRUD discipline strictly enforced.",
+      "expected_output": "Seed JSON rebuilt with the new gain_loss_narrative in `this_week`. All other fields preserved. The agent passes the seed to the cloud editor (no local HTML mutation).",
       "expectations": [
-        "The agent invoked parse_email_html",
-        "The agent invoked generate_email_preview_html",
-        "The agent did NOT use the Edit tool on the email-preview HTML",
-        "The agent did NOT use the Read tool on the email-preview HTML",
-        "The gain_loss_narrative in the resulting file contains 'Stone install accelerated' and 'mechanical sequence was reordered'",
+        "The agent invoked email_draft_io.load_draft on the prior week's {prev_date}-email.json",
+        "The agent called the generate_weekly_schedule_update_email_draft MCP tool with the rebuilt seed",
+        "The agent did NOT manually Edit / Write the {YYYY-MM-DD}-email.json",
+        "The gain_loss_narrative in the seed's this_week contains 'Stone install accelerated' and 'mechanical sequence was reordered'",
         "All list items (successes, red_flags, stalled_tasks, key_items) are preserved unchanged from the seed",
         "Attachments are preserved unchanged from the seed"
       ]
