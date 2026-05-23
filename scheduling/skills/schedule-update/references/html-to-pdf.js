@@ -1,7 +1,7 @@
 // html-to-pdf.js
 // Convert a local HTML file to a PDF using Playwright's headless Chromium.
 // Reuses the `playwright` install in this references/ folder (the same one
-// capture-smartpm.js uses for SmartPM screenshots).
+// charts/html_to_png.cjs uses to rasterise chart HTML to PNG).
 //
 // Usage:
 //   node html-to-pdf.js <input.html> <output.pdf>

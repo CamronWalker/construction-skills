@@ -2,50 +2,62 @@
 
 > Loaded by SKILL.md's router when the user invokes `/schedule-update screenshots`.
 
-Captures the SmartPM Summary Report parts and trend graphs listed in `project-context.html`'s `graph_screenshots`. Two paths share the same output filenames so the rest of the pipeline can't tell them apart:
+Captures the SmartPM Summary Report and trend graphs listed in `project-context.html`'s `graph_screenshots` by fetching each chart's data via SmartPM MCP and rendering it locally with the `@westland/charts` HTML+SVG → headless-Chromium pipeline. No SmartPM login, no browser automation against SmartPM itself.
 
-| Invocation | Path | When to use |
-|------------|------|-------------|
-| `/schedule-update screenshots` (no arg) | **matplotlib (new)** — MCP fetch + Python render | Default. No browser automation; no SmartPM login. |
-| `/schedule-update screenshots --legacy` | **Playwright (legacy)** — headless Chromium captures SmartPM | Fallback while matplotlib styling is being dialed in, or when a non-default chart isn't implemented yet. |
+The whole phase runs in two passes:
 
-Both paths write into `{dated_folder}/screenshots/` with the same PNG filenames.
+```text
+For each slug in graph_screenshots:
+  1. Call the documented MCP endpoint (per-slug recipes below).
+  2. Write the response as-is to {dated_folder}/.chart-payload/{slug}.json.
+
+Then, one batch render:
+  node scheduling/skills/schedule-update/references/charts/cli.js \
+       {dated_folder}/.chart-payload \
+       {dated_folder}/screenshots
+```
+
+The CLI dispatches each `{slug}.json` through `RENDERERS[slug]` from `charts/registry.js`, writes `{slug}.html` + `{slug}.png` to the output dir, and exits 0 if every payload rendered (exit 1 with a per-slug `failed[]` entry otherwise).
 
 ---
-
-## Default path: matplotlib (no `--legacy` arg)
 
 ### Step 0: Pre-flight
 
 Run these checks **before** Step 1 — failing early is cheaper than crashing on render.
 
-1. **Python deps.** Use the Bash tool:
+1. **Node + Playwright deps.** From the references folder:
    ```bash
-   python -c "import matplotlib, PIL; print('ok')"
+   cd "{skill_dir}/references"
+   node --version           # any 18+
+   ls node_modules/playwright 2>/dev/null || npm install
    ```
-   If it errors with `ModuleNotFoundError`, install:
-   ```bash
-   pip install -r "{skill_dir}/references/charts/requirements.txt"
-   ```
+   The first run on a machine installs Playwright into `references/node_modules/`. `html_to_png.cjs` uses the same install to rasterise each chart HTML to PNG.
 
 2. **SmartPM MCP tools.** Look at your tool list for any tool whose name matches `mcp__<uuid>__smartpm_*`. The `<uuid>` part is per-installation — don't hardcode it. Throughout this doc, when you see `smartpm_foo`, the real tool name is `mcp__<uuid>__smartpm_foo`. Use the `ToolSearch` tool with `query: "select:smartpm_post_project_summary,smartpm_get_project,smartpm_list_scenarios,smartpm_list_scenario_schedules_v2,smartpm_get_scenario_schedule_compression_trend,smartpm_get_scenario_velocity,smartpm_get_scenario_spi_trend,smartpm_get_scenario_should_start_finish_trend,smartpm_get_scenario_percent_complete_curve_v2,smartpm_list_scenario_change_log_by_type"` to load all the schemas at once.
 
    If `ToolSearch` reports "no matching deferred tools", the SmartPM connector isn't connected. Tell the colleague:
-   > "SmartPM MCP isn't available in this session. Run `/mcp` to reconnect, or use `/schedule-update screenshots --legacy` for the Playwright path."
+   > "SmartPM MCP isn't available in this session. Run `/mcp` to reconnect, then re-run `/schedule-update screenshots`."
    …and stop.
 
 ### Step 1: Read Project Context
 
 Apply standard folder resolution (see `phases/status.md` for the rule — use today's dated folder under the project's Schedules tree). Read `project-context.html` via `parse_project_context_html` if available, otherwise extract these four fields directly from the HTML:
 
-- `graph_screenshots` — list of slugs to render. If empty or missing, default to:
-  `["smartpm-summary-curve", "smartpm-summary-cards", "smartpm-summary-milestones",
-    "06-end-date-variance", "07-schedule-compression-index-over-time",
-    "08-velocity", "09-spi-over-time", "10-activity-hit-rate",
-    "11-window-start-accuracy", "12-window-finish-accuracy"]`
+- `graph_screenshots` — list of slugs to render. If empty or missing, default to all 17 slugs (16 trend charts + the summary composite):
+  `["smartpm-summary-report",
+    "01-planned-vs-actual-percent-complete",
+    "02-schedule-quality-grade-over-time",
+    "03-project-health-index-over-time",
+    "04-schedule-changes-over-time",
+    "05-schedule-delay-over-time",
+    "06-end-date-variance",
+    "07-schedule-compression-index-over-time",
+    "08-velocity", "09-spi-over-time",
+    "10-activity-hit-rate", "11-window-start-accuracy", "12-window-finish-accuracy",
+    "13-missing-logic", "14-average-total-float",
+    "15-high-total-float", "16-critical-path-percentage"]`
 - `smartpm_project_name` — string to match on SmartPM. Falls back to `project_name`.
 - `smartpm_url` — used by the email body, not by this phase. Just preserve.
-- `contractual_completion` — `YYYY-MM-DD`. Only needed for `06-end-date-variance` (see Step 3). If missing from project-context, Step 3 will fall back to `smartpm_post_project_summary` for it.
 
 If `project-context.html` is missing, stop with:
 > "No project-context.html found in {dated_folder}. Run `/schedule-update copy` first, then re-run this command."
@@ -99,6 +111,242 @@ For each slug in `graph_screenshots`, call the MCP endpoint shown below, transfo
 
 #### Recipe per slug
 
+##### `01-planned-vs-actual-percent-complete`
+
+```
+resp = smartpm_get_scenario_percent_complete_curve_v2(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: {"percentCompleteTypes": {...},
+#              "data": [{"DATE", "LATE_DATE_PLANNED", "BASELINE_PLANNED",
+#                        "ACTUAL", "SCHEDULED", "PLANNED"}, ...]}
+
+payload = resp   # pass through as-is
+```
+
+Same endpoint as the curve sub-payload assembled inside `smartpm-summary-report` (see below) — both consume `smartpm_get_scenario_percent_complete_curve_v2`. Chart 01 is the standalone trend page; the summary report's curve section is a simplified inline copy (no Progress Target band, no Late Date Planned series). Renderer: `references/charts/01-planned-vs-actual.js`.
+
+##### `02-schedule-quality-grade-over-time`
+
+```
+# No dedicated MCP tool as of 2026-05-21. Use smartpm_get (raw GET):
+resp = smartpm_get(
+    path=f'/projects/{project_id}/scenarios/{default_scenario_id}/schedule-quality-trend')
+# resp is a FLAT LIST of objects (NOT wrapped in a {"trend": [...]} envelope),
+# one per historical data date, each shaped:
+#   { dataDate, metrics: [...full metrics array...], grade: { mark, indicator, score },
+#     qualityProfileId }
+# The metrics array is verbose — strip it down to just what the renderer needs.
+# The renderer accepts either the flat list or a {"trend": [...]} envelope:
+
+payload = {
+    "trend": [
+        {"dataDate": r["dataDate"], "grade": r.get("grade", {})}
+        for r in resp
+    ]
+}
+```
+
+The renderer reads `trend[].grade.mark` (letter grade: `A+`, `A`, `A-`, `B+`, ...,
+`F` — categorical, NOT the numeric `score`) for Y positioning, and
+`trend[].dataDate` (ISO-8601 string) for the X-axis. Rows whose `grade.mark`
+is missing or not in the canonical 11-grade ladder are skipped. The Y-axis
+auto-fits to the observed grade range (pads ±1 rank when every row is the
+same grade). No background grade bands, no legend, no data-date plotline.
+
+Note: `smartpm_get_scenario_schedule_quality` (the dedicated MCP tool) only
+returns the latest data date — it does NOT support the `dataDate` query
+parameter historically. Use the raw GET path above for the full trend.
+
+Renderer: `references/charts/02-schedule-quality.js`.
+
+##### `03-project-health-index-over-time`
+
+```
+resp = smartpm_get_scenario_project_health_trend(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: flat list (NOT wrapped in {"trend": [...]}):
+#   [{"dataDate": "YYYY-MM-DDTHH:MM:SS",
+#     "health": int (0-100),
+#     "risk": "GOOD"|"FINE"|"BAD"}, ...]
+# Note: the indicator field is named "risk", not "indicator".
+
+payload = resp   # pass through as-is (flat list)
+```
+
+Single light-blue line with per-point circle markers color-coded by the
+health indicator (GOOD=green / FINE=amber / BAD=red). Y-axis auto-fits to
+the visible data range (SmartPM convention). The renderer accepts both the
+raw flat-list form and a `{"trend": [...]}` envelope for forward-compatibility.
+
+Renderer: `references/charts/03-project-health.js`.
+
+##### `04-schedule-changes-over-time`
+
+```
+resp = smartpm_get_scenario_change_log_summary(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: flat list (NOT wrapped in a dict envelope):
+#   [{"dataDate": "YYYY-MM-DDTHH:MM:SS",
+#     "metrics": {
+#         "CriticalChanges":        int,
+#         "NearCriticalChanges":    int,
+#         "ActivityChanges":        int,
+#         "LogicChanges":           int,
+#         "CalendarChanges":        int,
+#         "DurationChanges":        int,
+#         "DelayedActivityChanges": int,
+#         "ActivitiesAdded":        int,
+#         "ActivitiesDeleted":      int,
+#         "AllCalendarChanges":     int,
+#         "FlaggedChanges":         int,
+#         "WorkingDayChanges":      int
+#     }}, ...]
+# NOTE: there is no "totalActivities" field in this endpoint — the column
+# series visible in the SmartPM UI is not available via MCP.
+
+payload = resp   # pass through as-is (flat list)
+```
+
+7 smoothed spline lines, one per change category (Critical / Near-Critical /
+Activity / Logic / Calendar / Duration / Delayed Activity). Numeric Y-axis
+from 0 to max observed value, rounded up to a sensible tick boundary.
+All-zero datasets (early-stage projects) render as an empty-but-valid chart
+frame — no crash.
+
+Renderer: `references/charts/04-schedule-changes.js`.
+
+##### `05-schedule-delay-over-time`
+
+```
+resp = smartpm_get_scenario_delay(
+    projectId=project_id, scenarioId=default_scenario_id)
+# resp shape: flat list (NOT wrapped in a dict envelope):
+#   [{"period": int, "scheduleName": str,
+#     "dataDate": "YYYY-MM-DDTHH:MM:SS",
+#     "endDate":  "YYYY-MM-DDTHH:MM:SS",
+#     "endDateVariance":      {"period": int|null, "cumulative": int},
+#     "criticalPathDelay":    {"period": int|null, "cumulative": int},
+#     "criticalPathRecovery": {"period": int|null, "cumulative": int},
+#     "delayRecovery":        {"period": int|null, "cumulative": int}}, ...]
+# Period 0 is the baseline import (all `period` values null) — the renderer
+# skips it automatically.
+
+payload = resp   # pass through as-is (flat list)
+```
+
+3-series columnrange (vertical bars between two Y values per data date):
+**In-Period Delay** (`#b00020`) climbs above 0 to +`criticalPathDelay.period`,
+**In-Period Gains** (`#388543`) drops below 0 to -`criticalPathRecovery.period`,
+**Planned Impacts** (semi-transparent `rgba(16, 91, 141, 0.3)` fill, `#1476b7`
+outline) is signed — positive when planned in-period recovery is positive.
+Y-axis auto-fits to span all three series with 10% padding and includes a
+heavier `#999` zero-line baseline. X-axis labels format as `MMM DD, YYYY`.
+The renderer accepts the raw flat list OR a `{"data": [...]}` envelope.
+
+Renderer: `references/charts/05-schedule-delay.js`.
+
+##### `13-missing-logic`
+
+```
+# Per-scenario per-metric trend endpoint is NOT in the public OAS as of
+# 2026-05-22. Two viable strategies:
+#
+#  (a) Iterate the per-scenario schedule-quality calls at each data date.
+#      For each schedule in smartpm_list_scenario_schedules_v2 response:
+#          q = smartpm_get_scenario_schedule_quality(
+#              projectId=project_id, scenarioId=default_scenario_id,
+#              dataDate=schedule["dataDate"])
+#          # The MISSING_LOGIC metric carries `normalizedValue` as a fraction.
+#
+#  (b) Use the page-internal /a/project/{id}/scenario/{sid}/summary-trend
+#      endpoint via smartpm_request_raw and pluck the MISSING_LOGIC series.
+#      Faster (one call) but undocumented.
+#
+# Either way, transform to:
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": fraction_0_to_1}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line (`#2caffe`) with `#388543` circle markers and
+white outlines. Y-axis is percent (auto-fits with a 1% minimum span, always
+includes 0). X-axis labels format as `MM/DD/YY`. The renderer accepts the
+raw flat list OR a `{"trend": [...]}` envelope.
+
+Renderer: `references/charts/13-missing-logic.js`.
+
+##### `14-average-total-float`
+
+```
+# Same trend-source caveat as 13-missing-logic. Iterate per-scenario
+# schedule-quality calls and pull the AVG_ACTIVITY_TOTAL_FLOAT metric's
+# raw days value (not normalizedValue — the chart shows real days, typically
+# 15-45 day range for Westland projects).
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": days_float}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line — same visual contract as chart 13 (line
+`#2caffe`, markers `#388543` filled white-stroked, M-L-L-... no curves).
+Y-axis is numeric days; tick labels include the unit (`"30 days"`).
+X-axis labels format as `MM/DD/YY`. The renderer accepts the raw flat list
+OR a `{"trend": [...]}` envelope.
+
+Renderer: `references/charts/14-average-total-float.js`.
+
+##### `15-high-total-float`
+
+```
+# Same trend-source caveat as 13-missing-logic. Iterate per-scenario
+# schedule-quality calls and pull the HIGH_FLOAT_ACTIVITIES metric's
+# normalizedValue (a fraction 0..1).
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": fraction_0_to_1}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line (`#2caffe`) with **red** `#b00020` circle markers
+and white outlines. Y-axis is percent (auto-fits with a 1% minimum span).
+X-axis labels format as `MM/DD/YY`. The renderer accepts the raw flat list
+OR a `{"trend": [...]}` envelope.
+
+Renderer: `references/charts/15-high-total-float.js`.
+
+##### `16-critical-path-percentage`
+
+```
+# Same trend-source caveat as 13-missing-logic. Iterate per-scenario
+# schedule-quality calls and pull the CRITICAL_PATH_PERCENT metric's
+# normalizedValue (a fraction 0..1).
+
+payload = {
+    "trend": [
+        {"dataDate": d["dataDate"], "value": fraction_0_to_1}
+        for d in series
+    ]
+}
+```
+
+Single-series straight line (`#2caffe`) with **yellow** `#f2c031` circle
+markers and white outlines. Y-axis is percent (auto-fits with a 1% minimum
+span; includes 0). X-axis labels format as `MM/DD/YY`. The renderer accepts
+the raw flat list OR a `{"trend": [...]}` envelope.
+
+Renderer: `references/charts/16-critical-path-percentage.js`.
+
 ##### `06-end-date-variance`
 
 ```
@@ -106,18 +354,20 @@ updates_response = smartpm_list_scenario_schedules_v2(
     projectId=project_id, scenarioId=default_scenario_id)
 # updates_response is a list of dicts. Each has: dataDate, sourceEndDate, etc.
 
-# Get contractual completion. Prefer project-context if present; else MCP.
-if not contractual_completion:
-    summary = smartpm_post_project_summary(
-        projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
-        columns=["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"])
-    contractual_completion = summary["CURRENT_SCENARIO.CONTRACTUAL_END_DATE"][:10]
-
-payload = {
-    "updates": updates_response,
-    "contractual_completion": contractual_completion,
-}
+payload = {"updates": updates_response}
 ```
+
+Single-series straight line (`#2caffe`) with `#388543` circle markers and
+white outlines. The renderer computes end-date variance per row as
+`sourceEndDate - first(sourceEndDate)` in days — the first (earliest)
+update's end date is the baseline. Y-axis is numeric days (`"+45 days"`
+style) with a 5-day minimum visual span so a tightly clustered series
+doesn't collapse to a flat line. X-axis labels format as `MMM DD, YYYY`
+(e.g. `Oct 07, 2025`). The renderer accepts `{updates: [...]}` or a bare
+array. `contractual_completion` is no longer needed at the payload level —
+baseline-from-first-import is the SmartPM web view's actual reference.
+
+Renderer: `references/charts/06-end-date-variance.js`.
 
 ##### `07-schedule-compression-index-over-time`
 
@@ -128,6 +378,17 @@ resp = smartpm_get_scenario_schedule_compression_trend(
 
 payload = {"trend": resp}
 ```
+
+Single-series straight line (`#2caffe`) with `#1AA462` circle markers
+(slightly different green from chart 13's `#388543`) and white outlines.
+The renderer reads `scheduleCompressionIndex` (already in percent units,
+e.g. `16` means 16%) — NOT `scheduleCompression`, which is the underlying
+ratio. Rows where `scheduleCompressionIndex` is null are skipped (not
+plotted as 0). Y-axis is percent with a 1% minimum span; X-axis labels
+format as `MM/DD/YY`. The renderer accepts `{trend: [...]}` or a bare
+array.
+
+Renderer: `references/charts/07-schedule-compression.js`.
 
 ##### `08-velocity`
 
@@ -143,6 +404,20 @@ payload = {
 }
 ```
 
+Grouped column chart with 4 series per month — Current Starts (`#B4C7E7`,
+light blue), Current Finishes (`#4472C4`, medium blue), Baseline Starts
+(`#cccccc`, light gray), Baseline Finishes (`#808080`, dark gray) — plus
+an orange `#F2A623` average line connecting per-month `(currentStarts +
+currentFinishes) / 2`, plus a dashed gray data-date plotline at the last
+month with any non-zero Current* activity. X-axis labels are `MMM YYYY`.
+The renderer trims all-zero months from the head and tail (so a 2020-start
+fixture with the first six months empty starts at the first data-bearing
+month), but preserves interior zero-months as zero-height placeholders so
+the X-axis stays evenly spaced. Renderer accepts `{velocityList: [...]}`
+or a bare array.
+
+Renderer: `references/charts/08-velocity.js`.
+
 ##### `09-spi-over-time`
 
 ```
@@ -152,6 +427,19 @@ resp = smartpm_get_scenario_spi_trend(
 
 payload = {"trend": resp}
 ```
+
+Single-series straight line (`#1476b7`, darker than chart 13's `#2caffe`)
+with per-point threshold-colored circle markers — red `#b00020` when
+SPI < 0.7, yellow `#f2c031` when 0.7 ≤ SPI < 0.9, green `#1AA462` when
+SPI ≥ 0.9 — plus two horizontal dashed reference plotlines (yellow
+`#f2c031` at SPI = 0.7, green `#388543` at SPI = 1.0 target). No legend
+(single series, colors are self-explanatory by threshold). Y-axis is
+percent of SPI (1.0 = 100 %), floor at 0, ceiling at `max(1.2, observed
+max + 0.1)`. X-axis labels are `MM/DD/YY`. Rows where `spi` is `null`
+or `0` are treated as gaps — the line breaks at those points and no
+marker is drawn. Renderer accepts `{trend: [...]}` or a bare array.
+
+Renderer: `references/charts/09-spi-over-time.js`.
 
 ##### `10-activity-hit-rate`, `11-window-start-accuracy`, `12-window-finish-accuracy`
 
@@ -172,22 +460,55 @@ payload = {"hitRates": hit_resp}
 #   12-window-finish-accuracy.json
 ```
 
-##### `smartpm-summary-curve`
+Three renderer shapes, one MCP endpoint:
 
+- **`10-activity-hit-rate`** — single-series straight line (`#1476b7`,
+  darker blue) with per-point threshold-colored circle markers — red
+  `#b00020` when `totalOnTimeHitRate < 0.7`, yellow `#f2c031` when
+  `0.7 ≤ totalOnTimeHitRate < 0.9`, green `#1AA462` when
+  `totalOnTimeHitRate ≥ 0.9` — plus two horizontal dashed reference
+  plotlines (yellow `#f2c031` at 0.7, green `#388543` at 1.0 target).
+  No legend (single series, colors are self-explanatory by threshold).
+  Y-axis is percent (1.0 = 100 %), floor at 0, ceiling at
+  `max(1.05, observed max + 0.05)`. Same visualization shape as chart
+  09; written inline rather than via the `_hit-rate.js` helper because
+  the helper covers only the stacked-column shape.
+
+- **`11-window-start-accuracy`** — 3-series stacked column chart with
+  one stack per data date: Started On Time (`#388543` green), Started
+  Late (`#f2c031` yellow), Did Not Start (`#b00020` red). Reads
+  `startedOnTime`, `startedLate`, `didNotStart` from each row. Y-axis
+  is integer count (0 to max stack height with 5 % headroom). Legend
+  below the chart.
+
+- **`12-window-finish-accuracy`** — same stacked-column shape as chart
+  11 but reads `finishedOnTime`, `finishedLate`, `didNotFinish`. Legend
+  labels: Finished On Time / Finished Late / Did Not Finish.
+
+X-axis labels for all three are `MM/DD/YY`. All three renderers accept
+`{hitRates: [...]}` or a bare array.
+
+Renderers: `references/charts/10-activity-hit-rate.js`,
+`references/charts/11-window-start-accuracy.js`,
+`references/charts/12-window-finish-accuracy.js`. Charts 11 and 12 share
+`references/charts/_hit-rate.js`.
+
+##### `smartpm-summary-report`
+
+The Summary Report is a single composite rendered by `summary-report.js`. It bundles three sections — KPI cards (top), plan-vs-actual curve (middle), milestones table (bottom) — into one HTML document and rasterises to a single `smartpm-summary-report.png`. There is no separate sub-slug payload; build one merged payload and write it as `{dated_folder}/.chart-payload/smartpm-summary-report.json`.
+
+The merged payload shape:
+```python
+payload = {
+    "project_name":   r1["PROJECT.NAME"],
+    "milestone_name": r1["SCENARIO.NAME"],
+    "cards":      <cards sub-payload>,        # see "Cards" below
+    "curve":      <curve sub-payload>,        # see "Curve" below
+    "milestones": <milestones sub-payload>,   # see "Milestones" below
+}
 ```
-resp = smartpm_get_scenario_percent_complete_curve_v2(
-    projectId=project_id, scenarioId=default_scenario_id)
-# resp shape: {"percentCompleteTypes": {...},
-#              "data": [{"DATE", "LATE_DATE_PLANNED", "ACTUAL",
-#                        "SCHEDULED", "PLANNED", "PREDICTIVE"}, ...]}
 
-payload = resp   # pass through as-is
-```
-
-##### `smartpm-summary-cards`
-
-One call to `smartpm_post_project_summary`, then map fields into the canonical shape.
-
+**Cards sub-payload.** One MCP call.
 ```
 columns = [
     "CURRENT_SCENARIO.HEALTH",
@@ -200,31 +521,40 @@ columns = [
     "CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE",
     "PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE",
 ]
-r = smartpm_post_project_summary(
+rc = smartpm_post_project_summary(
     projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
     columns=columns)
 
 # COMPRESSION_DELTA.current.index is the integer percentage you want (e.g. 0, 83).
 # Don't use .value — that's the raw ratio.
-payload = {
-    "health":      {"value": r["CURRENT_SCENARIO.HEALTH"]["health"]},
-    "spi":         r["CURRENT_SCENARIO.SCHEDULE_PERFORMANCE_INDEX"]["value"],
-    "planned_pct": round(r["CURRENT_SCENARIO.PROGRESS"]["currentPlanned"]),
-    "actual_pct":  round(r["CURRENT_SCENARIO.PROGRESS"]["currentActual"]),
-    "critical_path_delay_days": r["CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY"],
-    "planned_impact_days":      r["CURRENT_SCENARIO.DELAY_PLANNED_RECOVERY"],
-    "quality_grade":   r["CURRENT_SCENARIO.SCHEDULE_QUALITY"]["mark"],
-    "compression_pct": r["CURRENT_SCENARIO.COMPRESSION_DELTA"]["current"]["index"],
-    "predicted_completion":      r["CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
-    "last_predicted_completion": r["PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+cards = {
+    "health":      {"value": rc["CURRENT_SCENARIO.HEALTH"]["health"]},
+    "spi":         rc["CURRENT_SCENARIO.SCHEDULE_PERFORMANCE_INDEX"]["value"],
+    "planned_pct": round(rc["CURRENT_SCENARIO.PROGRESS"]["currentPlanned"]),
+    "actual_pct":  round(rc["CURRENT_SCENARIO.PROGRESS"]["currentActual"]),
+    "critical_path_delay_days": rc["CURRENT_SCENARIO.DELAY_NET_CRITICAL_PATH_DELAY"],
+    "planned_impact_days":      rc["CURRENT_SCENARIO.DELAY_PLANNED_RECOVERY"],
+    "quality_grade":   rc["CURRENT_SCENARIO.SCHEDULE_QUALITY"]["mark"],
+    "compression_pct": rc["CURRENT_SCENARIO.COMPRESSION_DELTA"]["current"]["index"],
+    "predicted_completion":      rc["CURRENT_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
+    "last_predicted_completion": rc["PREVIOUS_SCENARIO.FORECASTED_COMPLETION_DATE"]["forecastedCompletionDate"][:10],
 }
 ```
 
-##### `smartpm-summary-milestones`
+**Curve sub-payload.** One MCP call.
+```
+curve = smartpm_get_scenario_percent_complete_curve_v2(
+    projectId=project_id, scenarioId=default_scenario_id)
+# curve shape: {"percentCompleteTypes": {...},
+#               "data": [{"DATE", "LATE_DATE_PLANNED", "ACTUAL",
+#                         "SCHEDULED", "PLANNED", "PREDICTIVE"}, ...]}
+# Pass through as-is. The summary renderer reads PLANNED, ACTUAL, SCHEDULED
+# (the simplified series subset).
+```
 
-This is the most complex one — 4 MCP calls total. Steps:
+**Milestones sub-payload.** Four MCP calls.
 
-1. **Row 1 — Substantial Completion** (the milestone scenario):
+1. **Row 1 — milestone scenario:**
    ```
    r1 = smartpm_post_project_summary(
        projectId=project_id, modelId=model_id, scenarioId=default_scenario_id,
@@ -242,7 +572,7 @@ This is the most complex one — 4 MCP calls total. Steps:
        ])
    ```
 
-2. **Row 2 — Full Schedule** (the original/COMPLETE scenario):
+2. **Row 2 — Full Schedule (original/COMPLETE scenario):**
    ```
    r2 = smartpm_post_project_summary(
        projectId=project_id, modelId=model_id, scenarioId=original_scenario_id,
@@ -256,33 +586,29 @@ This is the most complex one — 4 MCP calls total. Steps:
        ])
    ```
 
-3. **Bullet items for Selected Period Critical Path Delays.** Call `smartpm_list_scenario_change_log_by_type` with `type="CriticalChanges"` and `dataDate=data_date` (the latest data date from Step 2):
+3. **Selected Period Critical Path Delays bullets:**
    ```
    cpd_items = smartpm_list_scenario_change_log_by_type(
        projectId=project_id, scenarioId=default_scenario_id,
        type="CriticalChanges", dataDate=data_date)
-   # cpd_items: list of {differences[], friendlyId, ...}.
-   # Render each as: f"{friendlyId} (+{N} days)" where N is derived from the
-   # remainingDuration or plannedDuration diff in `differences`.
+   # Render each as: f"{friendlyId} (+{N} days)" where N is derived from
+   # the remainingDuration or plannedDuration diff in `differences`.
    ```
 
-4. **Last Period Schedule Changes counts.** Same endpoint, different type:
+4. **Last Period Schedule Changes counts:**
    ```
    activity_items = smartpm_list_scenario_change_log_by_type(
        projectId=project_id, scenarioId=default_scenario_id,
        type="ActivityChanges", dataDate=data_date)
-   # last_period_changes.total          = len(activity_items)
-   # last_period_changes.critical_path  = len(cpd_items)
-   # last_period_changes.acceleration_days = null  (not available from MCP)
    ```
 
-5. **Assemble:**
+5. **Assemble milestones sub-payload:**
    ```
    def days_late(r):
        cf = r.get("CURRENT_SCENARIO.CONTRACTUAL_FLOAT")
        return abs(cf) if cf is not None and cf < 0 else 0
 
-   payload = {
+   milestones_payload = {
        "project_name":     r1["PROJECT.NAME"],
        "milestone_name":   r1["SCENARIO.NAME"],
        "project_location": project_location,        # from Step 2
@@ -321,22 +647,35 @@ This is the most complex one — 4 MCP calls total. Steps:
    }
    ```
 
-#### Non-default slugs
+**Final merge.** Wrap the three sub-payloads in the composite envelope and write one JSON file:
+```
+payload = {
+    "project_name":   r1["PROJECT.NAME"],
+    "milestone_name": r1["SCENARIO.NAME"],
+    "cards":      cards,
+    "curve":      curve,
+    "milestones": milestones_payload,
+}
+# Write → {dated_folder}/.chart-payload/smartpm-summary-report.json
+```
 
-For any slug in `graph_screenshots` that **isn't** in the recipes above (i.e., one of the 9 non-default trends — `01`, `02`, `03`, `04`, `05`, `13`, `14`, `15`, `16`), the registry has a stub that raises `NotImplementedError` mentioning `--legacy`. Skip the fetch — write a minimal `{}` payload so the orchestrator can dispatch and report the stub's `NotImplementedError`. The colleague-facing message in Step 5 handles the rest.
+The composite renderer reads the merged payload and emits a single HTML document with three flexbox sections. The CLI rasteriser (`cli.js`) drives this through `html_to_png.cjs` to produce `smartpm-summary-report.png` — the same filename the email pipeline already embeds as `summary_screenshot_path`.
+
+#### Unknown slugs
+
+For any slug in `graph_screenshots` that isn't in the recipes above, skip the fetch. The CLI will report it in `failed[]` with reason `no renderer in registry` — surface that to the colleague in Step 5.
 
 ### Step 4: Render
 
 ```bash
-cd "{skill_dir}/references"
-python -m charts.render "{dated_folder}/.chart-payload" "{dated_folder}/screenshots"
+node "{skill_dir}/references/charts/cli.js" \
+     "{dated_folder}/.chart-payload" \
+     "{dated_folder}/screenshots"
 ```
-
-`charts/` is a regular Python package — no `PYTHONPATH` gymnastics needed when run as a module from the `references/` directory. Works identically on Windows PowerShell and bash.
 
 The script prints a JSON `{rendered: [...], failed: [...]}` to stdout.
 
-**Summary-report composite.** After the main loop, if all three summary parts (`smartpm-summary-cards`, `smartpm-summary-curve`, `smartpm-summary-milestones`) rendered successfully, the orchestrator stacks them vertically into a single `smartpm-summary-report.png` in the output dir (cards on top, curve in the middle, milestones table at the bottom). This matches the legacy Playwright filename and is what the email body / preview / changes-report embed as the single `summary_screenshot_path`. Nothing extra to do — the composite appears as another entry in the `rendered` list.
+**Summary-report composite.** The `smartpm-summary-report` slug is a single composite renderer: one HTML envelope containing the cards (top), plan-vs-actual curve (middle), and milestones table (bottom), rasterised in one pass to `smartpm-summary-report.png`. Build the merged payload in Step 3 (see the `smartpm-summary-report` recipe). The email body / preview / changes-report embed this PNG as the single `summary_screenshot_path`.
 
 ### Step 5: Verify
 
@@ -346,11 +685,7 @@ For every slug in `graph_screenshots`: confirm `{dated_folder}/screenshots/{slug
 ls -la "{dated_folder}/screenshots/"
 ```
 
-For any slug in the orchestrator's `failed` list whose `reason` contains `NotImplementedError`, tell the colleague:
-
-> "Chart {slug} isn't implemented in the new matplotlib path yet. Run `/schedule-update screenshots --legacy` to capture it via the existing Playwright path."
-
-For any other failure (e.g. MCP error, JSON write error), surface the exact `reason` so the colleague can decide.
+For any slug in the CLI's `failed` list whose `reason` is `no renderer in registry`, the slug isn't a known chart — tell the colleague and offer to drop it from `graph_screenshots`. For any other failure (e.g. MCP error, JSON write error, renderer exception), surface the exact `reason` so the colleague can decide.
 
 ### Step 6: Clean up
 
@@ -368,83 +703,17 @@ rm -rf "{dated_folder}/.chart-payload"
 
 | Failure mode | Where it surfaces | Action |
 |---|---|---|
-| `ToolSearch` returns no matches for `smartpm_*` tools | Step 0 | Tell the colleague to `/mcp` reconnect or use `--legacy`. |
-| `ModuleNotFoundError: matplotlib` | Step 0 | `pip install -r {skill_dir}/references/charts/requirements.txt` |
+| `ToolSearch` returns no matches for `smartpm_*` tools | Step 0 | Tell the colleague to `/mcp` reconnect, then re-run. |
+| `node` / Playwright not installed | Step 0 | Install Node 18+ from https://nodejs.org, then `npm install` in `{skill_dir}/references/`. |
 | `smartpm_list_projects` returns no match for `smartpm_project_name` | Step 2.1 | Try case-insensitive match; if still no match, show the closest 3 names and ask. |
 | `smartpm_post_project_summary` 400 BAD_REQUEST | Step 3 | A column in the batch isn't in the canonical set. Re-check the tool description's "CANONICAL COLUMNS" list — don't invent column names. |
-| Renderer `failed` entry mentions `NotImplementedError` | Step 5 | Non-default slug. Quote the `--legacy` message above. |
-| Renderer `failed` entry mentions `KeyError` / `TypeError` | Step 5 | Payload shape doesn't match what the chart expects. Re-check the recipe in Step 3 for that slug — every chart's expected shape is inlined there. Don't `Read` the chart `.py` file. |
+| CLI `failed[]` entry: `no renderer in registry` | Step 5 | Slug isn't known. Drop it from `graph_screenshots` or fix the typo. |
+| CLI `failed[]` entry: renderer exception | Step 5 | Payload shape doesn't match what the chart expects. Re-check the recipe in Step 3 for that slug — every chart's expected shape is inlined there. Don't `Read` the chart `.js` file. |
+| CLI `failed[]` entry: `html_to_png.cjs exited` | Step 5 | Chromium rasteriser failed. Check that `references/node_modules/playwright` exists; re-run `npm install` if not. |
 | Renderer creates a PNG of size 0 | Step 5 | Likely an empty trend response (project too new). Show the colleague and offer to skip that slug. |
-
----
-
-## Legacy path: `--legacy`
-
-Everything in this section is the **unchanged** Playwright capture. It runs `references/smartpm/capture-smartpm.js` end-to-end. Use when a matplotlib chart isn't ready or doesn't look right yet.
-
-### Step 0: Pre-Flight — credentials + Node setup
-
-The script reads SmartPM credentials from `~/.claude/.env`:
-
-| Key | Required | Purpose |
-|-----|----------|---------|
-| `SMARTPM_EMAIL` | yes | Auto-login email |
-| `SMARTPM_PASSWORD` | yes | Auto-login password |
-| `SMARTPM_PROJECTS_URL` | no | v2 projects/cards URL (defaults to Westland's org URL) |
-| `SMARTPM_BASE_URL` | no | Defaults to `https://live.smartpmtech.com` |
-
-If credentials are missing, the script throws `ENV_MISSING`. To set them up:
-
-```bash
-node "{skill_dir}/references/smartpm/env-loader.js" setup
-```
-
-Or ask the colleague for them via `AskUserQuestion` (header: "SmartPM creds") and write them yourself by calling `upsertEnvFile({SMARTPM_EMAIL, SMARTPM_PASSWORD})` from `references/smartpm/env-loader.js`. Never log the password back to the user.
-
-Node + Playwright pre-flight:
-1. `node --version` (any 18+).
-2. Check `node_modules/` exists in `{skill_dir}/references/`. If missing, run `npm install` in that folder.
-3. Chromium is installed via `npx playwright install chromium` (the script handles this).
-
-### Step 1: Read Project Context
-
-Apply folder resolution. Read `project-context.html`. Extract `smartpm_project_name` (falls back to `project_name`).
-
-Output dir: `{dated_folder}/screenshots/`.
-
-### Step 2: Write Checklist
-
-Create `{dated_folder}/screenshots/` if it doesn't exist. Write `screenshots/checklist.md` from `{skill_dir}/references/checklist-template.md`.
-
-Print the checklist.
-
-### Step 3: Capture via Node script
-
-```bash
-node "{skill_dir}/references/smartpm/capture-smartpm.js" \
-  "{smartpm_project_name or project_name}" "{dated_folder}/screenshots"
-```
-
-stdout: JSON `{ status, total, screenshots: [{name, file, path, size}, ...], urls }`.
-
-Errors:
-- `ENV_MISSING` → run the setup command (Step 0) or ask the user for credentials.
-- Login redirect timeout → bad creds, MFA challenge, or captcha. Surface and ask the user to log in manually once via the headed debug helper.
-- "No chart cards found" → trends page didn't render. Likely upload-still-processing or stale cache; retry after 30 seconds.
-- Sign-in button stuck disabled → Angular form validation rejected the email. Confirm `SMARTPM_EMAIL`.
-
-### Step 4: Verify
-
-Read the captured PNGs visually. Confirm `smartpm-summary-report.png` shows the Summary Report modal, and each graph file shows the correct chart with data.
-
-**SmartPM processing warning:** If called within 30 minutes of XER upload, SmartPM may still be processing. Check the Workspace page status; offer to wait.
-
-### Step 5: Report
-
-Mark checklist complete. Report total screenshots captured, file paths and sizes, SmartPM URLs used.
 
 ---
 
 ## Iteration note
 
-The matplotlib path is brand new. Expect back-and-forth on styling — fonts, gridlines, axis labels, colors, table cell formatting — against live data. Tweak the relevant function in `references/charts/charts.py`; everything else (registry, orchestrator, tests) stays still. When a chart looks right, that's it — no formal sign-off step, just keep using it. Until each default chart is dialed in, `--legacy` is the safety net.
+Expect back-and-forth on styling — fonts, gridlines, axis labels, colors — against live data. Tweak the relevant `references/charts/{NN-name}.js` renderer; everything else (registry, CLI, tests) stays still. Each chart has a matching `{NN-name}.test.js` next to it — keep tests green when you tweak the chart. The HTML sibling next to each PNG (`{slug}.html`) is auditable and previews in any browser, so you can iterate without re-running the rasteriser every time.

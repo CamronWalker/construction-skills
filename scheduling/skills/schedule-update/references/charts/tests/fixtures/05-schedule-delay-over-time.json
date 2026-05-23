@@ -1,0 +1,282 @@
+[
+  {
+    "period": 0,
+    "scheduleName": "WNZ 9-30-25.xer",
+    "dataDate": "2025-09-30T08:00:00",
+    "endDate": "2027-09-07T17:00:00",
+    "endDateVariance": { "period": null, "cumulative": 0 },
+    "criticalPathDelay": { "period": null, "cumulative": 0 },
+    "criticalPathRecovery": { "period": null, "cumulative": 0 },
+    "delayRecovery": { "period": null, "cumulative": 0 }
+  },
+  {
+    "period": 1,
+    "scheduleName": "WNZ 10-07-25.xer",
+    "dataDate": "2025-10-07T08:00:00",
+    "endDate": "2027-08-02T17:00:00",
+    "endDateVariance": { "period": -36, "cumulative": -36 },
+    "criticalPathDelay": { "period": 5, "cumulative": 5 },
+    "criticalPathRecovery": { "period": 9, "cumulative": 9 },
+    "delayRecovery": { "period": 32, "cumulative": 32 }
+  },
+  {
+    "period": 2,
+    "scheduleName": "WNZ 10-14-25.xer",
+    "dataDate": "2025-10-14T08:00:00",
+    "endDate": "2027-08-02T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -36 },
+    "criticalPathDelay": { "period": 7, "cumulative": 12 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 9 },
+    "delayRecovery": { "period": 7, "cumulative": 39 }
+  },
+  {
+    "period": 3,
+    "scheduleName": "WNZ 10-21-25.xer",
+    "dataDate": "2025-10-21T08:00:00",
+    "endDate": "2027-08-04T17:00:00",
+    "endDateVariance": { "period": 2, "cumulative": -34 },
+    "criticalPathDelay": { "period": 7, "cumulative": 19 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 9 },
+    "delayRecovery": { "period": 5, "cumulative": 44 }
+  },
+  {
+    "period": 4,
+    "scheduleName": "WNZ 11-4-25.xer",
+    "dataDate": "2025-11-04T08:00:00",
+    "endDate": "2027-08-10T17:00:00",
+    "endDateVariance": { "period": 6, "cumulative": -28 },
+    "criticalPathDelay": { "period": 9, "cumulative": 28 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 9 },
+    "delayRecovery": { "period": 3, "cumulative": 47 }
+  },
+  {
+    "period": 5,
+    "scheduleName": "WNZ 11-25-25.xer",
+    "dataDate": "2025-11-25T08:00:00",
+    "endDate": "2027-08-09T17:00:00",
+    "endDateVariance": { "period": -1, "cumulative": -29 },
+    "criticalPathDelay": { "period": 20, "cumulative": 48 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 9 },
+    "delayRecovery": { "period": 21, "cumulative": 68 }
+  },
+  {
+    "period": 6,
+    "scheduleName": "WNZ 12-02-25.xer",
+    "dataDate": "2025-12-02T08:00:00",
+    "endDate": "2027-08-09T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -29 },
+    "criticalPathDelay": { "period": 6, "cumulative": 54 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 9 },
+    "delayRecovery": { "period": 6, "cumulative": 74 }
+  },
+  {
+    "period": 7,
+    "scheduleName": "WNZ 12-09-25.xer",
+    "dataDate": "2025-12-09T08:00:00",
+    "endDate": "2027-08-11T17:00:00",
+    "endDateVariance": { "period": 2, "cumulative": -27 },
+    "criticalPathDelay": { "period": 6, "cumulative": 60 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 9 },
+    "delayRecovery": { "period": 4, "cumulative": 78 }
+  },
+  {
+    "period": 8,
+    "scheduleName": "WNZ 12-16-25.xer",
+    "dataDate": "2025-12-16T08:00:00",
+    "endDate": "2027-08-11T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -27 },
+    "criticalPathDelay": { "period": 6, "cumulative": 66 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 9 },
+    "delayRecovery": { "period": 6, "cumulative": 84 }
+  },
+  {
+    "period": 9,
+    "scheduleName": "WNZ 1-6-26.xer",
+    "dataDate": "2026-01-06T08:00:00",
+    "endDate": "2027-08-11T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -27 },
+    "criticalPathDelay": { "period": 20, "cumulative": 86 },
+    "criticalPathRecovery": { "period": 19, "cumulative": 28 },
+    "delayRecovery": { "period": 1, "cumulative": 85 }
+  },
+  {
+    "period": 10,
+    "scheduleName": "WNZ 1-13-26.xer",
+    "dataDate": "2026-01-13T08:00:00",
+    "endDate": "2027-08-11T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -27 },
+    "criticalPathDelay": { "period": 9, "cumulative": 95 },
+    "criticalPathRecovery": { "period": 2, "cumulative": 30 },
+    "delayRecovery": { "period": 7, "cumulative": 92 }
+  },
+  {
+    "period": 11,
+    "scheduleName": "WNZ 1-20-26.xer",
+    "dataDate": "2026-01-20T08:00:00",
+    "endDate": "2027-08-11T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -27 },
+    "criticalPathDelay": { "period": 10, "cumulative": 105 },
+    "criticalPathRecovery": { "period": 4, "cumulative": 34 },
+    "delayRecovery": { "period": 6, "cumulative": 98 }
+  },
+  {
+    "period": 12,
+    "scheduleName": "WNZ 1-27-26.xer",
+    "dataDate": "2026-01-27T08:00:00",
+    "endDate": "2027-08-11T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -27 },
+    "criticalPathDelay": { "period": 6, "cumulative": 111 },
+    "criticalPathRecovery": { "period": 6, "cumulative": 40 },
+    "delayRecovery": { "period": 0, "cumulative": 98 }
+  },
+  {
+    "period": 13,
+    "scheduleName": "WNZ 2-3-26.xer",
+    "dataDate": "2026-02-03T08:00:00",
+    "endDate": "2027-08-11T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": -27 },
+    "criticalPathDelay": { "period": 8, "cumulative": 119 },
+    "criticalPathRecovery": { "period": 4, "cumulative": 44 },
+    "delayRecovery": { "period": 4, "cumulative": 102 }
+  },
+  {
+    "period": 14,
+    "scheduleName": "WNZ 2-17-26.xer",
+    "dataDate": "2026-02-17T08:00:00",
+    "endDate": "2027-09-07T17:00:00",
+    "endDateVariance": { "period": 27, "cumulative": 0 },
+    "criticalPathDelay": { "period": 16, "cumulative": 135 },
+    "criticalPathRecovery": { "period": 5, "cumulative": 49 },
+    "delayRecovery": { "period": -16, "cumulative": 86 }
+  },
+  {
+    "period": 15,
+    "scheduleName": "WNZ 2-24-26.xer",
+    "dataDate": "2026-02-24T08:00:00",
+    "endDate": "2027-09-07T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": 0 },
+    "criticalPathDelay": { "period": 7, "cumulative": 142 },
+    "criticalPathRecovery": { "period": 2, "cumulative": 51 },
+    "delayRecovery": { "period": 5, "cumulative": 91 }
+  },
+  {
+    "period": 16,
+    "scheduleName": "WNZ 3-3-26.xer",
+    "dataDate": "2026-03-03T08:00:00",
+    "endDate": "2027-10-27T17:00:00",
+    "endDateVariance": { "period": 50, "cumulative": 50 },
+    "criticalPathDelay": { "period": 7, "cumulative": 149 },
+    "criticalPathRecovery": { "period": 2, "cumulative": 53 },
+    "delayRecovery": { "period": -45, "cumulative": 46 }
+  },
+  {
+    "period": 17,
+    "scheduleName": "WNZ 3-10-26.xer",
+    "dataDate": "2026-03-10T08:00:00",
+    "endDate": "2027-10-27T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": 50 },
+    "criticalPathDelay": { "period": 7, "cumulative": 156 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 53 },
+    "delayRecovery": { "period": 7, "cumulative": 53 }
+  },
+  {
+    "period": 18,
+    "scheduleName": "WNZ 3-17-26.xer",
+    "dataDate": "2026-03-17T08:00:00",
+    "endDate": "2027-11-03T17:00:00",
+    "endDateVariance": { "period": 7, "cumulative": 57 },
+    "criticalPathDelay": { "period": 7, "cumulative": 163 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 53 },
+    "delayRecovery": { "period": 0, "cumulative": 53 }
+  },
+  {
+    "period": 19,
+    "scheduleName": "WNZ 3-24-26.xer",
+    "dataDate": "2026-03-24T08:00:00",
+    "endDate": "2027-11-03T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": 57 },
+    "criticalPathDelay": { "period": 7, "cumulative": 170 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 53 },
+    "delayRecovery": { "period": 7, "cumulative": 60 }
+  },
+  {
+    "period": 20,
+    "scheduleName": "WNZ 2026-03-31.xer",
+    "dataDate": "2026-03-31T08:00:00",
+    "endDate": "2027-11-03T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": 57 },
+    "criticalPathDelay": { "period": 9, "cumulative": 179 },
+    "criticalPathRecovery": { "period": 2, "cumulative": 55 },
+    "delayRecovery": { "period": 7, "cumulative": 67 }
+  },
+  {
+    "period": 21,
+    "scheduleName": "WNZ 2026-04-07.xer",
+    "dataDate": "2026-04-07T08:00:00",
+    "endDate": "2027-11-01T17:00:00",
+    "endDateVariance": { "period": -2, "cumulative": 55 },
+    "criticalPathDelay": { "period": 5, "cumulative": 184 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 55 },
+    "delayRecovery": { "period": 7, "cumulative": 74 }
+  },
+  {
+    "period": 22,
+    "scheduleName": "WNZ 2026-04-14.xer",
+    "dataDate": "2026-04-14T08:00:00",
+    "endDate": "2027-11-01T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": 55 },
+    "criticalPathDelay": { "period": 7, "cumulative": 191 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 55 },
+    "delayRecovery": { "period": 7, "cumulative": 81 }
+  },
+  {
+    "period": 23,
+    "scheduleName": "WNZ 2026-04-21.xer",
+    "dataDate": "2026-04-21T08:00:00",
+    "endDate": "2027-11-08T17:00:00",
+    "endDateVariance": { "period": 7, "cumulative": 62 },
+    "criticalPathDelay": { "period": 8, "cumulative": 199 },
+    "criticalPathRecovery": { "period": 1, "cumulative": 56 },
+    "delayRecovery": { "period": 0, "cumulative": 81 }
+  },
+  {
+    "period": 24,
+    "scheduleName": "WNZ 2026-04-28.xer",
+    "dataDate": "2026-04-28T08:00:00",
+    "endDate": "2027-11-12T17:00:00",
+    "endDateVariance": { "period": 4, "cumulative": 66 },
+    "criticalPathDelay": { "period": 6, "cumulative": 205 },
+    "criticalPathRecovery": { "period": 2, "cumulative": 58 },
+    "delayRecovery": { "period": 0, "cumulative": 81 }
+  },
+  {
+    "period": 25,
+    "scheduleName": "WNZ 2026-05-05.xer",
+    "dataDate": "2026-05-05T08:00:00",
+    "endDate": "2027-11-19T17:00:00",
+    "endDateVariance": { "period": 7, "cumulative": 73 },
+    "criticalPathDelay": { "period": 7, "cumulative": 212 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 58 },
+    "delayRecovery": { "period": 0, "cumulative": 81 }
+  },
+  {
+    "period": 26,
+    "scheduleName": "WNZ 2026-05-12.xer",
+    "dataDate": "2026-05-12T08:00:00",
+    "endDate": "2027-11-19T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": 73 },
+    "criticalPathDelay": { "period": 6, "cumulative": 218 },
+    "criticalPathRecovery": { "period": 6, "cumulative": 64 },
+    "delayRecovery": { "period": 0, "cumulative": 81 }
+  },
+  {
+    "period": 27,
+    "scheduleName": "WNZ 2026-05-19.xer",
+    "dataDate": "2026-05-19T08:00:00",
+    "endDate": "2027-11-19T17:00:00",
+    "endDateVariance": { "period": 0, "cumulative": 73 },
+    "criticalPathDelay": { "period": 4, "cumulative": 222 },
+    "criticalPathRecovery": { "period": 0, "cumulative": 64 },
+    "delayRecovery": { "period": 4, "cumulative": 85 }
+  }
+]

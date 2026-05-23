@@ -1,0 +1,62 @@
+[
+  {
+    "dataDate": "2026-02-26T08:00:00",
+    "health": 89,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-03-05T08:00:00",
+    "health": 95,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-03-12T08:00:00",
+    "health": 95,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-03-19T08:00:00",
+    "health": 95,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-03-26T08:00:00",
+    "health": 95,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-04-02T08:00:00",
+    "health": 96,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-04-09T08:00:00",
+    "health": 93,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-04-16T08:00:00",
+    "health": 91,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-04-23T08:00:00",
+    "health": 90,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-04-30T08:00:00",
+    "health": 89,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-05-07T08:00:00",
+    "health": 88,
+    "risk": "GOOD"
+  },
+  {
+    "dataDate": "2026-05-21T08:00:00",
+    "health": 86,
+    "risk": "GOOD"
+  }
+]

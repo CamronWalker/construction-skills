@@ -123,33 +123,6 @@ On re-run, if the .bat is missing (older project, file was moved), copy it again
 Tell the user (on first init):
 > "Dropped **Write Weekly Schedule Email.bat** next to `project-context.html`. Colleagues double-click it after the schedule meeting and Claude Code takes over from there — no Cowork, no slash commands to remember. Claude Code CLI and Node.js need to be installed on whichever machine runs it."
 
-### Step 7 — seed SmartPM credentials (one-time per machine)
-
-The weekly screenshot capture auto-logs into SmartPM v2 using credentials from `~/.claude/.env`. These are global per machine — once seeded, every project on that machine reuses them.
-
-Check whether they're already set:
-
-```bash
-node "{schedule-update-skill-dir}/references/smartpm/env-loader.js" show
-```
-
-If the output reports `SMARTPM_EMAIL=<missing>` or `SMARTPM_PASSWORD=<missing>`, ask the user via `AskUserQuestion`:
-
-- Header: `SmartPM creds`
-- Q1: `What's your SmartPM login email?`
-- Q2: `What's your SmartPM password?` (warn the user it'll be stored locally in `~/.claude/.env`; they can revoke by editing the file)
-
-Once you have both, write them with:
-
-```bash
-node -e "require('{schedule-update-skill-dir}/references/smartpm/env-loader.js').upsertEnvFile({SMARTPM_EMAIL:'…', SMARTPM_PASSWORD:'…'})"
-```
-
-Never echo the password back to chat after capture. If creds are already set, skip this step silently.
-
-Confirm to the user:
-> "SmartPM credentials are saved to `~/.claude/.env`. Every project on this machine will reuse them — you only do this once."
-
 ## Note on attachments
 
 Earlier versions had an `expected_attachments` glob-pattern list in the context. That was removed — the weekly preview HTML carries attachments forward automatically via `transition_attachments` (date-normalized fuzzy match against the dated folder), so the context doesn't need template patterns. On the very first week for a project, the `schedule-update` skill globs all `.pdf` / `.xlsm` / `.xer` files in the dated folder as the initial set; the user curates from there.

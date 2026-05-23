@@ -4,7 +4,7 @@ Plugin-level guidance that applies to every skill under `scheduling/skills/`. Th
 
 ## Drive the existing scripts — don't wrap them
 
-Every skill under `scheduling/skills/{skill}/references/` ships its own renderers, generators, and parsers — `charts/render.py`, `generate_email_preview_html.py`, `parse_email_html.py`, `iterate.py` for proposal schedules, and so on. When you need to produce or regenerate an artifact, drive those scripts directly. **Do not write a wrapper Python file that embeds tool output as literals or defines hardcoded sample kwargs.**
+Every skill under `scheduling/skills/{skill}/references/` ships its own renderers, generators, and parsers — `charts/cli.js`, `generate_email_preview_html.py`, `parse_email_html.py`, `iterate.py` for proposal schedules, and so on. When you need to produce or regenerate an artifact, drive those scripts directly. **Do not write a wrapper file that embeds tool output as literals or defines hardcoded sample kwargs.**
 
 ### Canonical pattern for MCP → chart rendering
 
@@ -14,12 +14,12 @@ Every skill under `scheduling/skills/{skill}/references/` ships its own renderer
      Take the response as-is.
      Write tool → {dated_folder}/.chart-payload/{slug}.json
    (One Write call per slug. No transformation, no Python literal-pasting,
-   no "let me assemble it in a script first". The render module already
+   no "let me assemble it in a script first". The renderer already
    knows the shape.)
 
 2. Bash tool, one invocation for the whole batch:
-     cd scheduling/skills/schedule-update/references
-     python -m charts.render "{dated_folder}/.chart-payload" "{dated_folder}/screenshots"
+     node scheduling/skills/schedule-update/references/charts/cli.js \
+          "{dated_folder}/.chart-payload" "{dated_folder}/screenshots"
 ```
 
 ### Canonical pattern for email-preview regeneration

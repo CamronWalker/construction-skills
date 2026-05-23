@@ -1,19 +1,10 @@
 {
   "name": "schedule-screenshots",
-  "version": "2.0.0",
-  "description": "SmartPM v2 screenshot capture for Westland schedule update emails. Auto-login headless via Playwright; tests with @playwright/test.",
+  "version": "2.1.0",
+  "description": "Westland schedule update — headless Chromium rasteriser (Playwright) used by charts/html_to_png.cjs to convert per-chart HTML+SVG documents to PNG and by html-to-pdf.js to convert HTML to PDF.",
   "private": true,
-  "scripts": {
-    "capture": "node smartpm/capture-smartpm.js",
-    "setup": "node smartpm/env-loader.js setup",
-    "test": "playwright test --config=tests/playwright.config.js",
-    "test:headed": "playwright test --config=tests/playwright.config.js --headed"
-  },
   "dependencies": {
     "playwright": "^1.52.0",
     "pngjs": "^7.0.0"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.52.0"
   }
 }

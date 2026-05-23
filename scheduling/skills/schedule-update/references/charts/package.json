@@ -1,0 +1,21 @@
+{
+  "name": "@westland/charts",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".":          "./index.js",
+    "./registry": "./registry.js",
+    "./meta":     "./meta.js",
+    "./svg-lib":  "./svg-lib.js"
+  },
+  "scripts": {
+    "test":      "vitest run",
+    "typecheck": "tsc -p jsconfig.json"
+  },
+  "devDependencies": {
+    "vitest":      "^2.0.0",
+    "typescript":  "^5.5.0",
+    "@types/node": "^20.0.0"
+  }
+}
