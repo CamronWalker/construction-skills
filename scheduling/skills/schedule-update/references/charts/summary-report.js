@@ -1,47 +1,37 @@
 // summary-report.js — composite "Summary Report" renderer.
 //
-// Bundles three sections into a single self-contained HTML document:
-//   1. KPI cards  (Project Health Index thermometer, Schedule Performance,
-//                  Schedule Feasibility) — three flex-row cards
-//   2. Plan-vs-Actual curve — simplified chart 01 (no Progress Target band,
-//                  no Late Date Planned series; just Planned / Actual /
-//                  Scheduled / data-date plotline)
-//   3. Milestones table — header bullets above an HTML table with one row
-//                  per milestone; late rows (days_late > 0) get the .late
-//                  class so CSS can color the text red
+// Single HTML document, no title / subtitle / curve. Two sections:
+//   1. KPI cards  (Project Health Index pill thermometer, Schedule Performance,
+//                  Schedule Feasibility) — three equal-width cards. Health has
+//                  no card frame; Performance and Feasibility have an inset
+//                  gray box with the section title floating above.
+//   2. Milestones table + change-log block — column-divided table with all
+//                  columns centered except the milestone name; late rows
+//                  (days_late > 0) render in red. Change log shows
+//                  Selected-Period Critical Path Delays and Last-Period
+//                  Recoveries side by side, then a full-width
+//                  Last-Period Schedule Changes row.
 //
-// Ports charts.py:render_summary_cards + render_summary_plan_vs_actual +
-// render_summary_milestones, plus the PIL stitching in
-// render.py:_composite_summary_report — all into one HTML envelope.
-//
-// Returns svgInner: '' (composite has no canonical SVG; downstream consumers
-// reading svgInner for embedding get the empty string and should fall back
-// to the html field).
+// Returns svgInner: '' (composite has no canonical SVG; consumers reading
+// svgInner should fall back to the html field).
 
-import {
-  HTML_CARD_W,
-  dateToX, pctToY, smoothPath, xTicks, parseDate,
-  escapeHtml,
-} from './svg-lib.js';
+import { escapeHtml, parseDate } from './svg-lib.js';
 
-// SmartPM palette — matches charts.py:_SCI_* + the curve colors from chart 01.
+// SmartPM palette — matches charts.py:_SCI_*.
 const SCI_GREEN  = '#1AA462';
 const SCI_YELLOW = '#FFC000';
 const SCI_RED    = '#D01010';
 const SMARTPM_RED = '#b00020';
 
-// Curve palette — subset of chart 01.
-const C_PLANNED   = '#2caffe';   // light blue — Planned
-const C_ACTUAL    = '#1476b7';   // dark blue  — Actual
-const C_SCHEDULED = '#388543';   // green dashed — Scheduled Completion
-const C_DATA_DATE = '#cccccc';   // gray dashed — data-date plotline
-const C_GRID      = '#e6e6e6';
-const C_AXIS_TEXT = '#666';
+// Report frame is narrower than the chart cards (HTML_CARD_W = 1728) because
+// the wide Plan-vs-Actual curve was removed in May 2026. The remaining content
+// (cards + milestones) reads cleaner at 1200 px.
+const SUMMARY_W = 1200;
 
 /** @type {{ svgWidth: number, svgHeight: number, title: string }} */
 export const META = {
-  svgWidth:  HTML_CARD_W,
-  svgHeight: 1100,
+  svgWidth:  SUMMARY_W,
+  svgHeight: 720,
   title:     'Schedule Summary Report',
 };
 
@@ -57,14 +47,6 @@ export const META = {
  * @property {number} compression_pct
  * @property {string} predicted_completion
  * @property {string} [last_predicted_completion]
- */
-
-/**
- * @typedef {Object} SummaryCurve
- * @property {Record<string,string>} [percentCompleteTypes]
- * @property {Array<{ DATE: string, ACTUAL: number|null, SCHEDULED: number|null,
- *                    PLANNED: number|null, LATE_DATE_PLANNED?: number|null,
- *                    PREDICTIVE?: number|null }>} data
  */
 
 /**
@@ -84,12 +66,15 @@ export const META = {
  */
 
 /**
+ * Composite payload. The `curve` field is accepted (and ignored) for
+ * backward compatibility with existing chart payloads that still include it.
+ *
  * @typedef {Object} SummaryReportPayload
  * @property {string}             [project_name]
  * @property {string}             [milestone_name]
  * @property {SummaryCards}       cards
- * @property {SummaryCurve}       curve
  * @property {SummaryMilestones}  milestones
+ * @property {unknown}            [curve]
  */
 
 /**
@@ -103,99 +88,104 @@ export function renderSummaryReport(payload) {
   if (!payload.cards || typeof payload.cards !== 'object') {
     throw new TypeError('expected payload.cards object');
   }
-  if (!payload.curve || typeof payload.curve !== 'object') {
-    throw new TypeError('expected payload.curve object');
-  }
   if (!payload.milestones || typeof payload.milestones !== 'object') {
     throw new TypeError('expected payload.milestones object');
   }
 
-  const projectName = payload.project_name ?? payload.milestones.project_name ?? '';
-  const milestoneName = payload.milestone_name ?? payload.milestones.milestone_name ?? '';
-
   const cardsHtml = renderCardsSection(payload.cards);
-  const curveHtml = renderCurveSection(payload.curve);
-  const milestonesHtml = renderMilestonesSection(
-    payload.milestones,
-    projectName,
-    milestoneName,
-  );
+  const milestonesHtml = renderMilestonesSection(payload.milestones);
 
-  const titleEsc = escapeHtml(META.title);
   const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>${titleEsc}</title>
+<title>${escapeHtml(META.title)}</title>
 <style>
   html, body { margin: 0; padding: 0; background: #fff;
     font-family: Inter, "Helvetica Neue", Arial, sans-serif;
     color: #181d27; -webkit-font-smoothing: antialiased; }
-  .chart-card { width: ${HTML_CARD_W}px; box-sizing: border-box;
+  .chart-card { width: ${SUMMARY_W}px; box-sizing: border-box;
     background: #fff; padding: 24px 32px; }
-  .report-title { font-size: 18px; font-weight: 700; margin: 0 0 6px 0;
-    color: ${SMARTPM_RED}; }
-  .report-subtitle { font-size: 12px; color: #555; margin: 0 0 16px 0; }
 
-  /* ---- Cards section ---- */
-  /* Card widths mirror the Python matplotlib reference
-     (charts.py:874 width_ratios=[1, 2.2, 2.2]): Health is the narrow
-     thermometer card; Performance and Feasibility are the text-dense
-     cards that need ~2.2x the room. */
-  .summary-cards { display: flex; gap: 16px; margin-bottom: 24px; }
-  .summary-card { background: #fff;
-    border: 1px solid #e6e6e6; border-radius: 12px;
-    padding: 14px 18px; box-sizing: border-box; min-height: 230px; }
-  .summary-card.card-health { flex: 1 1 0; }
-  .summary-card.card-performance { flex: 2.2 1 0; }
-  .summary-card.card-feasibility { flex: 2.2 1 0; }
-  .summary-card h4 { margin: 0 0 12px 0; font-size: 13px; font-weight: 700;
+  /* ---- Cards section ----
+     Card widths are unequal because the cards' content shapes differ:
+       - Health holds a fixed-width 260 px thermometer pill.
+       - Performance has SPI + two progress bars + two day-counters (densest).
+       - Feasibility has three centered text columns.
+     1 / 1.5 / 1.3 gives Performance the most room without making Health look
+     starved next to it. */
+  .summary-cards { display: flex; gap: 24px; margin-bottom: 24px;
+    align-items: flex-start; }
+  .summary-card { flex: 1 1 0; }
+  .summary-card.card-performance { flex: 1.5 1 0; }
+  .summary-card.card-feasibility { flex: 1.3 1 0; }
+  .summary-card h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700;
     color: #222; }
-  .summary-card .sublabel { font-size: 11px; color: #444; line-height: 1.25; }
-  .summary-card .big { font-size: 28px; font-weight: 700; line-height: 1; }
-  .summary-card .mid { font-size: 18px; font-weight: 700; line-height: 1; }
-  .summary-card .small { font-size: 11px; color: #444; }
+  .card-inner { background: #fafafa; border: 1px solid #e6e6e6;
+    border-radius: 10px; padding: 16px 20px; min-height: 130px;
+    box-sizing: border-box; }
+  /* Health card has no inset box — the gradient pill is the card. */
+  .card-health .thermo-wrap { padding: 4px 0; }
 
-  /* ---- Curve section ---- */
-  .summary-curve { margin-bottom: 24px; }
-  .summary-curve h4 { margin: 0 0 8px 0; font-size: 13px; font-weight: 700;
-    color: #222; }
-  .axis-text { font-size: 11px; fill: ${C_AXIS_TEXT}; }
-  .axis-text-y { text-anchor: end; }
-  .axis-text-x { text-anchor: middle; }
-  .grid-line { stroke: ${C_GRID}; stroke-width: 1; stroke-dasharray: 2,3; }
-  .legend-row { display: flex; flex-wrap: wrap; align-items: center;
-    gap: 6px 18px; font-size: 11px; color: #181d27; padding-top: 6px; }
-  .legend-item { display: inline-flex; align-items: center; gap: 6px;
-    white-space: nowrap; }
+  .perf-row { display: flex; gap: 16px; align-items: stretch; }
+  .perf-left { flex: 1.6 1 0; display: flex; flex-direction: column; gap: 4px; }
+  .perf-metric { flex: 1 1 0; text-align: center; display: flex;
+    flex-direction: column; justify-content: center; }
+  .spi { font-size: 16px; font-weight: 700; color: #222; margin-bottom: 6px; }
+  .bar-label { font-size: 11px; color: #444; line-height: 1.2; }
+  .bar-track { background: #ececec; height: 6px; border-radius: 3px;
+    margin: 2px 0 4px 0; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; }
+  .metric-label { font-size: 11px; color: #444; line-height: 1.2; }
+  .metric-num { font-size: 28px; font-weight: 700; color: #222;
+    line-height: 1.1; margin-top: 2px; }
+  .metric-unit { font-size: 11px; color: #444; }
+
+  .feas-row { display: flex; gap: 16px; }
+  .feas-cell { flex: 1 1 0; text-align: center; display: flex;
+    flex-direction: column; align-items: center; }
+  .qg { font-size: 32px; font-weight: 700; line-height: 1; margin-top: 6px; }
+  .comp { font-size: 28px; font-weight: 700; line-height: 1; margin-top: 6px; }
+  .pc { margin-top: 4px; line-height: 1; }
+  .pc-month { font-size: 12px; font-weight: 600; }
+  .pc-day   { font-size: 26px; font-weight: 700; line-height: 1.05; }
+  .pc-year  { font-size: 11px; font-weight: 600; }
+  .pc-delta { font-size: 11px; margin-top: 4px; }
 
   /* ---- Milestones section ---- */
-  .summary-milestones h4 { margin: 0 0 8px 0; font-size: 13px; font-weight: 700;
-    color: #222; }
-  .summary-milestones .meta-row { font-size: 12px; color: #333;
-    margin: 0 0 4px 0; }
-  .summary-milestones .meta-row strong { color: #222; }
-  .summary-milestones .change-summary { font-size: 12px; color: #333;
-    margin: 12px 0 8px 0; }
-  .summary-milestones .change-summary ul { margin: 4px 0 4px 18px;
-    padding: 0; }
+  .summary-milestones h4 { margin: 0 0 8px 0; font-size: 13px;
+    font-weight: 700; color: #222; }
   .summary-milestones table { width: 100%; border-collapse: collapse;
+    border: 1px solid #e6e6e6; border-radius: 6px; overflow: hidden;
     font-size: 12px; margin-top: 8px; }
-  .summary-milestones th, .summary-milestones td { padding: 6px 12px;
-    text-align: left; border-bottom: 1px solid #e6e6e6; }
-  .summary-milestones th { background: #F2F2F2; color: #222;
-    font-weight: 700; }
+  .summary-milestones th, .summary-milestones td { padding: 10px 12px;
+    text-align: center; vertical-align: middle;
+    border-bottom: 1px solid #e6e6e6; border-right: 1px solid #e6e6e6; }
+  .summary-milestones td { padding: 12px 12px; }
+  .summary-milestones th:last-child,
+  .summary-milestones td:last-child { border-right: none; }
+  .summary-milestones th:nth-child(2),
+  .summary-milestones td:nth-child(2) { text-align: left; }
+  .summary-milestones th { background: #F2F2F2; color: #222; font-weight: 700; }
   .milestone-row.late td { color: ${SMARTPM_RED}; }
-  .milestone-row .num { text-align: right; }
-  .empty-milestones { font-size: 12px; color: #888; padding: 8px 0; }
+  .empty-milestones { font-size: 12px; color: #888; padding: 8px 0;
+    text-align: center; }
+
+  /* ---- Change-log block ---- */
+  .change-summary .cp-row { display: flex; gap: 24px; margin-top: 16px; }
+  .change-summary .cp-col { flex: 1 1 0; font-size: 12px; color: #333; }
+  .change-summary .cp-col strong { color: #222; }
+  .change-summary .cp-col ul { margin: 6px 0 0 18px; padding: 0; }
+  .change-summary .lpc-title { margin-top: 18px; font-size: 12px;
+    color: #222; font-weight: 700; }
+  .change-summary .lpc-grid { display: flex; gap: 24px; margin-top: 6px;
+    font-size: 12px; color: #333; }
+  .change-summary .lpc-grid > div { flex: 1 1 0; }
 </style>
 </head>
 <body>
 <div class="chart-card">
-  <h2 class="report-title">${titleEsc}</h2>
-  <p class="report-subtitle">${escapeHtml(projectName)}${milestoneName ? ' &mdash; ' + escapeHtml(milestoneName) : ''}</p>
   ${cardsHtml}
-  ${curveHtml}
   ${milestonesHtml}
 </div>
 </body>
@@ -208,10 +198,7 @@ export function renderSummaryReport(payload) {
 // Section 1: Cards
 // =================================================================
 
-/**
- * @param {SummaryCards} cards
- * @returns {string}
- */
+/** @param {SummaryCards} cards @returns {string} */
 function renderCardsSection(cards) {
   return `<section class="summary-cards">
 ${renderHealthCard(cards)}
@@ -223,41 +210,37 @@ ${renderFeasibilityCard(cards)}
 /** @param {SummaryCards} cards @returns {string} */
 function renderHealthCard(cards) {
   const value = Math.max(0, Math.min(100, Number(cards.health?.value ?? 0)));
-  const color = value >= 75 ? SCI_GREEN : value >= 50 ? SCI_YELLOW : SCI_RED;
+  const valueColor =
+    value >= 75 ? SCI_GREEN
+    : value >= 50 ? SCI_YELLOW
+    : SCI_RED;
 
-  // Vertical thermometer SVG — 60px wide, 180px tall, color bands and an
-  // indicator line at the actual value.
-  const w = 60, h = 180;
-  const barX = 22, barW = 16;
-  // Band coordinates: bottom = 0%, top = 100%.
-  // Red 0-50, Yellow 50-75, Green 75-100.
-  const redY    = h - (50 / 100) * h;   // top of red band
-  const yelY    = h - (75 / 100) * h;   // top of yellow band
-  const greenY  = 0;                    // top of green band
-  const indY    = h - (value / 100) * h;
+  // Bar geometry: inner runs from x=18 to x=242 (width 224).
+  const indX = 18 + (value / 100) * 224;
+  // Clamp the % label's x so its right edge doesn't get clipped at the SVG
+  // bound. At font-size 24, "100%" half-width is ~22 px.
+  const labelX = Math.min(Math.max(indX, 26), 234);
 
-  const svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
-  <rect x="${barX}" y="${redY}"   width="${barW}" height="${h - redY}" fill="${SCI_RED}" />
-  <rect x="${barX}" y="${yelY}"   width="${barW}" height="${redY - yelY}" fill="${SCI_YELLOW}" />
-  <rect x="${barX}" y="${greenY}" width="${barW}" height="${yelY - greenY}" fill="${SCI_GREEN}" />
-  <line x1="${barX - 6}" y1="${indY}" x2="${barX + barW + 6}" y2="${indY}" stroke="#222" stroke-width="2.5" />
+  const svg = `<svg width="260" height="62" viewBox="0 0 260 62" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="thermo-grad" x1="0%" x2="100%">
+    <stop offset="0%" stop-color="${SCI_RED}"/>
+    <stop offset="50%" stop-color="${SCI_YELLOW}"/>
+    <stop offset="100%" stop-color="${SCI_GREEN}"/>
+  </linearGradient></defs>
+  <rect x="18" y="38" width="224" height="14" rx="7" ry="7" fill="url(#thermo-grad)" />
+  <text x="${labelX.toFixed(1)}" y="26" text-anchor="middle" font-size="24" font-weight="700" fill="${valueColor}">${Math.round(value)}%</text>
+  <circle cx="${indX.toFixed(1)}" cy="45" r="7" fill="#fff" stroke="#222" stroke-width="2" />
 </svg>`;
 
   return `<div class="summary-card card-health">
   <h4>Project Health Index&trade;</h4>
-  <div style="display: flex; align-items: center; gap: 16px;">
-    ${svg}
-    <div>
-      <div class="big" style="color: ${color};">${Math.round(value)}%</div>
-      <div class="small">Overall Health</div>
-    </div>
-  </div>
+  <div class="thermo-wrap">${svg}</div>
 </div>`;
 }
 
 /** @param {SummaryCards} cards @returns {string} */
 function renderPerformanceCard(cards) {
-  const spi = Number(cards.spi ?? 0);
+  const spi = Number(cards.spi ?? 0).toFixed(2);
   const plannedPct = Math.max(0, Math.min(100, Math.round(Number(cards.planned_pct ?? 0))));
   const actualPct  = Math.max(0, Math.min(100, Math.round(Number(cards.actual_pct  ?? 0))));
   const cpd = Math.round(Number(cards.critical_path_delay_days ?? 0));
@@ -265,30 +248,24 @@ function renderPerformanceCard(cards) {
 
   return `<div class="summary-card card-performance">
   <h4>Schedule Performance</h4>
-  <div style="display: flex; gap: 16px;">
-    <div style="flex: 1.4 1 0;">
-      <div class="mid" style="color: #333;">SPI ${spi.toFixed(2)}</div>
-      <div style="margin-top: 12px;">
-        <div class="sublabel">Planned (${plannedPct}%)</div>
-        <div style="background: #f0f0f0; height: 8px; border-radius: 4px; margin: 4px 0 10px 0;">
-          <div style="background: ${SMARTPM_RED}; width: ${plannedPct}%; height: 100%; border-radius: 4px;"></div>
-        </div>
-        <div class="sublabel">Actual (${actualPct}%)</div>
-        <div style="background: #f0f0f0; height: 8px; border-radius: 4px; margin: 4px 0 0 0;">
-          <div style="background: ${SCI_GREEN}; width: ${actualPct}%; height: 100%; border-radius: 4px;"></div>
-        </div>
+  <div class="card-inner">
+    <div class="perf-row">
+      <div class="perf-left">
+        <div class="spi">SPI ${spi}</div>
+        <div class="bar-label">Planned (${plannedPct}%)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${plannedPct}%;background:${SMARTPM_RED};"></div></div>
+        <div class="bar-label">Actual (${actualPct}%)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${actualPct}%;background:${SCI_GREEN};"></div></div>
       </div>
-    </div>
-    <div style="flex: 1 1 0; display: flex; justify-content: space-around; align-items: center;">
-      <div style="text-align: center;">
-        <div class="sublabel">Critical Path<br>Delay</div>
-        <div class="big" style="color: #222; margin-top: 6px;">${cpd}</div>
-        <div class="small">Days</div>
+      <div class="perf-metric">
+        <div class="metric-label">Critical Path<br>Delay</div>
+        <div class="metric-num">${cpd}</div>
+        <div class="metric-unit">Days</div>
       </div>
-      <div style="text-align: center;">
-        <div class="sublabel">Planned<br>Impact</div>
-        <div class="big" style="color: #222; margin-top: 6px;">${pi}</div>
-        <div class="small">Days</div>
+      <div class="perf-metric">
+        <div class="metric-label">Planned<br>Impact</div>
+        <div class="metric-num">${pi}</div>
+        <div class="metric-unit">Days</div>
       </div>
     </div>
   </div>
@@ -298,218 +275,86 @@ function renderPerformanceCard(cards) {
 /** @param {SummaryCards} cards @returns {string} */
 function renderFeasibilityCard(cards) {
   const qg = String(cards.quality_grade ?? '');
-  const comp = Math.round(Number(cards.compression_pct ?? 0));
-  const pcStr = String(cards.predicted_completion ?? '');
-  const lastPcStr = cards.last_predicted_completion;
-
-  // Binary A/B-vs-else tiering matches the matplotlib reference
-  // (charts.py:990). A/B → green, everything else (C, C+, C-, D, F, …) → red.
   const qgUp = qg.toUpperCase();
+  // Binary A/B-vs-else tiering matches the matplotlib reference
+  // (charts.py:990). A/B → green, everything else → red.
   const qgColor =
     qgUp.startsWith('A') || qgUp.startsWith('B') ? SCI_GREEN
     : SCI_RED;
 
-  const compColor = comp >= 25 ? SCI_RED : comp >= 15 ? SCI_YELLOW : SCI_GREEN;
+  const comp = Math.round(Number(cards.compression_pct ?? 0));
+  const compColor =
+    comp >= 25 ? SCI_RED
+    : comp >= 15 ? SCI_YELLOW
+    : SCI_GREEN;
+  const compDisplay = comp === 0 ? 'N/A' : (comp + '%');
 
-  /** @type {string} */
+  const pcStr = String(cards.predicted_completion ?? '');
   let pcMonth = '', pcDay = '', pcYear = '';
-  if (pcStr) {
-    const d = parseDate(pcStr);
-    pcMonth = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
-    pcDay   = String(d.getUTCDate()).padStart(2, '0');
-    pcYear  = String(d.getUTCFullYear());
-  }
-
+  let pcColor = SCI_GREEN;
   let deltaHtml = '';
-  if (lastPcStr && pcStr) {
-    const newDate = parseDate(pcStr);
-    const oldDate = parseDate(lastPcStr);
-    const slipped = newDate.getTime() > oldDate.getTime();
-    if (newDate.getTime() !== oldDate.getTime()) {
-      const arrow = slipped ? '&#9650;' : '&#9660;';   // ▲ or ▼
-      const dColor = slipped ? SCI_RED : SCI_GREEN;
-      const oldDay = String(oldDate.getUTCDate()).padStart(2, '0');
-      const oldMonth = oldDate.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
-      const oldYear = String(oldDate.getUTCFullYear());
-      deltaHtml = `<div class="small" style="color: ${dColor}; margin-top: 4px;">${arrow} ${oldMonth} ${oldDay}, ${oldYear}</div>`;
+  if (pcStr) {
+    const pcd = parseDate(pcStr);
+    pcMonth = pcd.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+    pcDay   = String(pcd.getUTCDate()).padStart(2, '0');
+    pcYear  = String(pcd.getUTCFullYear());
+
+    const lastStr = cards.last_predicted_completion;
+    if (lastStr) {
+      const lastPcd = parseDate(lastStr);
+      if (pcd.getTime() !== lastPcd.getTime()) {
+        const slipped = pcd.getTime() > lastPcd.getTime();
+        const arrow = slipped ? '&#9650;' : '&#9660;';   // ▲ or ▼
+        const deltaColor = slipped ? SCI_RED : SCI_GREEN;
+        pcColor = deltaColor;
+        const lastMonth = lastPcd.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+        const lastDay = String(lastPcd.getUTCDate()).padStart(2, '0');
+        const lastYear = String(lastPcd.getUTCFullYear());
+        deltaHtml = `<div class="pc-delta" style="color: ${deltaColor};">${arrow} ${lastMonth} ${lastDay}, ${lastYear}</div>`;
+      }
     }
   }
 
   return `<div class="summary-card card-feasibility">
   <h4>Schedule Feasibility</h4>
-  <div style="display: flex; gap: 8px; align-items: center; justify-content: space-around;">
-    <div style="text-align: center;">
-      <div class="sublabel">Schedule<br>Quality Grade&trade;</div>
-      <div style="font-size: 30px; font-weight: 700; color: ${qgColor}; margin-top: 8px; line-height: 1;">${escapeHtml(qg)}</div>
-    </div>
-    <div style="text-align: center;">
-      <div class="sublabel">Schedule Compression<br>Index&trade;</div>
-      <div class="big" style="color: ${compColor}; margin-top: 8px;">${comp}%</div>
-    </div>
-    <div style="text-align: center;">
-      <div class="sublabel">Predicted<br>Completion</div>
-      <div style="margin-top: 6px;">
-        <div style="font-size: 12px; color: ${SCI_GREEN};">${pcMonth}</div>
-        <div style="font-size: 26px; font-weight: 700; color: ${SCI_GREEN}; line-height: 1;">${pcDay}</div>
-        <div style="font-size: 11px; color: ${SCI_GREEN};">${pcYear}</div>
+  <div class="card-inner">
+    <div class="feas-row">
+      <div class="feas-cell">
+        <div class="metric-label">Schedule<br>Quality Grade&trade;</div>
+        <div class="qg" style="color: ${qgColor};">${escapeHtml(qg)}</div>
       </div>
-      ${deltaHtml}
+      <div class="feas-cell">
+        <div class="metric-label">Schedule Compression<br>Index&trade;</div>
+        <div class="comp" style="color: ${compColor};">${compDisplay}</div>
+      </div>
+      <div class="feas-cell">
+        <div class="metric-label">Predicted<br>Completion</div>
+        <div class="pc" style="color: ${pcColor};">
+          <div class="pc-month">${pcMonth}</div>
+          <div class="pc-day">${pcDay}</div>
+          <div class="pc-year">${pcYear}</div>
+        </div>
+        ${deltaHtml}
+      </div>
     </div>
   </div>
 </div>`;
 }
 
 // =================================================================
-// Section 2: Plan-vs-Actual curve (simplified chart 01)
-// =================================================================
-
-/**
- * @param {SummaryCurve} curve
- * @returns {string}
- */
-function renderCurveSection(curve) {
-  const rows = Array.isArray(curve?.data) ? curve.data : [];
-
-  if (!rows.length) {
-    return `<section class="summary-curve">
-  <h4>Planned VS Actual Percent Complete</h4>
-  <div style="font-size: 12px; color: #888;">(no curve data)</div>
-</section>`;
-  }
-
-  const svgW = HTML_CARD_W - 64;   // matches outer padding 32px each side
-  const svgH = 360;
-  const padT = 14, padR = 32, padB = 30, padL = 56;
-  const x0 = padL, x1 = svgW - padR;
-  const y0 = padT, y1 = svgH - padB;
-
-  const dates = rows.map(r => parseDate(String(r.DATE)));
-  const dmin = new Date(Math.min(...dates.map(d => d.getTime())));
-  const dmax = new Date(Math.max(...dates.map(d => d.getTime())));
-
-  // Find data-date: last row with non-null ACTUAL.
-  /** @type {Date|null} */
-  let dataDate = null;
-  for (const r of rows) {
-    if (r.ACTUAL !== null && r.ACTUAL !== undefined) {
-      dataDate = parseDate(String(r.DATE));
-    }
-  }
-
-  /** @param {string} field @returns {Array<[number, number]>} */
-  const seriesPts = (field) => {
-    /** @type {Array<[number, number]>} */
-    const out = [];
-    for (const r of rows) {
-      const v = /** @type {any} */ (r)[field];
-      if (v === null || v === undefined) continue;
-      const d = parseDate(String(r.DATE));
-      out.push([dateToX(d, dmin, dmax, x0, x1), pctToY(Number(v), y0, y1)]);
-    }
-    return out;
-  };
-
-  const ptsPlanned   = seriesPts('PLANNED');
-  const ptsActual    = seriesPts('ACTUAL');
-  const ptsScheduled = seriesPts('SCHEDULED');
-
-  // Gridlines + Y labels at 0/25/50/75/100.
-  const gridlines = [];
-  const yLabels = [];
-  for (const pct of [0, 25, 50, 75, 100]) {
-    const y = pctToY(pct, y0, y1);
-    gridlines.push(`<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" class="grid-line" />`);
-    yLabels.push(`<text x="${x0 - 8}" y="${(y + 4).toFixed(1)}" class="axis-text axis-text-y">${pct} %</text>`);
-  }
-
-  // X labels.
-  const xLabels = [];
-  for (const d of xTicks(dmin, dmax)) {
-    const x = dateToX(d, dmin, dmax, x0, x1);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    const yy = String(d.getUTCFullYear()).slice(-2);
-    xLabels.push(`<text x="${x.toFixed(1)}" y="${y1 + 18}" class="axis-text axis-text-x">${mm}/${dd}/${yy}</text>`);
-  }
-
-  let plotLine = '';
-  if (dataDate) {
-    const dx = dateToX(dataDate, dmin, dmax, x0, x1);
-    plotLine = `<line x1="${dx.toFixed(1)}" y1="${y0}" x2="${dx.toFixed(1)}" y2="${y1}" stroke="${C_DATA_DATE}" stroke-width="2" stroke-dasharray="8,6" />`;
-  }
-
-  const seriesSvg = [];
-  if (plotLine) seriesSvg.push(plotLine);
-  if (ptsPlanned.length) {
-    seriesSvg.push(`<path d="${smoothPath(ptsPlanned)}" fill="none" stroke="${C_PLANNED}" stroke-width="2" />`);
-  }
-  if (ptsActual.length) {
-    seriesSvg.push(`<path d="${smoothPath(ptsActual)}" fill="none" stroke="${C_ACTUAL}" stroke-width="2" />`);
-  }
-  if (ptsScheduled.length) {
-    seriesSvg.push(`<path d="${smoothPath(ptsScheduled)}" fill="none" stroke="${C_SCHEDULED}" stroke-width="2" stroke-dasharray="8,6" />`);
-  }
-
-  const frame = `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="${C_GRID}" stroke-width="1" />`;
-
-  const svgInner = [...gridlines, frame, ...yLabels, ...xLabels, ...seriesSvg].join('\n');
-
-  // Inline legend
-  const legend = [
-    { color: C_PLANNED,   dash: '',    label: 'Planned' },
-    { color: C_ACTUAL,    dash: '',    label: 'Actual' },
-    { color: C_SCHEDULED, dash: '8,6', label: 'Scheduled Completion' },
-    { color: C_DATA_DATE, dash: '8,6', label: 'Data Date' },
-  ];
-  const legendHtml = legend.map(({ color, dash, label }) => {
-    const dashAttr = dash ? ` stroke-dasharray="${dash}"` : '';
-    return `<span class="legend-item">` +
-      `<svg width="26" height="10" viewBox="0 0 26 10">` +
-      `<line x1="0" y1="5" x2="26" y2="5" stroke="${color}" stroke-width="2"${dashAttr} />` +
-      `</svg>` +
-      `<span>${escapeHtml(label)}</span>` +
-      `</span>`;
-  }).join('\n');
-
-  return `<section class="summary-curve">
-  <h4>Planned VS Actual Percent Complete</h4>
-  <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">
-${svgInner}
-  </svg>
-  <div class="legend-row">${legendHtml}</div>
-</section>`;
-}
-
-// =================================================================
-// Section 3: Milestones table + change-log summary
+// Section 2: Milestones table + change-log block
 // =================================================================
 
 /**
  * @param {SummaryMilestones} m
- * @param {string} topProjectName
- * @param {string} topMilestoneName
  * @returns {string}
  */
-function renderMilestonesSection(m, topProjectName, topMilestoneName) {
+function renderMilestonesSection(m) {
   const milestones = Array.isArray(m.milestones) ? m.milestones : [];
-  const cpd = m.critical_path_delays ?? { count: 0, items: [] };
-  const cpr = m.critical_path_recoveries ?? { count: 0, items: [] };
-  const lpc = m.last_period_changes ?? { total: 0, critical_path: 0, acceleration_days: null };
+  const delays = m.critical_path_delays ?? { count: 0, items: [] };
+  const recov  = m.critical_path_recoveries ?? { count: 0, items: [] };
+  const lpc    = m.last_period_changes ?? { total: 0, critical_path: 0, acceleration_days: null };
 
-  const projectName = topProjectName || m.project_name || '';
-  const milestoneName = topMilestoneName || m.milestone_name || '';
-  const projectLocation = m.project_location || '';
-  const dataDateStr = m.data_date ? fmtDate(m.data_date) : '';
-
-  // Header bullets (project metadata).
-  const headerRows = [
-    `<div class="meta-row"><strong>Project Name:</strong> ${escapeHtml(projectName)}</div>`,
-    `<div class="meta-row"><strong>Milestone Name:</strong> ${escapeHtml(milestoneName)}</div>`,
-    `<div class="meta-row"><strong>Project Location:</strong> ${escapeHtml(projectLocation)}</div>`,
-    `<div class="meta-row"><strong>Data Date:</strong> ${escapeHtml(dataDateStr)}</div>`,
-  ].join('\n');
-
-  // Milestones table.
   const headers = ['Order', 'Milestone', 'Contractual', 'Current', 'Days Late', 'Predicted', 'Compression'];
   const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>`;
 
@@ -522,50 +367,47 @@ function renderMilestonesSection(m, topProjectName, topMilestoneName) {
       const lateClass = daysLate > 0 ? ' late' : '';
       const compression = Number(row.compression_pct ?? 0);
       return `<tr class="milestone-row${lateClass}">` +
-        `<td class="num">${escapeHtml(String(row.order ?? ''))}</td>` +
+        `<td>${escapeHtml(String(row.order ?? ''))}</td>` +
         `<td>${escapeHtml(String(row.name ?? ''))}</td>` +
         `<td>${escapeHtml(fmtDate(row.contractual))}</td>` +
         `<td>${escapeHtml(fmtDate(row.current))}</td>` +
-        `<td class="num">${escapeHtml(String(daysLate))}</td>` +
+        `<td>${escapeHtml(String(daysLate))}</td>` +
         `<td>${escapeHtml(fmtDate(row.predicted))}</td>` +
-        `<td class="num">${escapeHtml(String(compression))}%</td>` +
+        `<td>${escapeHtml(String(compression))}%</td>` +
         `</tr>`;
     }).join('\n');
     tbody = `<tbody>${rows}</tbody>`;
   }
 
-  // Change-log summary bullets.
-  const cpdCount = Number(cpd.count ?? 0);
-  const cprCount = Number(cpr.count ?? 0);
-  const cprLabel = cprCount === 0 ? 'N/A' : String(cprCount);
-
-  const cpdItems = (cpd.items ?? []).slice(0, 6);
-  const cprItems = (cpr.items ?? []).slice(0, 6);
-
-  const cpdBullets = cpdItems.length
-    ? `<ul>${cpdItems.map(it => `<li>${escapeHtml(String(it))}</li>`).join('')}</ul>`
-    : '';
-  const cprBullets = cprItems.length
-    ? `<ul>${cprItems.map(it => `<li>${escapeHtml(String(it))}</li>`).join('')}</ul>`
-    : '';
-
-  const total = Number(lpc.total ?? 0);
-  const cp    = Number(lpc.critical_path ?? 0);
-  const accel = lpc.acceleration_days;
-  const accelStr = accel === null || accel === undefined ? 'N/A' : String(accel);
+  const delayBullets = (delays.items ?? []).slice(0, 6)
+    .map(it => `<li>${escapeHtml(String(it))}</li>`).join('');
+  const recovBullets = (recov.items ?? []).slice(0, 6)
+    .map(it => `<li>${escapeHtml(String(it))}</li>`).join('');
+  const recovLabel = (recov.count ?? 0) === 0 ? 'N/A' : String(recov.count);
+  const accelStr = lpc.acceleration_days === null || lpc.acceleration_days === undefined
+    ? 'N/A' : String(lpc.acceleration_days);
 
   const changeSummary = `<div class="change-summary">
-  <div><strong>Selected Period Critical Path Delays:</strong> ${cpdCount}</div>
-  ${cpdBullets}
-  <div style="margin-top: 8px;"><strong>Last Period Critical Path Recoveries:</strong> ${escapeHtml(cprLabel)}</div>
-  ${cprBullets}
-  <div style="margin-top: 8px;"><strong>Last Period Schedule Changes</strong></div>
-  <div>Total Changes: ${total} &nbsp;&nbsp; Critical Path Changes: ${cp} &nbsp;&nbsp; Acceleration Days: ${escapeHtml(accelStr)}</div>
+  <div class="cp-row">
+    <div class="cp-col">
+      <div><strong>Selected Period Critical Path Delays:</strong> ${Number(delays.count ?? 0)}</div>
+      ${delayBullets ? '<ul>' + delayBullets + '</ul>' : ''}
+    </div>
+    <div class="cp-col">
+      <div><strong>Last Period Critical Path Recoveries:</strong> ${escapeHtml(recovLabel)}</div>
+      ${recovBullets ? '<ul>' + recovBullets + '</ul>' : ''}
+    </div>
+  </div>
+  <div class="lpc-title">Last Period Schedule Changes</div>
+  <div class="lpc-grid">
+    <div>Total Changes: <strong>${Number(lpc.total ?? 0)}</strong></div>
+    <div>Critical Path Changes: <strong>${Number(lpc.critical_path ?? 0)}</strong></div>
+    <div>Acceleration Days: <strong>${escapeHtml(accelStr)}</strong></div>
+  </div>
 </div>`;
 
   return `<section class="summary-milestones">
   <h4>Milestones</h4>
-  ${headerRows}
   <table>
     ${thead}
     ${tbody}

@@ -2,6 +2,71 @@
 
 Plugin-level guidance that applies to every skill under `scheduling/skills/`. The repo-root [CLAUDE.md](../CLAUDE.md) covers cross-plugin release conventions; this file is for scheduling-specific contracts.
 
+## Iterating on chart HTML — use the live preview loop
+
+When the user wants to change how a chart in `scheduling/skills/schedule-update/references/charts/` looks (the SmartPM summary report, plan-vs-actual, schedule changes, etc.), **do not edit the renderer file blind**. The renderers emit a wall of CSS + SVG + table markup, and the only way to know whether a tweak landed right is to see it. The workflow that has worked in practice:
+
+### 1. Spin up Claude Desktop's Preview as the iteration surface
+
+Write `.claude/launch.json` (this file is gitignored — fine to leave checked-in or to drop after the session):
+
+```json
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "summary-report",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", ".preview/<slug>"],
+      "port": 5173
+    }
+  ]
+}
+```
+
+Then call `mcp__Claude_Preview__preview_start` with `name: "summary-report"`. The Preview pane on the right of Claude Desktop now serves `.preview/<slug>/index.html` and refreshes on demand. The user can click any element in the preview and ship it back to you as a `<launch-selected-element>` payload — far higher signal than a screenshot annotation.
+
+### 2. Render the chart with the real renderer
+
+```text
+Bash, one-liner:
+  node -e "
+    import('./scheduling/skills/schedule-update/references/charts/<slug>.js').then(m => {
+      const fs = require('fs');
+      const payload = JSON.parse(fs.readFileSync('scheduling/skills/schedule-update/references/charts/tests/fixtures/<slug>.json','utf8'));
+      const { html } = m.render<Whatever>(payload);
+      fs.writeFileSync('.preview/<slug>/index.html', html);
+    });
+  "
+```
+
+The fixtures under `tests/fixtures/` are sized for real projects (Wellington Temple, etc.), so what you see in the preview matches what a real schedule update would produce.
+
+### 3. Patch the rendered HTML to mock the design change — do NOT edit the renderer yet
+
+For each iteration, take the renderer's output and apply a small string-replace patch to demo the change. This is fast, low-risk, and reversible: the user is reviewing pixels, not committing to source. Keep the patch script at `.preview/render-<slug>.mjs`; it imports the renderer, mutates the returned HTML (drop a section, swap CSS rules, restructure a block), and writes to `.preview/<slug>/index.html`. The user refreshes the Preview pane after each push.
+
+Patching is preferred over editing the source during iteration because:
+
+- A typical session pushes 6–12 visual revisions. Editing the renderer for each one means committing half-thought-through state into version control.
+- Many tweaks are pure CSS or trivial markup substitutions that translate cleanly from a string-replace into a source edit at the end.
+- If the user changes their mind (they often do), reverting a `.preview/render-<slug>.mjs` line is one Edit. Reverting the renderer is a full diff.
+
+### 4. Port the approved design into the real source
+
+Once the user says "this looks good, move on", do exactly two things:
+
+1. Apply the patched-in changes to the renderer file (`<slug>.js`) as a clean source edit.
+2. Re-render straight from the updated source into `.preview/<slug>/index.html` and ask the user to refresh once. This is the regression check — if the source-rendered output diverges from the patched preview the user just approved, you have a bug in the port.
+
+Then update the renderer's test file, bump versions per [the release convention](../CLAUDE.md), and clean up the preview server (`preview_stop` with the `serverId` from `preview_start`).
+
+### What to skip
+
+- Don't render via the full `cli.js` batch pipeline during iteration — it produces PNGs through headless Chromium, which adds 5–10 s per cycle for no benefit. The Preview pane renders HTML directly.
+- Don't introduce a wrapper script in `references/charts/` for the preview workflow — the patch script lives in `.preview/` and dies with the session.
+- Don't commit `.preview/`. It's gitignored. The renderer source and the test file are the durable artifacts.
+
 ## Drive the existing scripts — don't wrap them
 
 Every skill under `scheduling/skills/{skill}/references/` ships its own renderers, generators, and parsers — `charts/cli.js`, `email_draft_io.py`, `generate_email_eml.py`, `iterate.py` for proposal schedules, and so on. When you need to produce or regenerate an artifact, drive those scripts directly. **Do not write a wrapper file that embeds tool output as literals or defines hardcoded sample kwargs.**
