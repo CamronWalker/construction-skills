@@ -13,3 +13,9 @@ playwright-report/
 
 # Chart renderer previews (HTML+PNG artifacts, regenerated on demand)
 chart-previews/
+
+# Claude Desktop Preview iteration workspace (see scheduling/CLAUDE.md)
+.preview/
+
+# Superpowers brainstorming companion persistence
+.superpowers/
