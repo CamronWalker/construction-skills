@@ -1,6 +1,6 @@
 """Tests for the carry_forward module's Procore-related behavior
-(added 2026-05). Existing tests for transition_items/transition_attachments
-without Procore concerns live elsewhere if they exist."""
+(added 2026-05) and reconcile_items prev_idx contract (added with the
+cloud-editor closeout)."""
 
 import pathlib
 import sys
@@ -11,6 +11,101 @@ _REFS = _HERE.parent / 'references'
 sys.path.insert(0, str(_REFS))
 
 import carry_forward as cf  # noqa: E402
+
+
+class ReconcileItemsPrevIdxTests(unittest.TestCase):
+    """reconcile_items now returns (this_week_rows, last_week_baseline)
+    where rows carry prev_idx instead of previous_text."""
+
+    def test_returns_two_tuples(self):
+        rows, baseline = cf.reconcile_items([], [], today_iso='2026-05-22')
+        self.assertEqual(rows, [])
+        self.assertEqual(baseline, [])
+
+    def test_unchanged_text_carries_prev_idx_to_baseline_slot(self):
+        last_week = [
+            {'text': 'Steel up.', 'checked': True, 'status': 'active',
+             'date_archived': ''},
+            {'text': 'Trim out.', 'checked': True, 'status': 'active',
+             'date_archived': ''},
+        ]
+        rows, baseline = cf.reconcile_items(
+            last_week, ['Steel up.', 'Trim out.'], today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['status'], 'active')
+        self.assertEqual(rows[0]['prev_idx'], 0)
+        self.assertEqual(rows[1]['prev_idx'], 1)
+        # baseline mirrors last_week shape (no prev_idx in baseline rows).
+        self.assertEqual(len(baseline), 2)
+        self.assertEqual(baseline[0]['text'], 'Steel up.')
+        self.assertNotIn('prev_idx', baseline[0])
+
+    def test_edited_text_still_points_to_prev_via_fuzzy_match(self):
+        last_week = [
+            {'text': 'MEP coordination behind two weeks.', 'checked': True,
+             'status': 'active', 'date_archived': ''},
+        ]
+        this_week = ['MEP coordination behind three weeks — see RFI 0142.']
+        rows, baseline = cf.reconcile_items(
+            last_week, this_week, today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'active')
+        self.assertEqual(rows[0]['prev_idx'], 0)
+        # baseline preserves the original text for the editor to diff against
+        self.assertEqual(
+            baseline[0]['text'], 'MEP coordination behind two weeks.',
+        )
+
+    def test_unmatched_this_week_text_is_new_with_null_prev_idx(self):
+        last_week = []
+        rows, baseline = cf.reconcile_items(
+            last_week, ['Fresh item this week.'], today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'new')
+        self.assertIsNone(rows[0]['prev_idx'])
+
+    def test_dropped_last_week_item_carries_prev_idx_in_removed_row(self):
+        last_week = [
+            {'text': 'Was a red flag.', 'checked': True, 'status': 'active',
+             'date_archived': ''},
+        ]
+        rows, baseline = cf.reconcile_items(
+            last_week, [], today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'removed')
+        self.assertFalse(rows[0]['checked'])
+        self.assertEqual(rows[0]['prev_idx'], 0)
+
+    def test_resurrected_removed_item_is_new_with_null_prev_idx(self):
+        last_week = [
+            {'text': 'Resolved last week.', 'checked': False,
+             'status': 'removed', 'date_archived': ''},
+        ]
+        rows, baseline = cf.reconcile_items(
+            last_week, ['Resolved last week.'], today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        # Came back from removed/archived — no diff link.
+        self.assertEqual(rows[0]['status'], 'new')
+        self.assertIsNone(rows[0]['prev_idx'])
+
+    def test_no_previous_text_field_in_output(self):
+        """previous_text is gone — the editor walks prev_idx instead."""
+        last_week = [
+            {'text': 'Old.', 'checked': True, 'status': 'active',
+             'date_archived': ''},
+        ]
+        rows, baseline = cf.reconcile_items(
+            last_week, ['Old, with edit.'], today_iso='2026-05-22',
+        )
+        for row in rows:
+            self.assertNotIn('previous_text', row)
+        for row in baseline:
+            self.assertNotIn('previous_text', row)
 
 
 class TransitionAttachmentsProcoreTests(unittest.TestCase):
