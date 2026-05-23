@@ -1,19 +1,17 @@
 # Phase: `email` — Build the .eml from the finalized draft
 
 > Loaded by SKILL.md's router when the user invokes `/schedule-update email`.
-> Requires `phases/draft.md` to have already produced `{dated_folder}/email-draft.json`.
+> Requires `phases/draft.md` to have already produced `{dated_folder}/{YYYY-MM-DD}-email.json`.
 
 Builds the Outlook-openable `.eml` from the cloud-editor's finalized JSON. The old composition / preview-HTML step is now `phases/draft.md`; this phase is purely the build step.
 
 ## Inputs
 
-- `{dated_folder}/email-draft.json` — produced by `phases/draft.md` via the weekly-email cloud editor (`generate_weekly_email_draft` → finalize).
+- `{dated_folder}/{YYYY-MM-DD}-email.json` — produced by `phases/draft.md` via the weekly-email cloud editor (`generate_weekly_schedule_update_email_draft` → `finalize_weekly_schedule_update_email`).
 - `{dated_folder}/project-context.html` — for SmartPM URLs and logo path (read via `parse_project_context_html`).
 
-If `email-draft.json` is missing, stop and tell the colleague:
-> "No `email-draft.json` found for today's folder. Run `/schedule-update draft` first to open the cloud editor and finalize the draft."
-
-(Legacy projects where last week predated this branch may still have a `{YYYY-MM-DD}-email-preview.html` instead. Those are *read-only* fallbacks for carry-forward — see `phases/_carry_forward.md`. The build step always wants `email-draft.json`.)
+If the `-email.json` file is missing, stop and tell the colleague:
+> "No `{YYYY-MM-DD}-email.json` found for today's folder. Run `/schedule-update draft` first to open the cloud editor and finalize the draft."
 
 ## Process
 
@@ -23,8 +21,10 @@ If `email-draft.json` is missing, stop and tell the colleague:
 import sys; sys.path.insert(0, 'scheduling/skills/schedule-update/references')
 from email_draft_io import load_draft
 
-draft = load_draft(dated_folder + '/email-draft.json')
+draft = load_draft(dated_folder + f'/{report_date_iso}-email.json')
 ```
+
+`draft` has the top-level shape canonical to scheduling/CLAUDE.md: `version`, `report_date`, `project_info`, `this_week`, `last_week` (or null), `smartpm`, `graphs`.
 
 ### 2. Build the .eml
 
@@ -32,18 +32,18 @@ draft = load_draft(dated_folder + '/email-draft.json')
 from email_draft_io import generate_email_from_draft
 
 eml_path = generate_email_from_draft(
-    draft_path=dated_folder + '/email-draft.json',
+    draft_path=dated_folder + f'/{report_date_iso}-email.json',
     output_eml_path=dated_folder + f'/{report_date_iso}-update-email.eml',
     dated_folder=dated_folder,
-    smartpm_project_url=draft['editorial'].get('smartpm_project_url', ''),
-    smartpm_trends_url=draft['editorial'].get('smartpm_trends_url', ''),
+    smartpm_project_url=draft['this_week'].get('smartpm_project_url', ''),
+    smartpm_trends_url=draft['this_week'].get('smartpm_trends_url', ''),
 )
 ```
 
 This orchestrator does three things end-to-end:
-- Renders the stacked-graphs PNG into `{dated_folder}/screenshots/{project}-{report_date}-all-graphs-stacked.png` via the renderer agent's `html_to_png.cjs`.
-- Resolves `editorial.attachments` filenames against `dated_folder` (skipping files that aren't on disk).
-- Calls the existing `generate_update_email_eml` with the resolved kwargs, including `summary_screenshot_path=<stacked PNG>` and `graph_screenshot_paths=[]`.
+- Renders the stacked-graphs PNG into `{dated_folder}/screenshots/{job_number}-{report_date}-all-graphs-stacked.png` via the renderer agent's `html_to_png.cjs`.
+- Resolves `this_week.attachments` filenames against `dated_folder` (skipping files that aren't on disk).
+- Calls the existing `generate_update_email_eml` with the resolved kwargs (including `prev_days_behind` / `prev_gain_loss` from `last_week` when present, and `closing_line` / `salutation` from `this_week`), `summary_screenshot_path=<stacked PNG>` and `graph_screenshot_paths=[]`.
 
 All charts are embedded as one stacked PNG; per-chart artifacts are not used in the `.eml` body.
 
@@ -68,12 +68,12 @@ Double-click `eml_path`. Outlook should open in compose mode with To/Cc/Subject 
 ## What this phase explicitly does NOT do
 
 - Edit or compose the email content — that's done in the browser editor during `phases/draft.md`.
-- Upload to Procore — that's `phases/procore.md`. It reads `email-draft.json` directly for `skip_procore` + `attachments[].share_to_procore`.
+- Upload to Procore — that's `phases/procore.md`. It reads `{YYYY-MM-DD}-email.json` directly for `this_week.skip_procore` + `this_week.attachments[].share_to_procore`.
 - Render charts in isolation — the stacked PNG is the only chart artifact this phase touches.
 
 ## Cross-references
 
-- `phases/draft.md` — produces the `email-draft.json` this phase consumes.
+- `phases/draft.md` — produces the `{YYYY-MM-DD}-email.json` this phase consumes.
 - `phases/procore.md` — separate publish step driven by the same JSON.
-- `references/email_draft_io.py` — the seam between `email-draft.json` and the existing `.eml` / COM builders.
-- scheduling/CLAUDE.md "Email-preview JSON shape — single source of truth."
+- `references/email_draft_io.py` — the seam between `{YYYY-MM-DD}-email.json` and the existing `.eml` / COM builders.
+- scheduling/CLAUDE.md "Email JSON shape — single source of truth."

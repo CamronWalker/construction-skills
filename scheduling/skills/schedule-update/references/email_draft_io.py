@@ -1,8 +1,9 @@
 """
-Read email-draft.json (produced by the westland-mcps weekly-email cloud editor)
-and orchestrate the existing .eml / COM email builders against it.
+Read {YYYY-MM-DD}-email.json (produced by the westland-mcps weekly-email
+cloud editor) and orchestrate the existing .eml / COM email builders against
+it.
 
-The cloud editor replaces the {YYYY-MM-DD}-email-preview.html round-trip.
+The cloud editor replaces the legacy {YYYY-MM-DD}-email-preview.html round-trip.
 This module is the local seam between the cloud-produced JSON and the existing
 generate_update_email_eml / generate_update_email_msg functions in references/.
 
@@ -10,17 +11,21 @@ Three responsibilities:
 
     1. load_draft(path) -> dict
        Read + validate the JSON. Raises DraftError on missing top-level keys
-       or unsupported schema_version.
+       or unsupported version.
 
-    2. build_stacked_chart_page(graph_html, order) -> str
+    2. build_stacked_chart_page(graphs, order) -> str
        Concatenate the canonical-order chart HTML chunks into one tall HTML
        page, scaled to 1200px viewport. Used as input to html_to_png.cjs.
 
     3. generate_email_from_draft(draft_path, output_eml_path,
                                   dated_folder, logo_path=None, ...) -> str
        Orchestrator: load draft, render stacked PNG via html_to_png.cjs,
-       fan out the editorial fields as kwargs to generate_update_email_eml,
+       fan out the this_week fields as kwargs to generate_update_email_eml,
        return the .eml path.
+
+The top-level JSON shape is canonical in scheduling/CLAUDE.md
+"Email JSON shape — single source of truth" and the Worker schema at
+https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema.
 
 Stdlib only for load_draft and build_stacked_chart_page. generate_email_from_draft
 shells out to Node via subprocess. No new third-party deps.
@@ -36,27 +41,30 @@ import tempfile
 from pathlib import Path
 
 
-SUPPORTED_SCHEMA_VERSIONS = {1}
+SUPPORTED_VERSIONS = {1}
 
-REQUIRED_TOP_LEVEL_KEYS = {'project', 'report_date', 'editorial', 'graph_html', 'meta'}
+REQUIRED_TOP_LEVEL_KEYS = {'version', 'report_date', 'project_info', 'this_week'}
 
 
 class DraftError(Exception):
-    """Raised when an email-draft.json is malformed or unsupported."""
+    """Raised when an {YYYY-MM-DD}-email.json is malformed or unsupported."""
 
 
 def load_draft(path):
-    """Read an email-draft.json off disk and validate top-level shape.
+    """Read an {YYYY-MM-DD}-email.json off disk and validate top-level shape.
 
     Args:
         path: Absolute or relative path to the JSON file.
 
     Returns:
-        Parsed dict with all top-level keys present.
+        Parsed dict with all required top-level keys present:
+            version, report_date, project_info, this_week.
+        Optional top-level keys (last_week, smartpm, graphs) are passed
+        through unchanged when present.
 
     Raises:
         DraftError: if the file is missing required top-level keys, has an
-                    unsupported schema_version, or is not valid JSON.
+                    unsupported version, or is not valid JSON.
         FileNotFoundError: if path doesn't exist.
     """
     with open(path, 'r', encoding='utf-8') as f:
@@ -68,14 +76,16 @@ def load_draft(path):
     missing = REQUIRED_TOP_LEVEL_KEYS - draft.keys()
     if missing:
         raise DraftError(
-            f'email-draft.json at {path} missing required keys: {sorted(missing)}'
+            f'{path} missing required top-level keys: {sorted(missing)}. '
+            f'Expected the cloud-editor shape (version, report_date, '
+            f'project_info, this_week). See scheduling/CLAUDE.md.'
         )
 
-    schema = draft.get('meta', {}).get('schema_version')
-    if schema not in SUPPORTED_SCHEMA_VERSIONS:
+    version = draft.get('version')
+    if version not in SUPPORTED_VERSIONS:
         raise DraftError(
-            f'Unsupported schema_version={schema!r} in {path}. '
-            f'Supported: {sorted(SUPPORTED_SCHEMA_VERSIONS)}.'
+            f'Unsupported version={version!r} in {path}. '
+            f'Supported: {sorted(SUPPORTED_VERSIONS)}.'
         )
 
     return draft
@@ -126,14 +136,14 @@ _STACKED_PAGE_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def build_stacked_chart_page(graph_html, order):
+def build_stacked_chart_page(graphs, order):
     """Concatenate per-slug chart HTML chunks into one tall HTML document.
 
     Args:
-        graph_html: Dict keyed by slug, values are {status, html, svgInner}.
-                    Empty or missing entries are skipped silently.
-        order:      List of slugs in canonical render order. Slugs not present
-                    in graph_html are skipped.
+        graphs: Dict keyed by slug, values are {html, data} (per the
+                Worker schema). Empty or missing entries are skipped silently.
+        order:  List of slugs in canonical render order. Slugs not present
+                in `graphs` are skipped.
 
     Returns:
         A complete HTML5 document string. Body has 1200px width so Playwright
@@ -141,7 +151,7 @@ def build_stacked_chart_page(graph_html, order):
     """
     cards = []
     for slug in order:
-        chunk = graph_html.get(slug)
+        chunk = graphs.get(slug)
         if not chunk:
             continue
         html = (chunk.get('html') or '').strip()
@@ -197,9 +207,9 @@ def render_stacked_png(draft, output_dir):
     then deletes the temp HTML. Returns the absolute PNG path.
 
     Args:
-        draft: Parsed email-draft.json dict (from load_draft).
+        draft: Parsed {YYYY-MM-DD}-email.json dict (from load_draft).
         output_dir: Directory the PNG lands in. Filename is
-                    {project}-{report_date}-all-graphs-stacked.png.
+                    {job_number}-{report_date}-all-graphs-stacked.png.
 
     Returns:
         Absolute path to the written PNG.
@@ -207,13 +217,17 @@ def render_stacked_png(draft, output_dir):
     Raises:
         DraftError: if html_to_png.cjs is missing or fails.
     """
-    graph_html = draft['graph_html']
-    order = draft['editorial']['graph_order']
+    graphs = draft.get('graphs') or {}
+    this_week = draft.get('this_week') or {}
+    # Canonical order: this_week.graph_order if present, else dict-insertion
+    # order of graphs. JSON preserves insertion order in Python 3.7+ and ES2015+.
+    order = this_week.get('graph_order') or list(graphs.keys())
 
-    page_html = build_stacked_chart_page(graph_html, order)
+    page_html = build_stacked_chart_page(graphs, order)
 
     os.makedirs(output_dir, exist_ok=True)
-    png_name = f'{draft["project"]}-{draft["report_date"]}-all-graphs-stacked.png'
+    job_number = (draft.get('project_info') or {}).get('job_number', 'project')
+    png_name = f'{job_number}-{draft["report_date"]}-all-graphs-stacked.png'
     png_path = os.path.abspath(os.path.join(output_dir, png_name))
 
     with tempfile.NamedTemporaryFile(
@@ -284,54 +298,78 @@ def _attachments_for_email_body(items):
     return out
 
 
-def editorial_to_kwargs(editorial):
-    """Translate draft.editorial -> kwargs for generate_update_email_eml/msg.
+def editorial_to_kwargs(this_week, project_info=None, last_week=None):
+    """Translate this_week + project_info (+ optional last_week) -> kwargs
+    for generate_update_email_eml / generate_update_email_msg.
 
     The shape generate_update_email_eml expects is documented in
     references/generate_email_eml.py::generate_update_email_eml's docstring;
-    the shape parse_email_html.parse_preview_html() returns is the canonical
-    source of truth (per scheduling/CLAUDE.md). This function bridges the
-    JSON shape (which mirrors parse_preview_html's `_full` dict shape) to
-    the builder kwargs (which want the filtered markdown-string shape for
-    items, filtered filename list for attachments).
+    the top-level JSON shape is canonical in scheduling/CLAUDE.md
+    "Email JSON shape — single source of truth".
 
     Procore-related fields (`skip_procore`, `attachments[].share_to_procore`)
     are NOT in the returned kwargs — they're consumed by the procore phase,
     not the email body. The procore phase reads them straight off the
-    draft.editorial dict.
+    draft's this_week dict.
 
     Args:
-        editorial: The `editorial` sub-dict from a loaded draft.
+        this_week:    The `this_week` sub-dict from a loaded draft. Item
+                      text fields are HTML (passed through verbatim).
+        project_info: Optional top-level `project_info` dict — when present,
+                      seeds the project-info header. If omitted, falls back
+                      to this_week.get('project_info') for backward
+                      compatibility with the legacy nested shape.
+        last_week:    Optional frozen-copy of last week's this_week. When
+                      present, days_behind / gain_loss propagate to
+                      prev_days_behind / prev_gain_loss kwargs so the
+                      .eml builder can render strikethrough-previous-metric
+                      badges.
 
     Returns:
         Dict suitable for `**kwargs` into generate_update_email_eml or
         generate_update_email_msg.
     """
-    return {
-        'project_info': dict(editorial.get('project_info') or {}),
-        'days_behind': int(editorial.get('days_behind') or 0),
-        'gain_loss': int(editorial.get('gain_loss') or 0),
-        'successes':     _items_for_email_body(editorial.get('successes')),
-        'red_flags':     _items_for_email_body(editorial.get('red_flags')),
-        'stalled_tasks': _items_for_email_body(editorial.get('stalled_tasks')),
-        'key_items':     _items_for_email_body(editorial.get('key_items')),
-        'gain_loss_narrative': editorial.get('gain_loss_narrative', '') or '',
-        'eot_recovery':        editorial.get('eot_recovery', '') or '',
-        'logic_changes':       editorial.get('logic_changes', '') or '',
-        'smartpm_changelog_url': editorial.get('smartpm_changelog_url', '') or '',
+    this_week = this_week or {}
+    pi = project_info or this_week.get('project_info') or {}
+
+    kwargs = {
+        'project_info': dict(pi),
+        'days_behind': int(this_week.get('days_behind') or 0),
+        'gain_loss': int(this_week.get('gain_loss') or 0),
+        'successes':     _items_for_email_body(this_week.get('successes')),
+        'red_flags':     _items_for_email_body(this_week.get('red_flags')),
+        'stalled_tasks': _items_for_email_body(this_week.get('stalled_tasks')),
+        'key_items':     _items_for_email_body(this_week.get('key_items')),
+        'gain_loss_narrative': this_week.get('gain_loss_narrative', '') or '',
+        'eot_recovery':        this_week.get('eot_recovery', '') or '',
+        'logic_changes':       this_week.get('logic_changes', '') or '',
+        'smartpm_changelog_url': this_week.get('smartpm_changelog_url', '') or '',
         'custom_paragraphs': _custom_paragraphs_for_email_body(
-            editorial.get('custom_paragraphs')
+            this_week.get('custom_paragraphs')
         ),
         # Names only — orchestrator resolves paths.
-        'attachment_paths': _attachments_for_email_body(editorial.get('attachments')),
-        'subject':         editorial.get('subject', '') or '',
-        'from_address':    editorial.get('from', '') or '',
-        'to_recipients':   editorial.get('to', '') or '',
-        'cc_recipients':   editorial.get('cc', '') or '',
-        'signer_name':     editorial.get('signer_name', '') or '',
-        'signer_title':    editorial.get('signer_title', '') or '',
-        'signer_mobile':   editorial.get('signer_mobile', '') or '',
+        'attachment_paths': _attachments_for_email_body(this_week.get('attachments')),
+        'subject':         this_week.get('subject', '') or '',
+        'from_address':    this_week.get('from', '') or '',
+        'to_recipients':   this_week.get('to', '') or '',
+        'cc_recipients':   this_week.get('cc', '') or '',
+        'signer_name':     this_week.get('signer_name', '') or '',
+        'signer_title':    this_week.get('signer_title', '') or '',
+        'signer_mobile':   this_week.get('signer_mobile', '') or '',
+        'closing_line':    this_week.get('closing_line', '') or '',
+        'salutation':      this_week.get('salutation', '') or '',
     }
+
+    # Strikethrough-previous-metric badges read prev_days_behind/prev_gain_loss
+    # when last_week is present. None signals "no prior week — render plainly".
+    if last_week:
+        kwargs['prev_days_behind'] = int(last_week.get('days_behind') or 0)
+        kwargs['prev_gain_loss'] = int(last_week.get('gain_loss') or 0)
+    else:
+        kwargs['prev_days_behind'] = None
+        kwargs['prev_gain_loss'] = None
+
+    return kwargs
 
 
 def _call_generate_update_email_eml(output_path, **kwargs):
@@ -370,7 +408,8 @@ def generate_email_from_draft(draft_path, output_eml_path, dated_folder,
     fields out as kwargs to generate_update_email_eml.
 
     Args:
-        draft_path:        Path to email-draft.json (from MCP finalize_weekly_email).
+        draft_path:        Path to {YYYY-MM-DD}-email.json (from
+                           finalize_weekly_schedule_update_email).
         output_eml_path:   Absolute path the .eml gets written to (typically
                            {dated_folder}/{YYYY-MM-DD}-update-email.eml).
         dated_folder:      The dated project folder — attachment filenames
@@ -385,14 +424,17 @@ def generate_email_from_draft(draft_path, output_eml_path, dated_folder,
         DraftError on JSON / schema / rasterization failures.
     """
     draft = load_draft(draft_path)
-    editorial = draft['editorial']
+    this_week = draft['this_week']
+    project_info = draft.get('project_info')
+    last_week = draft.get('last_week')   # may be None for week-1 projects
 
     # 1. Render the stacked-graphs PNG into the dated folder's screenshots/ dir.
     screenshots_dir = os.path.join(dated_folder, 'screenshots')
     stacked_png_path = render_stacked_png(draft, screenshots_dir)
 
-    # 2. Translate editorial -> builder kwargs.
-    kwargs = editorial_to_kwargs(editorial)
+    # 2. Translate this_week -> builder kwargs.
+    kwargs = editorial_to_kwargs(this_week, project_info=project_info,
+                                 last_week=last_week)
 
     # 3. Resolve attachment filenames -> absolute paths.
     kwargs['attachment_paths'] = _resolve_attachment_paths(

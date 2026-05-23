@@ -220,6 +220,10 @@ def _build_html_body(
     signer_title='',
     signer_mobile='',
     has_logo=False,
+    closing_line='',
+    salutation='',
+    prev_days_behind=None,
+    prev_gain_loss=None,
 ):
     """Build an Outlook-compatible HTML email body.
 
@@ -275,11 +279,27 @@ def _build_html_body(
         value_color = GREEN
         label = 'Days Ahead/Behind Schedule'
         value = 'On Schedule'
+    # Strikethrough previous-metric badge when last week's days_behind
+    # is supplied and differs from this week's.
+    prev_badge_html = ''
+    if (prev_days_behind is not None
+            and prev_days_behind != days_behind):
+        prev_value = (
+            f'{prev_days_behind} Days' if prev_days_behind > 0
+            else f'{abs(prev_days_behind)} Days' if prev_days_behind < 0
+            else 'On Schedule'
+        )
+        prev_badge_html = (
+            f' <span style="color:#9a3333; text-decoration:line-through; '
+            f'font-weight:normal; font-size:10pt;">'
+            f'{_esc(prev_value)}</span>'
+        )
     parts.append(
         f'<p style="{font} font-weight:bold; font-size:12pt; '
         f'margin:12pt 0 18pt 0;">'
         f'<span style="color:{TEAL};">{_esc(label)}:</span> '
         f'<span style="color:{value_color};">{_esc(value)}</span>'
+        f'{prev_badge_html}'
         f'</p>'
     )
 
@@ -322,10 +342,24 @@ def _build_html_body(
     else:
         gl_color = GREEN
         gl_text = 'No change since last update.'
+    prev_gl_badge_html = ''
+    if (prev_gain_loss is not None
+            and prev_gain_loss != gain_loss):
+        prev_gl_text = (
+            f'{prev_gain_loss} Day Gain' if prev_gain_loss > 0
+            else f'{abs(prev_gain_loss)} Day Loss' if prev_gain_loss < 0
+            else 'No change since last update.'
+        )
+        prev_gl_badge_html = (
+            f' <span style="color:#9a3333; text-decoration:line-through; '
+            f'font-weight:normal; font-size:10pt;">'
+            f'{_esc(prev_gl_text)}</span>'
+        )
     parts.append(
         f'<p style="{heading} margin:12pt 0 4pt 0;">'
         f'Schedule Gain / Loss Since The Last Update: '
-        f'<span style="color:{gl_color};">{_esc(gl_text)}</span></p>'
+        f'<span style="color:{gl_color};">{_esc(gl_text)}</span>'
+        f'{prev_gl_badge_html}</p>'
     )
     if gain_loss_narrative:
         parts.append(
@@ -453,13 +487,17 @@ def _build_html_body(
             )
 
     # --- Closing ---
+    # closing_line + salutation are HTML strings from the cloud editor; the
+    # legacy "Please let me know..." / "Thanks," strings are the defaults
+    # when the editor leaves the fields blank.
+    closing_html = closing_line or 'Please let me know if you have any questions.'
+    salutation_html = salutation or 'Thanks,'
     parts.append(
-        f'<p style="{font} margin:12pt 0 0 0;">'
-        'Please let me know if you have any questions.</p>'
+        f'<p style="{font} margin:12pt 0 0 0;">{closing_html}</p>'
     )
-    # Blank spacer paragraph — Camron prefers a visible gap before "Thanks,"
+    # Blank spacer paragraph — Camron prefers a visible gap before the salutation.
     parts.append(f'<p style="{font} margin:0;">&nbsp;</p>')
-    parts.append(f'<p style="{font} margin:0 0 12pt 0;">Thanks,</p>')
+    parts.append(f'<p style="{font} margin:0 0 12pt 0;">{salutation_html}</p>')
 
     # --- Email Signature ---
     if signer_name:
@@ -556,6 +594,10 @@ def generate_update_email_msg(
     signer_title='SCHEDULER',
     signer_mobile='',
     logo_path=None,
+    closing_line='',
+    salutation='',
+    prev_days_behind=None,
+    prev_gain_loss=None,
 ):
     """Generate a Westland schedule update email as an Outlook draft.
 
@@ -653,6 +695,10 @@ def generate_update_email_msg(
         signer_title=signer_title,
         signer_mobile=signer_mobile,
         has_logo=has_logo,
+        closing_line=closing_line,
+        salutation=salutation,
+        prev_days_behind=prev_days_behind,
+        prev_gain_loss=prev_gain_loss,
     )
 
     # Create Outlook MailItem via COM

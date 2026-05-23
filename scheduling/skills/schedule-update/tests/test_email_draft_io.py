@@ -21,13 +21,13 @@ SAMPLE_DRAFT_PATH = FIXTURES_DIR / 'email-draft-sample.json'
 class LoadDraftTests(unittest.TestCase):
     def test_load_draft_returns_parsed_dict(self):
         draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
-        self.assertEqual(draft['project'], 'G2203')
+        self.assertEqual(draft['version'], 1)
         self.assertEqual(draft['report_date'], '2026-05-21')
-        self.assertEqual(draft['meta']['schema_version'], 1)
+        self.assertEqual(draft['project_info']['job_number'], 'G2203')
 
     def test_load_draft_raises_on_missing_top_level_keys(self):
         with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
-            json.dump({'project': 'X'}, f)
+            json.dump({'version': 1}, f)
             path = f.name
         try:
             with self.assertRaises(email_draft_io.DraftError):
@@ -35,16 +35,29 @@ class LoadDraftTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_load_draft_raises_on_unsupported_schema(self):
+    def test_load_draft_raises_on_unsupported_version(self):
         bad = json.loads(SAMPLE_DRAFT_PATH.read_text())
-        bad['meta']['schema_version'] = 999
+        bad['version'] = 999
         with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
             json.dump(bad, f)
             path = f.name
         try:
             with self.assertRaises(email_draft_io.DraftError) as ctx:
                 email_draft_io.load_draft(path)
-            self.assertIn('schema_version', str(ctx.exception))
+            self.assertIn('version', str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    def test_load_draft_allows_null_last_week(self):
+        """Week-1 projects ship with last_week=null and must still load."""
+        d = json.loads(SAMPLE_DRAFT_PATH.read_text())
+        d['last_week'] = None
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump(d, f)
+            path = f.name
+        try:
+            draft = email_draft_io.load_draft(path)
+            self.assertIsNone(draft['last_week'])
         finally:
             os.unlink(path)
 
@@ -52,17 +65,17 @@ class LoadDraftTests(unittest.TestCase):
 class BuildStackedChartPageTests(unittest.TestCase):
     def setUp(self):
         self.draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
-        self.graph_html = self.draft['graph_html']
-        self.order = self.draft['editorial']['graph_order']
+        self.graphs = self.draft['graphs']
+        self.order = self.draft['this_week']['graph_order']
 
     def test_emits_html5_document(self):
-        page = email_draft_io.build_stacked_chart_page(self.graph_html, self.order)
+        page = email_draft_io.build_stacked_chart_page(self.graphs, self.order)
         self.assertTrue(page.startswith('<!DOCTYPE html>'))
         self.assertIn('<html', page)
         self.assertIn('</html>', page)
 
     def test_contains_every_slug_in_canonical_order(self):
-        page = email_draft_io.build_stacked_chart_page(self.graph_html, self.order)
+        page = email_draft_io.build_stacked_chart_page(self.graphs, self.order)
         positions = [page.find(slug) for slug in self.order]
         # All present
         self.assertTrue(all(p >= 0 for p in positions), f'positions: {positions}')
@@ -70,29 +83,28 @@ class BuildStackedChartPageTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
 
     def test_viewport_width_is_1200(self):
-        page = email_draft_io.build_stacked_chart_page(self.graph_html, self.order)
+        page = email_draft_io.build_stacked_chart_page(self.graphs, self.order)
         # Either via meta viewport or explicit body width — either signal is fine
         self.assertTrue(
             'width=1200' in page or 'width:1200px' in page or 'max-width:1200px' in page,
             'expected a 1200px width signal in stacked page'
         )
 
-    def test_skips_slugs_missing_from_graph_html(self):
+    def test_skips_slugs_missing_from_graphs(self):
         page = email_draft_io.build_stacked_chart_page(
-            self.graph_html,
+            self.graphs,
             self.order + ['nonexistent-slug-xyz']
         )
         # Doesn't crash; doesn't include the missing slug verbatim
         self.assertNotIn('nonexistent-slug-xyz', page)
 
     def test_skips_slugs_with_blank_html(self):
-        graph_html = dict(self.graph_html)
-        graph_html['02-schedule-quality-grade-over-time'] = {
-            'status': 'ready',
+        graphs = dict(self.graphs)
+        graphs['02-schedule-quality-grade-over-time'] = {
             'html': '',
-            'svgInner': ''
+            'data': {}
         }
-        page = email_draft_io.build_stacked_chart_page(graph_html, self.order)
+        page = email_draft_io.build_stacked_chart_page(graphs, self.order)
         # Other slugs still present
         self.assertIn('01-planned-vs-actual-percent-complete', page)
 
@@ -134,7 +146,11 @@ class RenderStackedPngTests(unittest.TestCase):
 class EditorialToKwargsTests(unittest.TestCase):
     def setUp(self):
         self.draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
-        self.kwargs = email_draft_io.editorial_to_kwargs(self.draft['editorial'])
+        self.kwargs = email_draft_io.editorial_to_kwargs(
+            self.draft['this_week'],
+            project_info=self.draft['project_info'],
+            last_week=self.draft.get('last_week'),
+        )
 
     def test_passes_through_project_info_and_metrics(self):
         self.assertEqual(self.kwargs['project_info']['project_name'], 'Lubumbashi MTC')
@@ -156,21 +172,19 @@ class EditorialToKwargsTests(unittest.TestCase):
                          'https://app.smartpm.com/projects/12345/changelog')
 
     def test_filters_item_lists_to_checked_and_not_archived(self):
-        # Sample has 3 successes: 2 active+checked, 1 archived
-        # The .eml builder receives only the 2 active checked items as markdown strings.
+        # Sample has 3 successes: 2 active/new + checked, 1 archived.
+        # The .eml builder receives only the 2 visible items as HTML strings.
         successes = self.kwargs['successes']
         self.assertEqual(len(successes), 2)
         self.assertIn('Foundation pour', successes[0])
         self.assertIn('Steel delivery confirmed', successes[1])
-        # Archived item is excluded
+        # Archived item is excluded.
         self.assertFalse(any('Old success' in s for s in successes))
 
     def test_filters_attachments_to_checked_and_not_archived(self):
-        # All 2 sample attachments are checked + active
         att = self.kwargs['attachment_paths']
         self.assertEqual(len(att), 2)
-        # By default they are NAMES not paths — the orchestrator resolves to absolute
-        # paths against a search root. editorial_to_kwargs returns just names.
+        # Names, not paths — the orchestrator resolves to absolute paths.
         self.assertTrue(att[0].endswith('Weekly Report 2026-05-21.pdf'))
         self.assertTrue(att[1].endswith('EOT Request 0017.pdf'))
 
@@ -181,16 +195,34 @@ class EditorialToKwargsTests(unittest.TestCase):
 
     def test_passes_custom_paragraphs_filtered_to_checked(self):
         custom = self.kwargs['custom_paragraphs']
-        # Sample has 1 custom paragraph, checked=True
         self.assertEqual(len(custom), 1)
-        # Format expected by the builders: list of {label, text} dicts
-        # (the existing _build_html_body iterates the same shape)
         self.assertEqual(custom[0]['label'], 'Owner directive 2026-05-19')
 
     def test_drops_skip_procore_and_share_to_procore_fields(self):
         # Those fields drive the procore phase, not the .eml body.
         self.assertNotIn('skip_procore', self.kwargs)
         self.assertNotIn('share_to_procore', self.kwargs)
+
+    def test_passes_closing_line_and_salutation(self):
+        self.assertEqual(
+            self.kwargs['closing_line'],
+            'Please let me know if you have any questions.',
+        )
+        self.assertEqual(self.kwargs['salutation'], 'Thanks,')
+
+    def test_passes_prev_metrics_from_last_week(self):
+        # Fixture last_week.days_behind=11, gain_loss=2.
+        self.assertEqual(self.kwargs['prev_days_behind'], 11)
+        self.assertEqual(self.kwargs['prev_gain_loss'], 2)
+
+    def test_prev_metrics_none_when_last_week_missing(self):
+        kwargs = email_draft_io.editorial_to_kwargs(
+            self.draft['this_week'],
+            project_info=self.draft['project_info'],
+            last_week=None,
+        )
+        self.assertIsNone(kwargs['prev_days_behind'])
+        self.assertIsNone(kwargs['prev_gain_loss'])
 
 
 class GenerateEmailFromDraftTests(unittest.TestCase):
@@ -219,9 +251,9 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
                                side_effect=fake_generate_eml):
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Pretend the .pdf attachments are present in the dated folder
-                for att in self.draft['editorial']['attachments']:
+                for att in self.draft['this_week']['attachments']:
                     Path(tmpdir, att['filename']).write_bytes(b'%PDF stub')
-                Path(tmpdir, self.draft['editorial']['changes_report']['filename']).write_bytes(b'%PDF stub')
+                Path(tmpdir, self.draft['this_week']['changes_report']['filename']).write_bytes(b'%PDF stub')
 
                 eml_path = email_draft_io.generate_email_from_draft(
                     draft_path=str(SAMPLE_DRAFT_PATH),

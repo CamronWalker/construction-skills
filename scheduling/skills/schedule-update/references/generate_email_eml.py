@@ -118,6 +118,10 @@ def generate_update_email_eml(
     signer_title='SCHEDULER',
     signer_mobile='',
     logo_path=None,
+    closing_line='',
+    salutation='',
+    prev_days_behind=None,
+    prev_gain_loss=None,
 ):
     """Write a Westland schedule update email as a `.eml` file on disk.
 
@@ -182,6 +186,10 @@ def generate_update_email_eml(
         signer_title=signer_title,
         signer_mobile=signer_mobile,
         has_logo=has_logo,
+        closing_line=closing_line,
+        salutation=salutation,
+        prev_days_behind=prev_days_behind,
+        prev_gain_loss=prev_gain_loss,
     )
 
     # Build the message envelope
