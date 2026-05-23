@@ -68,31 +68,41 @@ Please refer to the attached Analytics Report, or review schedule changes in Sma
 
 ```
 Red Flags:
-1. [Red flag item — bold or red for high priority]
+1. [Red flag item — see "High-priority styling" below]
 2. [Red flag item]
 3. [Red flag item]
 ```
 
-Carry forward unresolved items from previous emails. Bold or mark in red any that need immediate focus.
+Carry forward unresolved items from previous emails. Mark items that need immediate focus using the HTML spans below.
 
 ### 9. Stalled or Slipping Tasks
 
 ```
 Stalled Or Slipping Tasks
-1. [Task description — bold or red for high priority]
+1. [Task description — see "High-priority styling" below]
 2. [Task description]
 3. [Task description]
 ```
 
-Carry forward unresolved items from previous emails. Bold or mark in red any that need immediate focus.
+Carry forward unresolved items from previous emails. Mark items that need immediate focus using the HTML spans below.
 
 ### 10. Key Items & Issues to Focus On
 
 ```
 Key Items & Issues To Focus On
-1. [Key item — bold or red for high priority]
+1. [Key item — see "High-priority styling" below]
 2. [Key item]
 ```
+
+#### High-priority styling
+
+Item text is HTML — what the editor produces, the email renders verbatim. Three inline-span conventions:
+
+- `<strong>...</strong>` — bold.
+- `<span style="color:#C94444;font-weight:bold">...</span>` — priority red (Westland brand red).
+- `<span style="background-color:#FFF59D">...</span>` — highlight (light yellow).
+
+Wrap the **whole item** in a priority-red span to flag it for immediate focus; wrap a phrase inside an item to call out one segment without coloring the rest. The Trix editor in the cloud surface emits these inline-style spans verbatim; Outlook's Word renderer respects them.
 
 ### 11. Schedule Performance Graphs
 
@@ -170,6 +180,6 @@ Create a project-specific schedule update email document using this template. Sa
 - Font: Calibri 11pt to match Outlook's default compose font
 - Section headers should be **bold** (12pt)
 - Days behind/ahead and gain/loss: **entire line** colored red or green, bold
-- Bold or red text for high-priority red flags, stalled tasks, and key issues
+- High-priority red flags / stalled tasks / key items use the inline HTML spans documented under "High-priority styling" above
 - Screenshots embedded as inline CID images, hyperlinked to their SmartPM source URLs
 - The `schedule-screenshots` skill automates SmartPM screenshot capture via Playwright

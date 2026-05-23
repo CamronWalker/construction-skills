@@ -71,11 +71,11 @@ These populate the colored status lines in the email. They come from the XER —
 Run the shared preview generation step. See `_carry_forward.md` for the recipe and `_attachments.md` for the new Procore controls.
 
 Tell the colleague:
-> "Preview at `{path}`. Open it in your browser, edit any section in place, and when you're happy click **Save Edits** -> save the download on top of the file (same name, same folder) -> tell me `done`. I'll then create the Outlook draft and push the selected files to Procore. Tip: wrap a list item in `**double asterisks**` to make it bold + red in the email. Use the **P** toggle next to each attachment to control which files go to Procore. If you already had the preview open in another tab, **hard-refresh (Ctrl+F5)** -- Chrome caches it aggressively."
+> "Editor at `{editor_url}`. Open it in your browser; edits autosave. Use the toolbar's **B** (bold) and the brand-red priority span to mark high-priority items — they render `<strong>` and a Westland-red span verbatim in the email. Use the **P** toggle next to each attachment to control which files go to Procore. When you're done, come back here and say `done` and I'll build the Outlook draft + push the selected files to Procore."
 
 #### JSON-paste regeneration (escape hatch)
 
-If the colleague has already iterated on the content in their head and just wants the preview rendered to match, they may paste a JSON snapshot -- same shape as the preview's "Copy for Claude" button output, or what `parse_preview_html()` returns. Pipe that JSON straight back through `generate_preview_html(output_path, **kwargs)` -- do not re-run carry-forward, the JSON is already the curated state. This is also the right path when the user is correcting a regeneration mistake or has compiled the desired content offline. After regenerating, point them at the same file with a Ctrl+F5 reminder.
+If the colleague has already iterated on the content in their head and just wants the editor seeded with a specific state, they may paste a JSON snapshot — same shape as `{YYYY-MM-DD}-email.json` (see scheduling/CLAUDE.md "Email JSON shape"). Save it to `{dated_folder}/{YYYY-MM-DD}-email.seed.json` and re-run the MCP `generate_weekly_schedule_update_email_draft` call with that seed. Do not re-run carry-forward — the JSON is already the curated state. This is also the right path when the user is correcting a regeneration mistake or has compiled the desired content offline.
 
 ## Step 7: Wait For "done", Then Draft + Procore Publish
 
