@@ -65,7 +65,8 @@ def _md_inline_to_html(text):
     return text or ''
 
 
-# --- HTML-aware word diff (mirrors the JS in generate_email_preview_html) ---
+# --- HTML-aware word diff (used by the changes-report PDF for week-over-week
+#     inline diff markup on edited narratives) ---
 
 _FMT_TAGS = {'b', 'strong', 'i', 'em', 'span'}
 _TOKEN_RE = re.compile(r'<(/?)(\w+)([^>]*)>|(\s+)|([^\s<]+)')

@@ -1,5 +1,5 @@
 {
-  "description": "Scheduling — advisory hook steering Claude toward the parse/generate scripts for managed HTML artifacts (project-context.html, dated *-email-preview.html). Always advisory; never blocks.",
+  "description": "Scheduling — advisory hook steering Claude toward the parse/generate scripts for managed HTML artifacts (project-context.html). Always advisory; never blocks.",
   "hooks": {
     "PreToolUse": [
       {

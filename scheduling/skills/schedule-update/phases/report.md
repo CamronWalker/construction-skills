@@ -81,7 +81,7 @@ If the colleague has already iterated on the content in their head and just want
 
 When the colleague says `done`:
 
-1. Read the (now-edited) preview HTML via `parse_email_html.py:parse_preview_html(preview_path)`. The returned dict includes `attachments` (with `share_to_procore` per item) and the top-level `skip_procore` toggle.
+1. Finalize the cloud editor's draft via `finalize_weekly_schedule_update_email` and write the result to `{dated_folder}/{YYYY-MM-DD}-email.json`. Load it locally via `email_draft_io.load_draft(path)`. The returned dict's `this_week` block includes `attachments` (with `share_to_procore` per item) and the `skip_procore` toggle.
 
 2. **Write the `.eml`** by following `draft.md`. (Phase file already loaded per the command matrix.)
 

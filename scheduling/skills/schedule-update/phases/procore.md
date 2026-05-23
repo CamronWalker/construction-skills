@@ -240,7 +240,7 @@ If any line is `failed:` or `skipped:`, end with:
 
 ## What this phase MUST NOT do
 
-- Read `parse_email_html.py`, `parse_project_context_html.py`, `generate_*.py`, or any preview/project-context HTML directly. Use the documented function signatures only.
+- Read `email_draft_io.py`, `parse_project_context_html.py`, `generate_*.py`, or the project-context HTML directly. Use the documented function signatures only.
 - Re-prompt for IDs already in `project-context.html`. The whole point of the write-back is that subsequent runs are silent.
 - Upload `share_to_procore: false` attachments. The folder is public; explicit opt-in is the safety net.
 - Upload the SmartPM Summary screenshot or any other file outside the user's curated `share_to_procore` set.

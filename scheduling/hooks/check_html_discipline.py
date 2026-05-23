@@ -11,37 +11,27 @@ import re
 import sys
 
 
-# basename match: project-context.html  OR  YYYY-MM-DD-email-preview.html
-PROTECTED_RE = re.compile(
-    r'(?:^project-context\.html$|^\d{4}-\d{2}-\d{2}-email-preview\.html$)',
-    re.IGNORECASE,
-)
+# basename match: project-context.html (the only HTML artifact still
+# managed via parse/generate after the cloud-editor migration; the
+# weekly email lives in {YYYY-MM-DD}-email.json now).
+PROTECTED_RE = re.compile(r'^project-context\.html$', re.IGNORECASE)
 
 
 READ_MSG = """HEADS UP — direct Read on a managed HTML file ({path}).
 
-This file is 47-160 KB. Prefer the JSON parser:
-  - project-context.html        -> parse_project_context_html.load_project_context(schedules_root)
-  - *-email-preview.html        -> LEGACY (pre-cloud-editor weeks only).
-                                   Fresh weeks use email-draft.json instead —
-                                   read via email_draft_io.load_draft(path).
-                                   For carry-forward from a legacy week, read
-                                   via parse_email_html.parse_preview_html(path).
+project-context.html is ~47 KB with an embedded base64 logo. Prefer the
+parser:
+  parse_project_context_html.load_project_context(schedules_root)
 
-Reading via the parser gives you a dict and avoids token blow-up. You can
-proceed if you have a reason, but most reads should go through the parser.
+Reading via the parser gives you a dict and avoids token blow-up. You
+can proceed if you have a reason, but most reads should go through the
+parser.
 """
 
 
 WRITE_MSG = """HEADS UP — direct write to a managed HTML file ({path}).
 
 W1177 (2026-05-07) corrupted the embedded base64 logo via a direct Write.
-
-This file is part of the LEGACY preview-HTML flow. The new flow uses
-email-draft.json instead — see scheduling/skills/schedule-update/references/
-email_draft_io.py. If you're carrying forward from a pre-2026-05-XX week,
-read via parse_email_html.parse_preview_html() (don't Edit). Otherwise this
-file shouldn't be getting written at all.
 
 For project-context.html writes, use
 generate_project_context_html.generate_project_context_html(path, ctx).

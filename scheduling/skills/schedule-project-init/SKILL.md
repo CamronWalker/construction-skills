@@ -169,7 +169,7 @@ After initialization:
 Schedules/
 ├── project-context.html              ← persistent project config (this skill creates it)
 ├── 2026-04-01/
-│   ├── 2026-04-01-email-preview.html ← weekly preview (schedule-update skill)
+│   ├── 2026-04-01-email.json         ← weekly draft from cloud editor (schedule-update skill)
 │   ├── 2026-04-01-update-email.md    ← archive of the sent email
 │   ├── screenshots/                  ← SmartPM screenshots
 │   └── *.xer, *.pdf, *.xlsm          ← schedule files and reports

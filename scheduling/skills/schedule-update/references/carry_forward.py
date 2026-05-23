@@ -1,15 +1,15 @@
 """
-State-transition helpers for the schedule update email preview.
+State-transition helpers for the schedule update email seed.
 
-The preview tracks per-item status across weeks like a mini git diff:
+The seed tracks per-item status across weeks like a mini git diff:
     active   -> normal (checked; was in last week's email too)
     new      -> green  (just added this update)
     removed  -> red    (unchecked this update; was in last update)
     archived -> gray, collapsed (still unchecked after another update)
 
-When generating THIS week's preview from LAST week's edited HTML, call
-`transition_items()` with the parsed items to compute new statuses, then
-pass the result to generate_email_preview_html.
+When generating THIS week's seed from LAST week's {YYYY-MM-DD}-email.json,
+call `reconcile_items()` with the parsed lists to compute new statuses and
+prev_idx pointers — the cloud editor's diff overlays consume the result.
 
 The rules:
 
@@ -139,8 +139,8 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
     Diff overlays in the cloud editor and "strikethrough-previous-metric"
     badges in the .eml builder are computed by walking from
     `this_week.<list>[i]` → `last_week.<list>[this_week.<list>[i].prev_idx]`.
-    The denormalized `previous_text` field that the legacy `-email-preview.html`
-    flow used is gone.
+    The denormalized `previous_text` field that the legacy flow used is gone —
+    callers walk `last_week.<list>[prev_idx]` for the prior text.
 
     Args:
         last_week_items: list of dicts from last week's `email-draft.json`
@@ -294,7 +294,8 @@ def transition_items(last_week_items, new_texts=None, today_iso=None,
 
     Args:
         last_week_items: list of dicts {text, checked, status, date_archived}
-                         from parse_preview_html() of last week's preview.
+                         from last week's `email-draft.json`
+                         (e.g. `last_draft['this_week']['red_flags']`).
         new_texts: list of plain strings — items discovered this week that
                    were not in last week's list. Each gets status='new'.
         today_iso: 'YYYY-MM-DD'. Used as date_archived when transitioning
@@ -303,7 +304,7 @@ def transition_items(last_week_items, new_texts=None, today_iso=None,
                            pruned from the result (default 90).
 
     Returns:
-        list of dicts ready for generate_preview_html's list kwargs.
+        list of dicts ready for the seed's `this_week.<list>` slot.
     """
     if today_iso is None:
         today_iso = date.today().isoformat()
@@ -389,15 +390,16 @@ def transition_attachments(last_week_attachments, fresh_filenames=None,
         archived   -> archived (original date preserved, 90-day prune)
 
     Args:
-        last_week_attachments: list of dicts from last week's preview parse.
+        last_week_attachments: list of dicts from last week's
+            `email-draft.json` (`last_draft['this_week']['attachments']`).
         fresh_filenames: this week's freshly-resolved filenames (from
             project-context.md globs matched against the dated folder).
         today_iso: 'YYYY-MM-DD' for transitions & pruning (defaults to today).
         max_archived_days: drop archives older than this (default 90).
 
     Returns:
-        list of {filename, checked, status, date_archived} dicts ready to
-        pass to generate_email_preview_html as the `attachments` kwarg.
+        list of {filename, checked, status, date_archived, share_to_procore}
+        dicts ready for the seed's `this_week.attachments` slot.
     """
     if today_iso is None:
         today_iso = date.today().isoformat()

@@ -43,15 +43,6 @@ class TestHookAdvisory(unittest.TestCase):
         self.assertIn('parse_project_context_html', proc.stderr)
         self.assertNotIn('generate_', proc.stderr)
 
-    def test_write_email_preview_warns_with_generator(self):
-        proc = run_hook({
-            'tool_name': 'Write',
-            'tool_input': {'file_path': r'G:\proj\Schedules\2026-05-19\2026-05-19-email-preview.html'},
-        })
-        self.assertEqual(proc.returncode, 0)
-        self.assertIn('generate_email_preview_html', proc.stderr)
-        self.assertIn('W1177', proc.stderr)
-
     def test_edit_project_context_uses_write_message(self):
         proc = run_hook({
             'tool_name': 'Edit',
@@ -60,13 +51,15 @@ class TestHookAdvisory(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn('generate_project_context_html', proc.stderr)
 
-    def test_multiedit_email_preview_warns(self):
+    def test_email_preview_html_no_longer_matches(self):
+        """The pre-cloud-editor *-email-preview.html artifact is gone; the
+        hook should not fire on it (the weekly email lives in -email.json now)."""
         proc = run_hook({
-            'tool_name': 'MultiEdit',
-            'tool_input': {'file_path': '/x/y/2026-04-15-email-preview.html'},
+            'tool_name': 'Write',
+            'tool_input': {'file_path': r'G:\proj\Schedules\2026-05-19\2026-05-19-email-preview.html'},
         })
         self.assertEqual(proc.returncode, 0)
-        self.assertIn('generate_email_preview_html', proc.stderr)
+        self.assertEqual(proc.stderr, '')
 
     def test_changes_report_html_does_not_match(self):
         """Other HTML files in the pipeline (e.g. changes-report HTML) must not trigger this hook."""

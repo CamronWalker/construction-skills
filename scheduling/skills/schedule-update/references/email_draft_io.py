@@ -250,9 +250,10 @@ def render_stacked_png(draft, output_dir):
 def _items_for_email_body(items):
     """Filter an item-list (successes / red_flags / etc.) for email rendering.
 
-    The .eml + COM builders accept lists of markdown strings (the canonical
-    rule: only `checked=True` and `status != 'archived'`). Matches
-    parse_email_html.parse_preview_html()'s "list of markdown strings" shape.
+    The .eml + COM builders accept lists of HTML strings — only items with
+    `checked=True` and `status != 'archived'` pass through. Item text is HTML
+    from the cloud editor's Trix surface; the builder passes it through
+    verbatim into the email body.
     """
     out = []
     for item in items or []:

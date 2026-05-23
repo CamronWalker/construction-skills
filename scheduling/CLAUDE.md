@@ -4,7 +4,7 @@ Plugin-level guidance that applies to every skill under `scheduling/skills/`. Th
 
 ## Drive the existing scripts — don't wrap them
 
-Every skill under `scheduling/skills/{skill}/references/` ships its own renderers, generators, and parsers — `charts/cli.js`, `generate_email_preview_html.py`, `parse_email_html.py`, `iterate.py` for proposal schedules, and so on. When you need to produce or regenerate an artifact, drive those scripts directly. **Do not write a wrapper file that embeds tool output as literals or defines hardcoded sample kwargs.**
+Every skill under `scheduling/skills/{skill}/references/` ships its own renderers, generators, and parsers — `charts/cli.js`, `email_draft_io.py`, `generate_email_eml.py`, `iterate.py` for proposal schedules, and so on. When you need to produce or regenerate an artifact, drive those scripts directly. **Do not write a wrapper file that embeds tool output as literals or defines hardcoded sample kwargs.**
 
 ### Canonical pattern for MCP → chart rendering
 
@@ -171,15 +171,9 @@ The Worker schema is the source of truth. To extend the shape:
 4. **Add a test** to `tests/test_email_draft_io.py` asserting the new field round-trips through `editorial_to_kwargs`.
 5. **Run** `python -m unittest discover -s scheduling/skills/schedule-update/tests` before claiming done.
 
-### Deprecated — slated for deletion
+### Historical note
 
-The pre-cloud-editor `*-email-preview.html` round-trip is being removed:
-
-- ~~`generate_email_preview_html.py`~~ — DEPRECATED. Deleted in fix #6 of this PR.
-- ~~`parse_email_html.py`~~ — DEPRECATED. Deleted in fix #6 of this PR.
-- ~~`tests/test_email_preview_html.py`~~ — DEPRECATED. Deleted in fix #6 of this PR.
-
-Until the deletion commit lands, do not add new callers of those modules. The seed-emission path in `phases/draft.md` reads `{prev_date}-email.json` only — the legacy HTML parser is not a fallback in the new flow.
+The pre-cloud-editor `*-email-preview.html` round-trip is gone: `generate_email_preview_html.py`, `parse_email_html.py`, and `tests/test_email_preview_html.py` were removed alongside this contract. The seed-emission path in `phases/draft.md` reads `{prev_date}-email.json` only — there is no legacy HTML parser to fall back on.
 
 ## XER files are immutable
 

@@ -218,7 +218,7 @@ with open(os.path.join(dated_folder, f'{today_iso}-email.json'), 'w') as f:
 
 ## What this phase replaces
 
-The old flow wrote `{dated_folder}/{YYYY-MM-DD}-email-preview.html` and asked the colleague to open it in a browser to edit. That artifact is no longer produced. The legacy `references/generate_email_preview_html.py` and `references/parse_email_html.py` are slated for deletion alongside this PR's cloud-editor integration — do not add new callers.
+The old flow wrote `{dated_folder}/{YYYY-MM-DD}-email-preview.html` and asked the colleague to open it in a browser to edit. That artifact is no longer produced, and the legacy `generate_email_preview_html.py` / `parse_email_html.py` scripts have been removed.
 
 ## What this phase explicitly does NOT do
 

@@ -14,17 +14,17 @@
 }
 ```
 
-This dict shape is what `parse_email_html.parse_preview_html()` returns inside the top-level `'attachments'` list, and what `generate_email_preview_html.generate_preview_html()` expects in its `attachments=` kwarg.
+This dict shape is what `email_draft_io.load_draft(path)` returns inside `draft['this_week']['attachments']`, and what `carry_forward.transition_attachments()` returns to feed into the seed.
 
 ## Top-level keys also relevant
 
 ```python
-parsed = parse_preview_html(preview_path)
-parsed['attachments']        # list of dicts as above
-parsed['attachment_names']   # filtered: filename strings, checked & non-archived only
-parsed['attachment_paths']   # filtered: absolute paths, checked & non-archived only
-parsed['skip_procore']       # bool — master "skip Procore this week" toggle
+draft = load_draft(dated_folder + f'/{report_date}-email.json')
+draft['this_week']['attachments']     # list of dicts as above
+draft['this_week']['skip_procore']    # bool — master "skip Procore this week" toggle
 ```
+
+Filtering for the .eml builder (`checked=True` and `status != 'archived'`) happens inside `email_draft_io.editorial_to_kwargs`; the procore phase reads the raw `this_week.attachments` list and walks `share_to_procore` directly.
 
 ## Carry-forward rules
 
@@ -36,49 +36,20 @@ parsed['skip_procore']       # bool — master "skip Procore this week" toggle
   - `False` otherwise.
 - **Rationale:** the Procore folder is public. New, unfamiliar files require an explicit opt-in via the preview's `P` checkbox.
 
-## HTML representation (preview)
+## Browser representation (cloud editor)
 
-Each `<li class="attachment-item">` carries:
-
-```html
-<li class="attachment-item"
-    data-checked="true|false"
-    data-status="active|new|removed|archived"
-    data-share-procore="true|false"
-    data-archived="YYYY-MM-DD">          <!-- only when archived -->
-  <span class="drag-handle">⋮⋮</span>
-  <label class="attach-toggle" title="Include in email">
-    <input type="checkbox" data-item-checked checked|unchecked>
-  </label>
-  <label class="attach-procore-toggle" title="Share to Procore">
-    <input type="checkbox" data-procore-checked checked|unchecked>
-    <span class="procore-badge">P</span>
-  </label>
-  <!-- attachment name, controls, etc. -->
-</li>
-```
-
-The master skip-Procore toggle sits inside `.attachments-section`:
-
-```html
-<div class="skip-procore-option" data-field="skip_procore_option">
-  <label class="skip-procore-toggle">
-    <input type="checkbox" data-field="skip_procore">
-    <span class="skip-procore-label">⏭ Skip Procore this week</span>
-  </label>
-</div>
-```
+The cloud editor SPA renders each attachment row with a drag handle, an "include in email" checkbox, a `P` Procore toggle, and the filename. The Procore badge and master "Skip Procore this week" switch persist via the editor's autosave (`PUT /editorial`). The local skill does not own this HTML — it lives in the `westland-mcps` Worker.
 
 ## What to call, from each phase
 
 | Phase | Reads | Writes |
 |---|---|---|
-| `email.md` (Camron path) | last week's preview parser for carry-forward + bootstrap | this week's preview via generator |
+| `email.md` (Camron path) | last week's `{prev_date}-email.json` for carry-forward + bootstrap | nothing local — seeds the cloud editor |
 | `report.md` | same as email.md | same |
-| `draft.md` | this week's preview parser (filtered lists for the `.eml`) | `.eml` file |
-| `procore.md` | this week's preview parser (`share_to_procore` filter for Procore uploads) | nothing (Procore-side via MCP) |
+| `draft.md` | this week's `{YYYY-MM-DD}-email.json` for filtered lists in the `.eml` | `.eml` file |
+| `procore.md` | this week's `{YYYY-MM-DD}-email.json` for the `share_to_procore` filter | nothing (Procore-side via MCP) |
 
 ## Do NOT
 
-- Do NOT `Read` `parse_email_html.py` or `generate_email_preview_html.py` to learn the shape. This file is the canonical reference.
-- Do NOT `Read` / `Edit` the preview HTML directly. Always parse → mutate dict → generate.
+- Do NOT `Read` `email_draft_io.py` to learn the shape. This file is the canonical reference, and the cross-skill source of truth is scheduling/CLAUDE.md "Email JSON shape".
+- Do NOT `Read` / `Edit` the JSON directly when you want to mutate it. Use `email_draft_io.load_draft(path)` to read; let the cloud editor handle writes.
