@@ -271,6 +271,183 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
     return this_week_rows, last_week_baseline
 
 
+def reconcile_key_items(last_week_key_items, last_week_key_items_archived,
+                        this_week_texts, today_iso=None,
+                        similarity_threshold=0.6,
+                        max_archived_days=MAX_ARCHIVED_DAYS):
+    """v2 key_items reconciliation — splits output into active + archived.
+
+    Unlike `reconcile_items`, key_items maintains an archived pile in a
+    separate sibling list (`key_items_archived`) for delay-claim evidence.
+    Archived rows older than `max_archived_days` drop entirely.
+
+    Args:
+        last_week_key_items: prior week's `this_week.key_items` rows
+            (active/new/removed status).
+        last_week_key_items_archived: prior week's
+            `this_week.key_items_archived` rows (archived status,
+            with `date_archived`).
+        this_week_texts: HTML strings Claude wrote for this update's
+            key items.
+        today_iso: 'YYYY-MM-DD' for transitions & pruning.
+        similarity_threshold: fuzzy-match cutoff.
+        max_archived_days: prune archived items older than this.
+
+    Returns:
+        (this_week_rows, this_week_archived_rows, last_week_baseline):
+            - this_week_rows: active/new/removed for seed.this_week.key_items.
+              Carries `prev_idx`, optional `edited`.
+            - this_week_archived_rows: archived for
+              seed.this_week.key_items_archived. Each row has
+              `date_archived` set.
+            - last_week_baseline: pass-through copy of last_week_key_items
+              (active key_items only) for seed.last_week.key_items.
+
+    Lifecycle:
+        active/new in last_week.key_items → matched this week: active.
+                                          → unmatched this week: removed.
+        removed in last_week.key_items   → unmatched: archived (date_archived=today).
+        archived in last_week.key_items_archived
+                                        → matched this week: new (resurrection).
+                                        → unmatched: stays archived (original date).
+                                        → past max_archived_days: dropped.
+    """
+    if today_iso is None:
+        today_iso = date.today().isoformat()
+    today = date.fromisoformat(today_iso)
+
+    last_active = list(last_week_key_items or [])
+    last_archived = list(last_week_key_items_archived or [])
+
+    last_week_baseline = [
+        {
+            'text': (it.get('text') or ''),
+            'checked': bool(it.get('checked', True)),
+            'status': it.get('status', 'active'),
+        }
+        for it in last_active
+    ]
+
+    # Build combined search space for fuzzy matching: active items first,
+    # then archived. Track which list each index belongs to.
+    search = [(i, 'active', it) for i, it in enumerate(last_active)] + \
+             [(i, 'archived', it) for i, it in enumerate(last_archived)]
+    used_active = set()
+    used_archived = set()
+
+    matched = []
+    for raw in (this_week_texts or []):
+        text = (raw or '').strip()
+        if not text:
+            continue
+        best = None  # (ratio, idx_in_search)
+        for s_idx, (orig_idx, kind, it) in enumerate(search):
+            if kind == 'active' and orig_idx in used_active:
+                continue
+            if kind == 'archived' and orig_idx in used_archived:
+                continue
+            prev_text = (it.get('text') or '').strip()
+            if not prev_text:
+                continue
+            if prev_text == text:
+                best = (1.0, s_idx)
+                break
+            r = _similarity(prev_text, text)
+            if best is None or r > best[0]:
+                best = (r, s_idx)
+
+        if best is not None and best[0] >= similarity_threshold:
+            orig_idx, kind, it = search[best[1]]
+            prev_text = (it.get('text') or '').strip()
+            if kind == 'active':
+                used_active.add(orig_idx)
+                prev_status = it.get('status', 'active')
+                if prev_status in ('removed',):
+                    matched.append({
+                        'text': text,
+                        'checked': True,
+                        'status': 'new',
+                        'prev_idx': None,
+                    })
+                else:
+                    row = {
+                        'text': text,
+                        'checked': True,
+                        'status': 'active',
+                        'prev_idx': orig_idx,
+                    }
+                    if text != prev_text:
+                        row['edited'] = True
+                    matched.append(row)
+            else:  # kind == 'archived' — resurrection
+                used_archived.add(orig_idx)
+                matched.append({
+                    'text': text,
+                    'checked': True,
+                    'status': 'new',
+                    'prev_idx': None,
+                })
+        else:
+            matched.append({
+                'text': text,
+                'checked': True,
+                'status': 'new',
+                'prev_idx': None,
+            })
+
+    # Drop phase for active items: unmatched last-week active/new → 'removed' this week.
+    dropped_active = []
+    new_archived = []
+    for i, it in enumerate(last_active):
+        if i in used_active:
+            continue
+        prev_text = (it.get('text') or '').strip()
+        if not prev_text:
+            continue
+        prev_status = it.get('status', 'active')
+        if prev_status in ('active', 'new'):
+            dropped_active.append({
+                'text': prev_text,
+                'checked': False,
+                'status': 'removed',
+                'prev_idx': i,
+            })
+        elif prev_status == 'removed':
+            # removed last week, still gone this week → archive now
+            new_archived.append({
+                'text': prev_text,
+                'checked': False,
+                'status': 'archived',
+                'date_archived': today_iso,
+                'prev_idx': i,
+            })
+
+    # Drop phase for archived items: unmatched archives stay archived
+    # (original date), prune anything older than max_archived_days.
+    for i, it in enumerate(last_archived):
+        if i in used_archived:
+            continue
+        prev_text = (it.get('text') or '').strip()
+        if not prev_text:
+            continue
+        date_archived = it.get('date_archived', today_iso) or today_iso
+        if _too_old(date_archived, today, max_archived_days):
+            continue
+        new_archived.append({
+            'text': prev_text,
+            'checked': False,
+            'status': 'archived',
+            'date_archived': date_archived,
+            # prev_idx for archived rows references the archived baseline,
+            # which is its own list — leave None to avoid ambiguity. The
+            # editor uses date_archived to render the row, not prev_idx.
+            'prev_idx': None,
+        })
+
+    this_week_rows = matched + dropped_active
+    return this_week_rows, new_archived, last_week_baseline
+
+
 def transition_items(last_week_items, new_texts=None, today_iso=None,
                      max_archived_days=MAX_ARCHIVED_DAYS):
     """Apply week-over-week state transitions.

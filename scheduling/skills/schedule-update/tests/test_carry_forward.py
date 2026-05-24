@@ -252,5 +252,91 @@ class ReconcileItemsV2RowShapeTests(unittest.TestCase):
         self.assertNotIn('date_archived', rows[0])
 
 
+class ReconcileKeyItemsTests(unittest.TestCase):
+    """v2: key_items has a sibling key_items_archived list.
+    reconcile_key_items returns (this_week_rows, this_week_archived_rows,
+    last_week_baseline). Items that fall out transition active → removed
+    → archived (with date_archived). Archived rows older than 90 days
+    drop entirely."""
+
+    def test_active_carries_forward_to_active(self):
+        last_key = [
+            {'text': 'Owner walkthrough 2026-05-28.', 'checked': True, 'status': 'active'},
+        ]
+        rows, archived, baseline = cf.reconcile_key_items(
+            last_key, [], ['Owner walkthrough 2026-05-28.'],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'active')
+        self.assertEqual(rows[0]['prev_idx'], 0)
+        self.assertEqual(archived, [])
+        self.assertEqual(baseline[0]['text'], 'Owner walkthrough 2026-05-28.')
+
+    def test_dropped_item_goes_to_removed(self):
+        last_key = [
+            {'text': 'Will not happen again.', 'checked': True, 'status': 'active'},
+        ]
+        rows, archived, _ = cf.reconcile_key_items(
+            last_key, [], [],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'removed')
+        self.assertEqual(archived, [])
+
+    def test_removed_last_week_archives_this_week(self):
+        last_key = [
+            {'text': 'Already removed last update.', 'checked': False, 'status': 'removed'},
+        ]
+        rows, archived, _ = cf.reconcile_key_items(
+            last_key, [], [],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(len(archived), 1)
+        self.assertEqual(archived[0]['status'], 'archived')
+        self.assertEqual(archived[0].get('date_archived'), '2026-05-22')
+
+    def test_archived_in_last_week_stays_archived_with_original_date(self):
+        last_archived = [
+            {'text': 'Archived two weeks ago.', 'checked': False,
+             'status': 'archived', 'date_archived': '2026-05-08'},
+        ]
+        rows, archived, _ = cf.reconcile_key_items(
+            [], last_archived, [],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(len(archived), 1)
+        self.assertEqual(archived[0]['date_archived'], '2026-05-08')
+
+    def test_archived_past_90_days_prunes(self):
+        last_archived = [
+            {'text': 'Archived too long ago.', 'checked': False,
+             'status': 'archived', 'date_archived': '2026-01-01'},
+        ]
+        rows, archived, _ = cf.reconcile_key_items(
+            [], last_archived, [],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(archived, [])
+
+    def test_resurrected_archived_item_becomes_new(self):
+        last_archived = [
+            {'text': 'Old key item resurrected.', 'checked': False,
+             'status': 'archived', 'date_archived': '2026-05-08'},
+        ]
+        rows, archived, _ = cf.reconcile_key_items(
+            [], last_archived, ['Old key item resurrected.'],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'new')
+        self.assertIsNone(rows[0]['prev_idx'])
+        self.assertEqual(archived, [])
+
+
 if __name__ == '__main__':
     unittest.main()
