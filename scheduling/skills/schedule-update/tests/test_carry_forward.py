@@ -338,5 +338,62 @@ class ReconcileKeyItemsTests(unittest.TestCase):
         self.assertEqual(archived, [])
 
 
+class TransitionAttachmentsV2Tests(unittest.TestCase):
+    """v2: attachments use 'name'/'procore' field names, optional 'ext'.
+    No archived status; lifecycle is active → removed → dropped."""
+
+    def test_active_row_uses_name_and_procore(self):
+        last = [
+            {'name': 'Report 01.pdf', 'checked': True, 'status': 'active',
+             'procore': True},
+        ]
+        rows = cf.transition_attachments(last, ['Report 01.pdf'],
+                                          today_iso='2026-05-22')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['name'], 'Report 01.pdf')
+        self.assertEqual(rows[0]['procore'], True)
+        self.assertNotIn('filename', rows[0])
+        self.assertNotIn('share_to_procore', rows[0])
+        self.assertNotIn('date_archived', rows[0])
+
+    def test_new_attachment_bootstrap_view_match_defaults_procore_true(self):
+        rows = cf.transition_attachments([], ['Owner View Report.pdf'],
+                                          today_iso='2026-05-22')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'new')
+        self.assertEqual(rows[0]['procore'], True)
+
+    def test_new_attachment_bootstrap_unknown_defaults_procore_false(self):
+        rows = cf.transition_attachments([], ['Internal Memo.pdf'],
+                                          today_iso='2026-05-22')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['procore'], False)
+
+    def test_dropped_attachment_goes_to_removed_no_archived(self):
+        last = [
+            {'name': 'Old Report.pdf', 'checked': True, 'status': 'active',
+             'procore': False},
+        ]
+        rows = cf.transition_attachments(last, [],
+                                          today_iso='2026-05-22')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'removed')
+        self.assertNotIn('date_archived', rows[0])
+
+    def test_removed_last_week_drops_entirely(self):
+        last = [
+            {'name': 'Old Report.pdf', 'checked': False, 'status': 'removed',
+             'procore': False},
+        ]
+        rows = cf.transition_attachments(last, [],
+                                          today_iso='2026-05-22')
+        self.assertEqual(rows, [])
+
+    def test_ext_set_from_filename_extension(self):
+        rows = cf.transition_attachments([], ['Update Request.xlsm'],
+                                          today_iso='2026-05-22')
+        self.assertEqual(rows[0].get('ext'), 'xlsm')
+
+
 if __name__ == '__main__':
     unittest.main()
