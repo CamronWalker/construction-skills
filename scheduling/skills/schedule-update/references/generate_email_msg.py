@@ -547,7 +547,7 @@ def generate_update_email_msg(
     key_items=None,
     include_compliance_report=False,
     include_procurement_sheets=False,
-    custom_paragraphs=None,
+    closing_paragraphs_html='',
     summary_screenshot_path=None,
     graph_screenshot_paths=None,
     to_recipients='',
@@ -560,7 +560,7 @@ def generate_update_email_msg(
     signer_title='SCHEDULER',
     signer_mobile='',
     logo_path=None,
-    closing_line='',
+    from_address='',
     salutation='',
     prev_days_behind=None,
     prev_gain_loss=None,
@@ -583,16 +583,18 @@ def generate_update_email_msg(
                       contractual_completion, projected_completion
         days_behind: Positive = behind (red), negative = ahead (green)
         gain_loss: Positive = days gained (green), negative = days lost (red)
-        successes: List of HTML strings
+        successes: List of item dicts ({text, checked, status, prev_idx})
         gain_loss_narrative: Explanation of what drove the gain/loss
         eot_recovery: EOT / recovery efforts narrative
         logic_changes: Significant logic changes narrative
         smartpm_changelog_url: URL to SmartPM change log
-        red_flags: List of HTML strings (use priority-red span for high priority)
-        stalled_tasks: List of HTML strings
-        key_items: List of HTML strings
+        red_flags: List of item dicts
+        stalled_tasks: List of item dicts
+        key_items: List of item dicts
         include_compliance_report: Whether to include compliance report paragraph
         include_procurement_sheets: Whether to include procurement sheets paragraph
+        closing_paragraphs_html: Pre-rendered HTML string for the closing
+                                 paragraphs block (from editorial_to_kwargs)
         summary_screenshot_path: Path to SmartPM summary report PNG (optional)
         graph_screenshot_paths: List of paths to individual graph PNGs (optional)
         to_recipients: Semicolon-separated To addresses
@@ -606,6 +608,12 @@ def generate_update_email_msg(
         signer_mobile: Mobile phone for signature (optional, office is hardcoded)
         logo_path: Path to Westland logo PNG for signature (defaults to
                    references/westland-logo.png)
+        from_address: Sender address (accepted for editorial_to_kwargs compat;
+                      not applied to the COM MailItem — Outlook uses the
+                      default account).
+        salutation: Closing salutation line (e.g. 'Thanks,')
+        prev_days_behind: Previous week's days_behind for strikethrough badge
+        prev_gain_loss: Previous week's gain_loss for strikethrough badge
 
     Returns:
         The output_path identifier.
@@ -652,7 +660,6 @@ def generate_update_email_msg(
         key_items=key_items,
         include_compliance_report=include_compliance_report,
         include_procurement_sheets=include_procurement_sheets,
-        custom_paragraphs=custom_paragraphs,
         has_summary_screenshot=has_summary,
         graph_cid_names=[cid for _, cid in graph_images],
         smartpm_project_url=smartpm_project_url,
@@ -661,7 +668,7 @@ def generate_update_email_msg(
         signer_title=signer_title,
         signer_mobile=signer_mobile,
         has_logo=has_logo,
-        closing_line=closing_line,
+        closing_paragraphs_html=closing_paragraphs_html,
         salutation=salutation,
         prev_days_behind=prev_days_behind,
         prev_gain_loss=prev_gain_loss,

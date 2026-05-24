@@ -44,7 +44,7 @@ eml_path = generate_email_from_draft(
 This orchestrator does three things end-to-end:
 - Renders the stacked-graphs PNG into `{dated_folder}/screenshots/{job_number}-{report_date}-all-graphs-stacked.png` via the renderer agent's `html_to_png.cjs`.
 - Resolves `this_week.attachments` filenames against `dated_folder` (skipping files that aren't on disk).
-- Calls the existing `generate_update_email_eml` with the resolved kwargs produced by `editorial_to_kwargs()` (including `prev_days_behind` / `prev_gain_loss` from `last_week` when present, and `closing_line` / `salutation` flattened from v2's `closing_paragraphs` / `closing_salutation`), `summary_screenshot_path=<stacked PNG>` and `graph_screenshot_paths=[]`.
+- Calls the existing `generate_update_email_eml` with the resolved kwargs produced by `editorial_to_kwargs()` (including `prev_days_behind` / `prev_gain_loss` from `last_week` when present, and `closing_paragraphs_html` / `salutation` flattened from v2's `closing_paragraphs` / `closing_salutation`), `summary_screenshot_path=<stacked PNG>` and `graph_screenshot_paths=[]`.
 
 All charts are embedded as one stacked PNG; per-chart artifacts are not used in the `.eml` body.
 

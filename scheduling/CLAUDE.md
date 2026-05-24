@@ -73,19 +73,9 @@ Every skill under `scheduling/skills/{skill}/references/` ships its own renderer
 
 ### Canonical pattern for MCP → chart rendering
 
-```text
-1. For each slug in graph_screenshots (from project-context.html):
-     Call the documented MCP endpoint (see phases/screenshots.md per-slug recipes).
-     Take the response as-is.
-     Write tool → {dated_folder}/.chart-payload/{slug}.json
-   (One Write call per slug. No transformation, no Python literal-pasting,
-   no "let me assemble it in a script first". The renderer already
-   knows the shape.)
+In v2 of the schedule-update skill, SmartPM chart data fetching and HTML+SVG rendering live server-side in the `westland-mcps` Worker. The skill POSTs a v2 seed; `finalize_weekly_schedule_update_email` returns `graphs.{slug}.html` chunks. The local skill only stacks those chunks and rasterizes via `html_to_png.cjs` — see `scheduling/skills/schedule-update/phases/_render_graphs.md` for the recipe.
 
-2. Bash tool, one invocation for the whole batch:
-     node scheduling/skills/schedule-update/references/charts/cli.js \
-          "{dated_folder}/.chart-payload" "{dated_folder}/screenshots"
-```
+`references/charts/` remains in the plugin for ad-hoc / future use (e.g. rendering a single chart in a Claude window or for non-email workflows), but it is not driven by the email pipeline.
 
 ### Canonical pattern for email draft I/O
 
@@ -122,10 +112,6 @@ The "drive existing scripts, don't wrap them" rule extends to scripts in **sibli
 - Write a one-off Python re-implementation of `compare_schedules` "because it's easier" (it isn't, and it diverges silently from the canonical implementation).
 
 The recipe pattern in `phases/report.md` step 3b is the template. Apply it to any future cross-skill helper need.
-
-### Where the per-slug recipes live
-
-`phases/screenshots.md` has the exact MCP tool, parameters, response shape, and payload assembly for every chart slug. Read it before fetching anything; do not improvise endpoint choices.
 
 ## Email JSON shape — single source of truth
 
@@ -248,6 +234,7 @@ Three things to know about item rows:
    - `<span style="color: #9B2C2C">...</span>` — important (Westland brand red)
 
    The Trix editor in the cloud surface emits these inline-style spans verbatim; the `.eml` builder passes them through without conversion.
+4. **`key_items_archived` rows carry an extra `date_archived` field** (ISO `YYYY-MM-DD`), set when the row first transitioned from `removed` to `archived`. The other four lists never have this field.
 
 ### Attachment row shape
 

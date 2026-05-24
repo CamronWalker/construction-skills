@@ -57,7 +57,7 @@ else:
 
 If no prior `{prev_date}-email.json` exists, treat as "first update" and skip carry-forward — `last_week` in the new seed becomes `null`.
 
-The top-level JSON shape is canonical in scheduling/CLAUDE.md "Email JSON shape — single source of truth". Inside `this_week`, list items are dicts (`{text, checked, status, date_archived, prev_idx}`) and item `text` is HTML.
+The top-level JSON shape is canonical in scheduling/CLAUDE.md "Email JSON shape — single source of truth". Inside `this_week`, list items are dicts (`{text, checked, status, prev_idx}`) and item `text` is HTML.
 
 Pull the carry-forward values from `last`:
 
@@ -146,7 +146,7 @@ seed_this_week = {
 }
 ```
 
-`last_week` in the seed is the prior week's `this_week` verbatim — the cloud editor uses it for diff overlays and the .eml builder reads `last_week.days_behind` / `last_week.gain_loss` for strikethrough-previous-metric badges.
+`last_week` in the seed is the prior week's `this_week` verbatim — the cloud editor uses it for diff overlays and the .eml builder reads `last_week.days_metric` / `last_week.gain_loss` for strikethrough-previous-metric badges.
 
 ## Changed narrative fields
 

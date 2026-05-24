@@ -218,11 +218,41 @@ def _narrative_html(field_name, current, previous_narratives, changed_fields):
     return _md_inline_to_html(current)
 
 
+def _enrich_with_previous_text(items, last_week_items):
+    """Return a new list of item dicts with `previous_text` resolved from prev_idx.
+
+    For each item that has a valid `prev_idx` into `last_week_items`, a copy of
+    the item dict is returned with `previous_text` set to the prior item's text.
+    Items without a valid prev_idx are returned as-is (shallow copy).  The
+    caller's input is never mutated.
+
+    If `last_week_items` is None or empty, all items are returned without
+    previous_text (correct for week-1 of v2 where there is no last_week).
+    """
+    result = []
+    for item in (items or []):
+        idx = item.get('prev_idx')
+        if (
+            idx is not None
+            and last_week_items
+            and 0 <= idx < len(last_week_items)
+        ):
+            enriched = dict(item)
+            enriched['previous_text'] = last_week_items[idx].get('text', '')
+            result.append(enriched)
+        else:
+            result.append(dict(item))
+    return result
+
+
 def _classify_item(item):
     """Return (kind, content_html) for a list item.
 
     kind: 'new' | 'removed' | 'edited' | 'normal'
     content_html: the inner HTML for the line (text + inline diff spans)
+
+    Expects `previous_text` to have been pre-resolved onto the item dict via
+    _enrich_with_previous_text before calling this function.
     """
     text = item.get('text', '')
     prev = item.get('previous_text', '') or ''
@@ -670,6 +700,7 @@ def generate_changes_report(output_path, *, project_info, date_label,
                             signer_mobile='', logo_path=None,
                             changed_narrative_fields=None,
                             previous_narratives=None,
+                            last_week_lists=None,
                             # Ignored in this body-first version; kept for
                             # kwarg-compat with earlier callers:
                             lists=None, attachments=None):
@@ -678,6 +709,17 @@ def generate_changes_report(output_path, *, project_info, date_label,
     Resolves screenshot paths relative to the output_path's directory so a
     sibling `screenshots/` folder renders correctly when Playwright converts
     the HTML to PDF.
+
+    Args:
+        last_week_lists: Optional dict keyed by list name
+                         ('successes', 'red_flags', 'stalled_tasks',
+                         'key_items') containing last week's item rows.
+                         When provided, `previous_text` is resolved onto each
+                         this-week item via its `prev_idx` so that
+                         _classify_item can render inline ins/del diffs for
+                         edited items.  Pass None (or omit) for week-1 of v2
+                         when no prior email exists — items render without diff
+                         overlays, which is correct behavior.
     """
     if logo_path is None:
         logo_path = DEFAULT_LOGO_PATH
@@ -691,6 +733,16 @@ def generate_changes_report(output_path, *, project_info, date_label,
         red_flags = lists.get('Red Flags', red_flags)
         stalled_tasks = lists.get('Stalled Or Slipping Tasks', stalled_tasks)
         key_items = lists.get('Key Items & Issues', key_items)
+
+    # v2: pre-resolve previous_text onto items via prev_idx so _classify_item
+    # can render inline ins/del diffs for edited items.
+    lw = last_week_lists or {}
+    successes = _enrich_with_previous_text(successes, lw.get('successes'))
+    red_flags = _enrich_with_previous_text(red_flags, lw.get('red_flags'))
+    stalled_tasks = _enrich_with_previous_text(
+        stalled_tasks, lw.get('stalled_tasks')
+    )
+    key_items = _enrich_with_previous_text(key_items, lw.get('key_items'))
 
     summary_abs = _resolve_abs(summary_screenshot_rel, out_dir)
     graph_abs = [

@@ -21,7 +21,7 @@ Check for all required PNGs in `{dated_folder}/screenshots/`:
 - `smartpm-summary-report.png`
 - every file listed in `graph_screenshots` from `project-context.html`
 
-If any are missing, say: "I need to capture SmartPM graphs first — running screenshots now." Then execute the `screenshots` workflow (above) before continuing.
+If any are missing, say: "I need to capture SmartPM graphs first — running screenshots now." Then continue — graphs are fetched server-side after the seed POST; the stacked PNG is built locally during the .eml build step (see `phases/_render_graphs.md`).
 
 If SmartPM was uploaded less than ~30 minutes ago, warn the colleague it may still be processing and offer to wait.
 
@@ -122,7 +122,7 @@ If the colleague has already iterated on the content in their head and just want
 
 When the colleague says `done`:
 
-1. Finalize the cloud editor's draft via `finalize_weekly_schedule_update_email` and write the result to `{dated_folder}/{YYYY-MM-DD}-email.json`. Load it locally via `email_draft_io.load_draft(path)`. The returned dict's `this_week` block includes `attachments` (with `share_to_procore` per item) and the `skip_procore` toggle.
+1. Finalize the cloud editor's draft via `finalize_weekly_schedule_update_email` and write the result to `{dated_folder}/{YYYY-MM-DD}-email.json`. Load it locally via `email_draft_io.load_draft(path)`. The returned dict's `this_week` block includes `attachments` (with `procore` per item) and the `skip_procore` toggle.
 
 2. **Write the `.eml`** by following `draft.md`. (Phase file already loaded per the command matrix.)
 
