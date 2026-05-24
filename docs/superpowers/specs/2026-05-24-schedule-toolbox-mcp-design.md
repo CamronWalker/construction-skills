@@ -293,13 +293,19 @@ A 200-activity proposal schedule = one `create_xer_from_template` + one `apply_x
 
 The "are all XER tables required?" question is hard to answer abstractly — that's the same wall the in-progress monolithic generator hit. The MCP sidesteps it by inheriting the answer from a corpus of working files:
 
-1. **Source corpus:** ~12 recent Westland project XERs that all import cleanly into both P6 and Procore. Cross-file analysis reveals what's truly common boilerplate (present in every file with consistent shape) versus what's project-specific noise (varies file-to-file).
-2. **`compare-xer-tables.py` helper** (ships in `scheduling/mcp-server/templates/`): given N XER paths, reports per-table presence (which tables appear in *all* N), per-field population rate (which fields are always set vs. sometimes empty), and per-field value diversity (which fields are constant across the corpus vs. project-specific). Output is a comparison report, not a generated skeleton — it informs the curation, doesn't replace it.
-3. **Human curation:** using the comparison report as a guide, hand-curate the skeleton. Keep tables/fields that are consistently present and load-bearing; drop or default the rest. Add NTP and SC milestones with an FS relationship between them as the minimum-viable activity content. Save as `westland-skeleton-v1.xer` with a sidecar `westland-skeleton-v1.notes.md` documenting which source corpus drove the curation and any judgement calls (e.g. "kept the FINDATES table because every source had it populated, even though we don't know what it does").
+1. **Source corpus:** ~12 recent Westland project XERs that all import cleanly into both P6 and Procore.
+2. **Agent-per-table analysis** (not a Python helper). For each major XER table — PROJECT, CALENDAR, PROJWBS, RSRC, ACTVTYPE, ACTVCODE, UDFTYPE, SCHEDOPTIONS, FINDATES, project-level boilerplate — dispatch one `Explore`-style subagent. Each subagent reads the raw table text across all 12 XERs and reports:
+   - Which fields are populated in every file
+   - Which fields show identical values across all 12 (true constants)
+   - Which fields vary by project (need to be parameterized in `create_xer_from_template`)
+   - Text-level nuance: whitespace, field-order conventions, sentinel values, encoding quirks that a tabulating script would flatten
+   - Anything unexpected — e.g. a field that's blank in 11 files and populated in 1 (probably a project-specific artifact, not boilerplate)
+   The subagent reports come back as structured text. The curator (a human) reads all ~10 reports, makes judgement calls, and produces the skeleton.
+3. **Human curation:** using the subagent reports as input, hand-curate `westland-skeleton-v1.xer`. Add NTP and SC milestones with an FS relationship between them as the minimum-viable activity content. Save with a sidecar `westland-skeleton-v1.notes.md` documenting which source corpus drove the curation, what each subagent flagged, and any judgement calls (e.g. "kept the FINDATES table verbatim because every source had it populated, even though its purpose is unclear").
 4. **Manual verification:** import the skeleton into P6 and Procore once, by hand, to confirm clean import.
-5. **Future updates:** if P6 schema evolves or Westland's coding conventions change, refresh the source corpus and re-run the analysis. Bump to `-v2` with a new notes file.
+5. **Future updates:** if P6 schema evolves or Westland's coding conventions change, refresh the source corpus and re-run the per-table subagent analysis. Bump to `-v2` with a new notes file.
 
-This is more durable than auto-stripping a single file. Patterns visible across 12 XERs make trade-offs explicit; patterns in 1 XER look like accidents.
+This is more durable than auto-stripping a single file. Subagent-per-table reads the actual text — it catches nuance (whitespace, sentinel values, field-order quirks) that a tabulating script would flatten. Patterns visible across 12 XERs make trade-offs explicit; patterns in 1 XER look like accidents.
 
 `build_from_raw_template.py` stays in `lib/` unchanged. If a fully-monolithic generator earns its keep later (e.g., for non-Westland-format consumers), it can be picked back up. For now, compositional is the v1 path.
 
@@ -429,9 +435,8 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
    - Tier 1: the 4 update-analytics tools (`get_critical_path_changes`, `get_float_consumption`, `get_trade_slip_summary`, `get_gain_loss_attribution`). Compositions of compare primitives + cache.
    - Tier 2: the 4 delay-analysis tools in new `lib/delay_analysis.py` (`compute_tia`, `compute_window_analysis`, `compute_change_order_delay`, `get_concurrent_delay_pairs`). Genuine new calculations, ~200-400 LoC each.
    - Tier 3: the 5 modification tools in new `lib/xer_modify.py` (`validate_xer_structure`, `fix_duplicate_activity_ids`, `apply_xer_changes`, `create_xer_from_template`, `invalidate_cache_for`). Also includes:
-     - `scheduling/mcp-server/templates/compare-xer-tables.py` — corpus analysis helper described in § Skeleton extraction. Used during curation, not at runtime.
-     - `scheduling/mcp-server/templates/westland-skeleton-v1.xer` — hand-curated skeleton derived from ~12-XER cross-analysis. Manually verified against P6 + Procore imports.
-     - `scheduling/mcp-server/templates/westland-skeleton-v1.notes.md` — sidecar documenting source corpus, curation judgement calls, and what each kept table is for (best-known).
+     - `scheduling/mcp-server/templates/westland-skeleton-v1.xer` — hand-curated skeleton produced via agent-per-table analysis of ~12 source XERs (see § Skeleton extraction). Manually verified against P6 + Procore imports.
+     - `scheduling/mcp-server/templates/westland-skeleton-v1.notes.md` — sidecar documenting source corpus, per-table agent findings, curation judgement calls, and what each kept table is for (best-known).
 6. **Add the PreToolUse hook** blocking `Read`/`Edit`/`Write` on `lib/*.py` outside the `schedule-toolbox` skill.
 7. **Update `schedule-toolbox` `SKILL.md`** — routing table becomes tool names, Cardinal Rule removed.
 8. **Update `schedule-update` `phases/report.md` and `phases/draft.md`** to call MCP tools instead of the Python scripts. Note: `compare_sc_slip` references become `compare_milestone_slip` with an explicit `milestone_id` resolved up front; the `logic_changes` / `eot_recovery` blocks in `phases/draft.md` get seeded from `get_gain_loss_attribution.weekly_email_documentation.needs_narrative`.
