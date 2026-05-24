@@ -111,6 +111,18 @@ The cloud editor at `westland-mcps` writes the JSON file; the local skill reads 
 
 If you genuinely need an orchestration file (e.g. a new shipping CLI that some future skill will call), put it under the skill's `references/` directory, give it a clear non-test name, and update the skill's `SKILL.md` / phase files to document it. Otherwise: `Write` + `Bash`, no `.py` files.
 
+### Cross-skill scripts: same rule, with Glob for path resolution
+
+The "drive existing scripts, don't wrap them" rule extends to scripts in **sibling skills** of the scheduling plugin. The week-over-week XER comparison helpers in `schedule-toolbox/references/` (`xer_compare.py`, `update_review.py`) are used by `schedule-update`'s `phases/report.md` and `phases/draft.md`.
+
+**Resolve the path with Glob, then drive the script as-is.** Never:
+- Hardcode `~/.claude/plugins/cache/...` (the version segment changes).
+- Hardcode the repo path `C:\Users\camron\code\construction-skills\...` (only works on one machine).
+- Copy the script into `schedule-update/references/` to avoid the cross-skill path (two copies drift).
+- Write a one-off Python re-implementation of `compare_schedules` "because it's easier" (it isn't, and it diverges silently from the canonical implementation).
+
+The recipe pattern in `phases/report.md` step 3b is the template. Apply it to any future cross-skill helper need.
+
 ### Where the per-slug recipes live
 
 `phases/screenshots.md` has the exact MCP tool, parameters, response shape, and payload assembly for every chart slug. Read it before fetching anything; do not improvise endpoint choices.
