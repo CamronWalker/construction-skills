@@ -290,7 +290,10 @@ function renderFeasibilityCard(cards) {
   const compDisplay = comp === 0 ? 'N/A' : (comp + '%');
 
   const pcStr = String(cards.predicted_completion ?? '');
-  let pcMonth = '', pcDay = '', pcYear = '';
+  // Pre-prediction state (week 1 of a project, or before SmartPM has accumulated
+  // enough schedule updates to compute a predicted end date): mirror SmartPM's
+  // own "N/A / N/A" treatment in its dashboard so the cell isn't a blank slot.
+  let pcMonth = '', pcDay = 'N/A', pcYear = 'N/A';
   let pcColor = SCI_GREEN;
   let deltaHtml = '';
   if (pcStr) {
