@@ -1,5 +1,6 @@
 # Phase: `email` — Build the .eml from the finalized draft
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `email` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update email`.
 > Requires `phases/draft.md` to have already produced `{dated_folder}/{YYYY-MM-DD}-email.json`.
 

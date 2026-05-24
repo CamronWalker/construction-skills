@@ -1,7 +1,8 @@
-# Phase: `report` — Colleague Post-Meeting Flow (Steps 6–10)
+# Phase: `report` — Colleague Post-Meeting Flow (Steps 10–12)
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `report` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update report`.
-> Also requires `_carry_forward.md`, `_attachments.md`, `draft.md`, and `procore.md`.
+> Also requires `_carry_forward.md`, `_attachments.md`, `draft.md`, `_render_graphs.md`, and `procore.md`.
 
 End-to-end conversational flow that takes a colleague from "meeting is done" to "Outlook draft in Drafts folder + files in Procore." Covers steps 6–10 of the full pipeline.
 

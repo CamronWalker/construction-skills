@@ -1,5 +1,6 @@
 # Phase: `status` — Pipeline Status
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `status` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update status` or no arg.
 
 Shows where the project is in the weekly update pipeline based on what files exist.

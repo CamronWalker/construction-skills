@@ -1,6 +1,7 @@
 # _carry_forward — week-over-week state propagation
 
-> **Internal reference** (underscore-prefix). Loaded by `draft.md` and `report.md`.
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `_carry_forward` phase; any divergence from it is a bug.
+> **Internal reference** (underscore-prefix). Loaded by `draft.md` and `report.md` (called as an internal dependency from another phase).
 
 ## Function signatures (inline)
 

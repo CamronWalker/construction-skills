@@ -1,5 +1,8 @@
 # Phase: draft
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `draft` phase; any divergence from it is a bug.
+> Loaded by SKILL.md's router when the user invokes `/schedule-update draft` (or when called as an internal dependency from another phase).
+
 ## Goal
 
 Produce `{dated_folder}/{YYYY-MM-DD}-email.json` — the complete state Claude and the colleague will iterate on in the browser before the `.eml` build step.

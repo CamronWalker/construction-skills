@@ -1,6 +1,7 @@
 # _attachments — shared attachment data model
 
-> **Internal reference** (underscore-prefix). Not invoked directly; loaded by `email.md`, `report.md`, `draft.md`, and `procore.md` per the router command matrix.
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `_attachments` phase; any divergence from it is a bug.
+> **Internal reference** (underscore-prefix). Not invoked directly; loaded by `email.md`, `report.md`, `draft.md`, and `procore.md` per the router command matrix (called as an internal dependency from another phase).
 
 ## Per-attachment dict shape
 

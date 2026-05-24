@@ -1,5 +1,6 @@
 # Phase: `procore` — Publish XER + Attachments to Procore
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `procore` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update procore`, and bundled into `report.md` and `draft.md` as the final step of the weekly "done" handler.
 > Also requires `_attachments.md`.
 
