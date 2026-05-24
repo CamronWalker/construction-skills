@@ -248,124 +248,165 @@ def render_stacked_png(draft, output_dir):
 
 
 def _items_for_email_body(items):
-    """Filter an item-list (successes / red_flags / etc.) for email rendering.
+    """Filter an item-list for email rendering.
 
-    The .eml + COM builders accept lists of HTML strings — only items with
-    `checked=True` and `status != 'archived'` pass through. Item text is HTML
-    from the cloud editor's Trix surface; the builder passes it through
-    verbatim into the email body.
+    Items rendered in the body: checked=True AND status in ('active', 'new').
+    Removed and archived items are excluded.
     """
     out = []
     for item in items or []:
         if not item.get('checked'):
             continue
-        if item.get('status') == 'archived':
+        if item.get('status') in ('removed', 'archived'):
             continue
-        text = item.get('text', '').strip()
+        text = (item.get('text') or '').strip()
         if text:
             out.append(text)
     return out
 
 
-def _custom_paragraphs_for_email_body(items):
-    """Filter custom paragraphs to {label, text} dicts for the body builder."""
-    out = []
-    for item in items or []:
-        if not item.get('checked'):
-            continue
-        label = item.get('label', '').strip()
-        text = item.get('text', '').strip()
-        if label or text:
-            out.append({'label': label, 'text': text})
-    return out
+def _attachment_names_for_email(items):
+    """Filter v2 attachment rows to a list of names for the email body.
 
-
-def _attachments_for_email_body(items):
-    """Filter attachments for email-body inclusion (filenames only).
-
-    Returns a list of FILENAMES (not absolute paths). The orchestrator
-    `generate_email_from_draft` resolves these against the dated project
-    folder before passing to the builders.
+    Items rendered: checked=True AND status != 'removed'.
+    Returns basenames (no path). The orchestrator resolves them against
+    dated_folder.
     """
     out = []
     for item in items or []:
         if not item.get('checked'):
             continue
-        if item.get('status') == 'archived':
+        if item.get('status') == 'removed':
             continue
-        filename = (item.get('filename') or '').strip()
-        if filename:
-            out.append(filename)
+        name = (item.get('name') or item.get('filename') or '').strip()
+        if name:
+            out.append(name)
     return out
+
+
+def _format_recipients(recipients):
+    """[{name, email}] → 'Name <email>; Other <email2>' string.
+
+    Empty / None → ''. Each entry: if name is non-empty, formats as
+    'Name <email>'; if name is empty, just 'email'.
+    """
+    if not recipients:
+        return ''
+    parts = []
+    for r in recipients:
+        if not isinstance(r, dict):
+            continue
+        name = (r.get('name') or '').strip()
+        email = (r.get('email') or '').strip()
+        if not email:
+            continue
+        if name:
+            parts.append(f'{name} <{email}>')
+        else:
+            parts.append(email)
+    return '; '.join(parts)
+
+
+def _join_closing_paragraphs(paragraphs):
+    """closing_paragraphs[checked].text concatenated as HTML.
+
+    Empty / None → ''. Each paragraph's text is HTML from the Trix editor.
+    Joined with no separator (paragraphs already wrap themselves).
+    """
+    if not paragraphs:
+        return ''
+    parts = []
+    for p in paragraphs:
+        if not isinstance(p, dict):
+            continue
+        if not p.get('checked'):
+            continue
+        text = (p.get('text') or '').strip()
+        if text:
+            parts.append(text)
+    return ''.join(parts)
+
+
+def _flatten_days_metric(dm):
+    """days_metric {direction, value} → signed int.
+
+    'behind' → +value, 'ahead' → -value. Missing/empty → 0.
+    """
+    if not dm:
+        return 0
+    direction = (dm.get('direction') or '').lower()
+    value = int(dm.get('value') or 0)
+    return value if direction == 'behind' else -value
+
+
+def _flatten_gain_loss(gl):
+    """gain_loss {direction, value, ...} → signed int.
+
+    'loss' → -value, 'gain' → +value. Missing/empty → 0.
+    """
+    if not gl:
+        return 0
+    direction = (gl.get('direction') or '').lower()
+    value = int(gl.get('value') or 0)
+    return -value if direction == 'loss' else value
 
 
 def editorial_to_kwargs(this_week, project_info=None, last_week=None):
-    """Translate this_week + project_info (+ optional last_week) -> kwargs
+    """Translate v2 this_week + project_info (+ optional last_week) -> kwargs
     for generate_update_email_eml / generate_update_email_msg.
 
-    The shape generate_update_email_eml expects is documented in
-    references/generate_email_eml.py::generate_update_email_eml's docstring;
-    the top-level JSON shape is canonical in scheduling/CLAUDE.md
-    "Email JSON shape — single source of truth".
-
-    Procore-related fields (`skip_procore`, `attachments[].share_to_procore`)
-    are NOT in the returned kwargs — they're consumed by the procore phase,
-    not the email body. The procore phase reads them straight off the
-    draft's this_week dict.
+    All v2 → builder flattening lives here so the builder signatures stay stable.
 
     Args:
-        this_week:    The `this_week` sub-dict from a loaded draft. Item
-                      text fields are HTML (passed through verbatim).
-        project_info: Optional top-level `project_info` dict — when present,
-                      seeds the project-info header. If omitted, falls back
-                      to this_week.get('project_info') for backward
-                      compatibility with the legacy nested shape.
-        last_week:    Optional frozen-copy of last week's this_week. When
-                      present, days_behind / gain_loss propagate to
-                      prev_days_behind / prev_gain_loss kwargs so the
-                      .eml builder can render strikethrough-previous-metric
-                      badges.
+        this_week:    v2 `this_week` sub-dict from a loaded draft.
+        project_info: top-level `project_info` dict.
+        last_week:    optional frozen-copy of last week's this_week for
+                      prev_days_behind/prev_gain_loss strikethrough badges.
 
     Returns:
-        Dict suitable for `**kwargs` into generate_update_email_eml or
-        generate_update_email_msg.
+        Dict suitable for `**kwargs` into the .eml or COM builder.
     """
     this_week = this_week or {}
-    pi = project_info or this_week.get('project_info') or {}
+    pi = project_info or {}
+
+    to_str = _format_recipients(this_week.get('to_recipients'))
+    cc_str = _format_recipients(this_week.get('cc_recipients'))
+
+    days_behind = _flatten_days_metric(this_week.get('days_metric'))
+    gain_loss = _flatten_gain_loss(this_week.get('gain_loss'))
+    gl = this_week.get('gain_loss') or {}
+    gain_loss_narrative = gl.get('narrative', '') or ''
+
+    closing_html = _join_closing_paragraphs(this_week.get('closing_paragraphs'))
 
     kwargs = {
         'project_info': dict(pi),
-        'days_behind': int(this_week.get('days_behind') or 0),
-        'gain_loss': int(this_week.get('gain_loss') or 0),
+        'subject': this_week.get('subject', '') or '',
+        'to_recipients': to_str,
+        'cc_recipients': cc_str,
+        'days_behind': days_behind,
+        'gain_loss': gain_loss,
+        'gain_loss_narrative': gain_loss_narrative,
         'successes':     _items_for_email_body(this_week.get('successes')),
         'red_flags':     _items_for_email_body(this_week.get('red_flags')),
         'stalled_tasks': _items_for_email_body(this_week.get('stalled_tasks')),
         'key_items':     _items_for_email_body(this_week.get('key_items')),
-        'gain_loss_narrative': this_week.get('gain_loss_narrative', '') or '',
+        # key_items_archived: deliberately NOT rendered in the body.
         'eot_recovery':        this_week.get('eot_recovery', '') or '',
         'logic_changes':       this_week.get('logic_changes', '') or '',
         'smartpm_changelog_url': this_week.get('smartpm_changelog_url', '') or '',
-        'custom_paragraphs': _custom_paragraphs_for_email_body(
-            this_week.get('custom_paragraphs')
-        ),
-        # Names only — orchestrator resolves paths.
-        'attachment_paths': _attachments_for_email_body(this_week.get('attachments')),
-        'subject':         this_week.get('subject', '') or '',
+        'closing_paragraphs_html': closing_html,
+        'salutation':            this_week.get('closing_salutation', '') or '',
+        'signer_name':  this_week.get('signer_name', '') or '',
+        'signer_title': this_week.get('signer_title', '') or '',
+        'signer_mobile': this_week.get('signer_mobile', '') or '',
+        'attachment_paths': _attachment_names_for_email(this_week.get('attachments')),
         'from_address':    this_week.get('from', '') or '',
-        'to_recipients':   this_week.get('to', '') or '',
-        'cc_recipients':   this_week.get('cc', '') or '',
-        'signer_name':     this_week.get('signer_name', '') or '',
-        'signer_title':    this_week.get('signer_title', '') or '',
-        'signer_mobile':   this_week.get('signer_mobile', '') or '',
-        'closing_line':    this_week.get('closing_line', '') or '',
-        'salutation':      this_week.get('salutation', '') or '',
     }
 
-    # Strikethrough-previous-metric badges read prev_days_behind/prev_gain_loss
-    # when last_week is present. None signals "no prior week — render plainly".
     if last_week:
-        kwargs['prev_days_behind'] = int(last_week.get('days_behind') or 0)
-        kwargs['prev_gain_loss'] = int(last_week.get('gain_loss') or 0)
+        kwargs['prev_days_behind'] = _flatten_days_metric(last_week.get('days_metric'))
+        kwargs['prev_gain_loss']   = _flatten_gain_loss(last_week.get('gain_loss'))
     else:
         kwargs['prev_days_behind'] = None
         kwargs['prev_gain_loss'] = None

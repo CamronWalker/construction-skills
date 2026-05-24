@@ -330,5 +330,146 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
                 self.assertEqual(captured['kwargs']['attachment_paths'], [])
 
 
+class EditorialToKwargsV2Tests(unittest.TestCase):
+    """v2 → builder kwargs flattening."""
+
+    def _v2_this_week(self, **overrides):
+        base = {
+            'subject': 'Subject Line',
+            'to_recipients': [
+                {'name': 'Owner', 'email': 'owner@example.com'},
+                {'name': 'PM',    'email': 'pm@example.com'},
+            ],
+            'cc_recipients': [
+                {'name': 'Sub',   'email': 'sub@example.com'},
+            ],
+            'days_metric': {'direction': 'behind', 'value': 14},
+            'gain_loss':   {'direction': 'loss', 'value': 3,
+                            'narrative': 'Lost 3 days to weather.',
+                            'narrative_changed': True},
+            'successes': [
+                {'text': '<div>Foundation pour done.</div>', 'status': 'active',
+                 'checked': True, 'prev_idx': 0},
+            ],
+            'red_flags':     [],
+            'stalled_tasks': [],
+            'key_items':     [],
+            'key_items_archived': [
+                {'text': 'Old archived key item.', 'status': 'archived',
+                 'checked': False, 'date_archived': '2026-04-15'},
+            ],
+            'eot_recovery':        'Drafting EOT 0017.',
+            'logic_changes':       'Reordered MEP rough-in.',
+            'smartpm_changelog_url': 'https://app.smartpm.com/changelog',
+            'closing_paragraphs': [
+                {'label': 'Questions', 'checked': True,
+                 'text': '<div>Please let me know if you have any questions.</div>'},
+                {'label': 'Owner directive', 'checked': True,
+                 'text': '<div>Owner directed switch to alternate roofing.</div>'},
+                {'label': 'Unchecked', 'checked': False,
+                 'text': '<div>Should not render.</div>'},
+            ],
+            'closing_salutation': 'Thanks,',
+            'signer_name': 'Camron Walker', 'signer_title': 'Scheduler',
+            'signer_mobile': '555-0100',
+            'attachments': [
+                {'name': 'Report 01.pdf', 'ext': 'pdf', 'checked': True,
+                 'procore': True, 'status': 'active', 'prev_idx': 0},
+                {'name': 'Removed.pdf',   'ext': 'pdf', 'checked': False,
+                 'procore': False, 'status': 'removed', 'prev_idx': 1},
+            ],
+            'skip_procore': False,
+            'include_changes_report': True,
+            'changes_report_filename': 'G2203 Changes Report 2026-05-21.pdf',
+            'graph_order': ['01-planned-vs-actual-percent-complete'],
+        }
+        base.update(overrides)
+        return base
+
+    def _v2_project_info(self):
+        return {
+            'project_name': 'Lubumbashi MTC',
+            'job_number': 'G2203',
+            'contractual_completion': 'April 30, 2027',
+            'projected_completion':   'May 14, 2027',
+        }
+
+    def test_recipients_flatten_to_semicolon_string(self):
+        tw = self._v2_this_week()
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertEqual(kwargs['to_recipients'],
+                          'Owner <owner@example.com>; PM <pm@example.com>')
+        self.assertEqual(kwargs['cc_recipients'],
+                          'Sub <sub@example.com>')
+
+    def test_days_metric_object_flattens_to_signed_int(self):
+        tw = self._v2_this_week(days_metric={'direction': 'behind', 'value': 14})
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertEqual(kwargs['days_behind'], 14)
+
+    def test_days_metric_ahead_flattens_to_negative_int(self):
+        tw = self._v2_this_week(days_metric={'direction': 'ahead', 'value': 5})
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertEqual(kwargs['days_behind'], -5)
+
+    def test_gain_loss_object_flattens_to_signed_int(self):
+        tw = self._v2_this_week(gain_loss={'direction': 'loss', 'value': 3,
+                                            'narrative': 'lost 3',
+                                            'narrative_changed': False})
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertEqual(kwargs['gain_loss'], -3)
+        self.assertEqual(kwargs['gain_loss_narrative'], 'lost 3')
+
+    def test_gain_loss_gain_flattens_to_positive_int(self):
+        tw = self._v2_this_week(gain_loss={'direction': 'gain', 'value': 7,
+                                            'narrative': 'gained 7',
+                                            'narrative_changed': False})
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertEqual(kwargs['gain_loss'], 7)
+
+    def test_closing_paragraphs_filter_checked_and_concat_html(self):
+        tw = self._v2_this_week()
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertIn('Please let me know', kwargs['closing_paragraphs_html'])
+        self.assertIn('Owner directed', kwargs['closing_paragraphs_html'])
+        self.assertNotIn('Should not render', kwargs['closing_paragraphs_html'])
+
+    def test_closing_salutation_renames_to_salutation_kwarg(self):
+        tw = self._v2_this_week(closing_salutation='Best,')
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertEqual(kwargs['salutation'], 'Best,')
+
+    def test_key_items_archived_not_in_body_kwargs(self):
+        tw = self._v2_this_week()
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        self.assertNotIn('key_items_archived', kwargs)
+        self.assertEqual(kwargs['key_items'], [])
+
+    def test_attachments_filter_removed_and_use_name(self):
+        tw = self._v2_this_week()
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info())
+        # 'Removed.pdf' is status='removed' → excluded.
+        self.assertEqual(kwargs['attachment_paths'], ['Report 01.pdf'])
+
+    def test_last_week_days_metric_flattens_for_prev_kwargs(self):
+        tw = self._v2_this_week()
+        lw = self._v2_this_week(
+            days_metric={'direction': 'behind', 'value': 11},
+            gain_loss={'direction': 'gain', 'value': 2,
+                       'narrative': 'gained 2', 'narrative_changed': False},
+        )
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info(),
+                                                     last_week=lw)
+        self.assertEqual(kwargs['prev_days_behind'], 11)
+        self.assertEqual(kwargs['prev_gain_loss'], 2)
+
+    def test_last_week_none_makes_prev_kwargs_none(self):
+        tw = self._v2_this_week()
+        kwargs = email_draft_io.editorial_to_kwargs(tw, project_info=self._v2_project_info(),
+                                                     last_week=None)
+        self.assertIsNone(kwargs['prev_days_behind'])
+        self.assertIsNone(kwargs['prev_gain_loss'])
+
+
 if __name__ == '__main__':
     unittest.main()
