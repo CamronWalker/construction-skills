@@ -22,7 +22,7 @@ Expose the toolbox's question-answering surface through MCP tools, so Claude int
 ## Non-goals
 
 - **Not replacing the scripts.** The `.py` files stay in the repo and stay importable for non-Claude callers (the `iterate.py` proposal-schedule loop, `schedule-update`'s report/draft phases, future automation). MCP is a *new entry point*, not a rewrite.
-- **Not covering XER generation.** `build_from_raw_template.py` (proposal-schedule output) is a different shape (fat JSON spec → emit XER) and already orchestrated by `schedule-create-proposal-schedule`. Out of scope for this design; promote later if it earns it.
+- **Not wrapping the monolithic XER generator.** `build_from_raw_template.py` produces malformed XERs (current bug: imports fail intermittently into P6 and Procore) precisely *because* monolithic generation is brittle — one missing cross-reference and the file is rejected. The MCP takes a different path: ship a known-good skeleton template + populate it via `apply_xer_changes` (see § XER modification and generation). `build_from_raw_template.py` becomes deprecated after the compositional path proves itself on a real proposal schedule; not deleted until then.
 - **Not a remote MCP.** Diagnosed failure is behavioral, not contract-correctness. A remote MCP would (a) make XER inputs awkward (multi-MB payloads), (b) require returning the new XER from `run_cpm` over the wire, (c) break the lessons-learned loop. Local MCP solves all three.
 
 ## Architecture
@@ -54,7 +54,7 @@ Each MCP tool is a 5-20 line adapter: parse inputs, call the existing function, 
 
 28 narrow "ask one question" tools plus 3 omnibus tools, derived from the existing six scripts. All take `xer_path` as the base input; additional inputs called out per tool. All outputs are JSON; the column shows the top-level shape.
 
-**Loading model:** all 33 tools are MCP-discovered and therefore *deferred* in Claude Code — only tool names appear in the upfront tool list. Phase files / SKILL.md routing tables call tools by name (Claude loads the schema via `ToolSearch select:<name>` before calling). Ad-hoc usage discovers tools via `ToolSearch` keyword search. Upfront context cost: ~33 tool names, no schemas.
+**Loading model:** all 46 tools are MCP-discovered and therefore *deferred* in Claude Code — only tool names appear in the upfront tool list. Phase files / SKILL.md routing tables call tools by name (Claude loads the schema via `ToolSearch select:<name>` before calling). Ad-hoc usage discovers tools via `ToolSearch` keyword search. Upfront context cost: ~46 tool names, no schemas.
 
 ### Milestone scoping — fixing the "Substantial Completion" assumption
 
@@ -199,19 +199,113 @@ Genuine new calculations, not wrappers. These are what a delay consultant runs.
 | `weekly_update_review` | `xer_path`, `baseline_path?`, `data_date?`, `milestone_id?` | Combines `compare_activity_changes` + `compare_milestone_slip` + `get_critical_path_changes` + `get_gain_loss_attribution` + `get_activities_to_start` + `get_activities_to_finish` + DCMA-delta. Used by `schedule-update` report phase — its output is the structured input to the weekly email draft. |
 | `proposal_schedule_health` | `xer_path`, `milestone_id?` | Combines `score_schedule` + `get_missing_logic` + `get_high_float_activities` + `get_anchor_conflicts`. Used by `schedule-create-proposal-schedule`'s iterate loop. |
 
-**Final tool count: 41** (38 narrow + 3 omnibus). The implementation plan tightens this — some narrow tools may merge if they share enough input/output shape, and the implementation phase may discover one or two missed questions.
+### XER modification and generation tools (new — `lib/xer_modify.py`)
+
+The MCP exposes a single polymorphic modification tool plus targeted helpers. Every modification writes a *new* XER file (immutable-XER rule); the input file is never touched.
+
+| Tool | Inputs | Output |
+|------|--------|--------|
+| `validate_xer_structure` | `xer_path` | `{ issues: [{ severity: "error"\|"warning"\|"info", category, message, affected: [...] }, ...], import_ready: bool }` — comprehensive file-integrity check. Catches duplicate activity IDs, duplicate predecessor-successor pairs, dangling references (predecessor/successor/calendar/WBS doesn't exist), negative durations, invalid dates, predecessor-type errors, status-code mismatches, orphaned WBS branches. Run for "will this import into P6/Procore." Does not duplicate `quality_checks` (those are schedule-health, not file-integrity). |
+| `fix_duplicate_activity_ids` | `xer_path`, `strategy?: "renumber"\|"report_only"\|"merge_consolidate"` (default `"renumber"`), `output_path?` | `{ output_path, duplicates_found: int, mapping: [{ original_id, new_id }, ...] }` — targeted fix for the single most common XER bug |
+| `apply_xer_changes` | `xer_path`, `changes: [...]` (typed records, see below), `output_path?`, `target_milestone_id?` | Rich shape — see § `apply_xer_changes` output below. Atomic: all changes validated upfront, no file written if any error. |
+| `create_xer_from_template` | `template_name` (one of `"westland-skeleton"`, future templates), `project_metadata: { project_name, project_id, planned_start, planned_data_date, ... }`, `output_path?` | `{ output_path, template_used, milestone_ids: { ntp, sc } }` — copies a known-good skeleton and sets project header. Skeleton ships in `scheduling/mcp-server/templates/` and is hand-validated against both P6 and Procore imports. |
+| `invalidate_cache_for` | `xer_path` | `{ invalidated: bool }` — explicit cache busting; usually unnecessary because the size+mtime key catches every legitimate overwrite |
+
+#### `apply_xer_changes` — input change types
+
+All change records are tagged unions with a `"type"` discriminator:
+
+```jsonc
+{ "type": "set_duration",            "activity_id": "...", "new_duration_days": int }
+{ "type": "set_calendar",            "activity_id": "...", "new_calendar_id": "..." }
+{ "type": "add_logic",               "predecessor_id": "...", "successor_id": "...",
+                                      "relationship": "FS"|"SS"|"FF"|"SF", "lag_days": int }
+{ "type": "remove_logic",            "predecessor_id": "...", "successor_id": "..." }
+{ "type": "modify_logic",            "predecessor_id": "...", "successor_id": "...",
+                                      "new_relationship": "...", "new_lag_days": int }
+{ "type": "add_activity",            "spec": { "code": "...", "name": "...",
+                                      "duration_days": int, "calendar_id": "...",
+                                      "wbs_id": "...", "activity_type": "..." } }
+{ "type": "remove_activity",         "activity_id": "..." }
+{ "type": "apply_anchor_absorption", "anchor_slip": { /* one entry from get_anchor_conflicts */ },
+                                      "suggestion_index": int }
+```
+
+#### `apply_xer_changes` — validation rules (mandatory, upfront, atomic)
+
+Before any file is written, the MCP simulates all changes against the cached parsed XER and runs the full `validate_xer_structure` ruleset against the post-change state. Specific additional checks:
+
+- `add_activity` MUST be paired with at least one `add_logic` change in the same call that references the new activity. **No orphan activities.** This is the rule the user surfaced — adding activities without logic ties is invalid.
+- Referenced activities/calendars/WBS must exist after all changes are applied in order (allowing `add_activity` to satisfy a later `add_logic`).
+- No duplicate activity IDs created.
+- No circular logic introduced (full graph cycle check on post-state).
+- Durations must be > 0. Calendars must exist or be created in the same call. WBS codes must exist or be created in the same call.
+
+On validation failure: no file written, full error list returned in `summary.validation_errors`. Atomic.
+
+#### `apply_xer_changes` — output shape
+
+```jsonc
+{
+  "output_path": "...",
+  "summary": {
+    "changes_applied":     int,
+    "validation_warnings": [...],
+    "validation_errors":   []   // populated and NO FILE WRITTEN on failure
+  },
+  "post_cpm_summary": {
+    "target_milestone_id":   "...",
+    "completion_before":     "YYYY-MM-DD",
+    "completion_after":      "YYYY-MM-DD",
+    "net_days_change":       int,
+    "critical_path_changed": bool,
+    "substantial_cp_change": bool   // > 5 activities moved on/off CP
+  },
+  "per_change_feedback": [
+    { "change_index": 0, "type": "set_duration",
+      "feedback": { "activity_end_before": "...", "activity_end_after": "...",
+                    "milestone_impact_days": int, "now_on_critical_path": bool } },
+    { "change_index": 1, "type": "add_logic",
+      "feedback": { "path_through_new_link": [...], "critical_path_changed": bool,
+                    "near_critical_chains_affected": int } },
+    { "change_index": 2, "type": "add_activity",
+      "feedback": { "new_activity_path": [...], "new_activity_float": float,
+                    "substantial_cp_change": bool } }
+    // ... one entry per change, feedback shape determined by change type
+  ]
+}
+```
+
+**One CPM run** after all changes are applied. Per-change feedback is derived by diffing the cached pre-state against the new post-state — equivalent information to per-change CPM at 1/N the compute cost.
+
+#### How new-XER generation works (compositional, not monolithic)
+
+The user-visible flow for "create a new schedule from scratch":
+
+1. `create_xer_from_template("westland-skeleton", { project_name, project_id, planned_start, ... })` → empty schedule with NTP and SC milestones, returns the new path.
+2. `apply_xer_changes` with a single big `changes` list containing all `add_activity` and `add_logic` records for the schedule.
+3. `score_schedule` + `validate_xer_structure` to check the result.
+4. Iterate as needed via additional `apply_xer_changes` calls.
+
+A 200-activity proposal schedule = one `create_xer_from_template` + one `apply_xer_changes` call with ~400-500 change records. Validation catches issues per-change with precise error messages. The skeleton template carries the P6/Procore boilerplate — no field is missing, no cross-reference is wrong, because the template was hand-crafted and tested.
+
+This replaces the monolithic `build_from_raw_template.py` for new MCP-driven workflows. The script stays in `lib/` until the compositional path has produced ≥3 successful proposal schedules; then it gets retired in a follow-up.
+
+**Final tool count: 46** (43 narrow + 3 omnibus). The implementation plan tightens this — some narrow tools may merge if they share enough input/output shape, and the implementation phase may discover one or two missed questions.
 
 ## CPM result caching
 
 Most tools need CPM-current results — early/late dates, total floats, the critical path — to answer their question. A raw XER (exported from P6 without recalculating) often has stale dates. Running CPM on every tool call works correctly but is wasteful: when Claude asks five questions about the same XER, CPM runs five times. For a Wellington-grade schedule (~5K activities, calendar-heavy), each CPM run takes seconds.
 
-**Design decision: the MCP caches CPM results keyed by `(xer_path, mtime)`.**
+**Design decision: the MCP caches CPM results keyed by `(xer_path, size, mtime)`.**
 
 - First call to any tool against an XER computes CPM and caches the parsed schedule + computed results in memory.
-- Subsequent calls for the same `(xer_path, mtime)` reuse the cache directly.
-- File mtime change invalidates the cache entry (the XER was edited or replaced).
+- Subsequent calls for the same `(xer_path, size, mtime)` reuse the cache directly.
+- File size and mtime *both* invalidate — size catches the FAT-style low-mtime-resolution case and the unlikely-but-possible same-mtime overwrite (proposal iteration can be fast).
 - LRU eviction at N entries (default 8) — enough for a week-over-week compare with a couple of side queries.
 - Tools that *don't* need CPM-current dates (`get_milestones`, `get_relationship_type_breakdown`, `compare_activity_changes` on raw fields) skip the CPM step and just parse the XER. Cache stores both layers separately.
+- **Partial-read protection:** every cache miss reads the file size twice with a 100ms gap. If the size changes between reads, the file is mid-write — return a retry-with-backoff error. Cheap insurance against `apply_xer_changes` → immediate read races.
+- **Explicit cache busting:** `invalidate_cache_for(xer_path)` MCP tool drops the entry for that path. Proposal-iteration loops that want belt-and-suspenders defense can call it after each regeneration; in practice the size+mtime key catches everything.
 
 Behaviorally: every tool acts as CPM-current. The cache is a transparent optimization, not a contract Claude has to manage. No `prepare_xer` handle, no `assume_cpm_current` flag — that would push complexity to the caller.
 
@@ -219,11 +313,11 @@ Behaviorally: every tool acts as CPM-current. The cache is a transparent optimiz
 
 **All XER inputs are file paths, not content.** The MCP server reads from disk. This keeps Claude's context clean (no multi-MB tab-delimited text in tool results) and works because the MCP is local (Claude and the server share a filesystem).
 
-**`run_cpm` is the only tool that writes a file.** Behavior:
+**File-writing tools:** `run_cpm`, `apply_xer_changes`, `fix_duplicate_activity_ids`, `create_xer_from_template`, `render_gantt_html`. All follow the same pattern:
 
 - If `output_path` is provided, write there.
-- If omitted, write to `<input_xer_basename>-cpm.xer` in the same directory as the input.
-- Tool result returns `{ output_path, summary: {...} }`. Claude knows the path; it never sees the XER content unless it explicitly chooses to `Read` it (rare — usually the next step is `import_xer_schedule` into Procore or another MCP tool).
+- If omitted, write to `<input_xer_basename>-<operation>.xer` in the same directory as the input (e.g. `-cpm.xer`, `-modified.xer`, `-fixed.xer`).
+- Tool result returns `{ output_path, summary: {...} }`. Claude knows the path; it never sees the XER content unless it explicitly chooses to `Read` it (rare — usually the next step is another MCP tool against the new path).
 
 **No tool ever overwrites an existing XER.** The plugin's existing PreToolUse hook (per `scheduling/CLAUDE.md`: "XER files are immutable") catches this layer. If `output_path` collides with an existing file, the MCP returns an error with a suggested suffix (`-v2`, `-v3`).
 
@@ -305,6 +399,9 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
 | Two schedulers on different plugin versions → divergent tool behavior | Same risk today with the Python scripts. Pre-commit hook enforces version bumps; team practice is to update on the same cadence. |
 | `lib/` rename breaks import paths in `iterate.py` or schedule-update phases | One-time refactor with explicit grep-replace pass. Test via existing test suites (proposal schedule iteration, schedule-update report run on a real project). |
 | Milestone auto-detect bug propagates to scripts that don't get migrated in step 3 | Audit every call to `find_sc_milestone` (and similar) across the scheduling plugin. The pre-merge checklist explicitly verifies the SC-name heuristic is gone everywhere. |
+| Westland skeleton template fails to import into a future P6 or Procore version | Pre-merge smoke test imports the skeleton into both tools. Template is versioned (`westland-skeleton-v1.xer`, `westland-skeleton-v2.xer`); a `template_version` field in `create_xer_from_template` output makes regressions traceable. |
+| Compositional generation produces a schedule that imports but is operationally wrong (wrong WBS depth, missing required activity codes, etc.) | The first ≥3 proposal schedules built via the compositional path get hand-reviewed by a Westland scheduler before commit. Lessons-learned cycle (per repo CLAUDE.md) tightens `apply_xer_changes` validation each time. |
+| `apply_xer_changes` validation rejects a change set the scheduler genuinely wants (false positive) | Validation has an `--allow-warnings` mode (or equivalent input flag). Errors are absolute; warnings are advisory. The scheduler can override warnings explicitly; errors require fixing the change set. |
 | MCP server has a bug that affects all schedulers simultaneously (vs. today's "the script is buggy on one machine") | Pre-merge testing on a real project's XER catches it before distribution. Worst case, roll back the plugin version. |
 | Adding `mcp-server/` triggers the version-bump pre-commit hook for *every* commit that touches it | This is the desired behavior, not a bug. Same as any plugin change today. |
 
@@ -314,10 +411,11 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
 2. **Rename `references/*.py` → `lib/*.py`.** Update imports in `iterate.py` and any other direct caller. Run existing test suites.
 3. **Implement the CPM result cache.** Single in-memory cache keyed by `(xer_path, mtime)`, LRU eviction. Used by every tool that needs CPM-current data. Verify behavior with a unit test that asserts the second call for the same XER is sub-millisecond.
 4. **Fix the milestone auto-detection in the underlying scripts.** `score_schedule.find_sc_milestone` and `path_analysis`'s SC-coverage computation replace name-based search with the "explicit `milestone_id` or enumerate-and-error" pattern. Add a `get_milestones()` helper to the parsing layer that both the scripts and the MCP can share.
-5. **Implement the 41 tools.** Group by source script; tiers in order:
+5. **Implement the 46 tools.** Group by source script; tiers in order:
    - Tier 0: the 33 base-catalog tools (wrappers over existing functions). Each is a 5-20 line adapter.
    - Tier 1: the 4 update-analytics tools (`get_critical_path_changes`, `get_float_consumption`, `get_trade_slip_summary`, `get_gain_loss_attribution`). Compositions of compare primitives + cache.
-   - Tier 2: the 4 delay-analysis tools (`compute_tia`, `compute_window_analysis`, `compute_change_order_delay`, `get_concurrent_delay_pairs`). New `lib/delay_analysis.py` module — these are genuine new calculations, ~200-400 LoC each.
+   - Tier 2: the 4 delay-analysis tools in new `lib/delay_analysis.py` (`compute_tia`, `compute_window_analysis`, `compute_change_order_delay`, `get_concurrent_delay_pairs`). Genuine new calculations, ~200-400 LoC each.
+   - Tier 3: the 5 modification tools in new `lib/xer_modify.py` (`validate_xer_structure`, `fix_duplicate_activity_ids`, `apply_xer_changes`, `create_xer_from_template`, `invalidate_cache_for`). Includes the Westland skeleton template fixture under `scheduling/mcp-server/templates/westland-skeleton.xer`.
 6. **Add the PreToolUse hook** blocking `Read`/`Edit`/`Write` on `lib/*.py` outside the `schedule-toolbox` skill.
 7. **Update `schedule-toolbox` `SKILL.md`** — routing table becomes tool names, Cardinal Rule removed.
 8. **Update `schedule-update` `phases/report.md` and `phases/draft.md`** to call MCP tools instead of the Python scripts. Note: `compare_sc_slip` references become `compare_milestone_slip` with an explicit `milestone_id` resolved up front; the `logic_changes` / `eot_recovery` blocks in `phases/draft.md` get seeded from `get_gain_loss_attribution.weekly_email_documentation.needs_narrative`.
@@ -329,7 +427,7 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
 
 1. **Tool naming convention.** `get_critical_path` vs `critical_path` vs `cpm_critical_path` — pick one and apply consistently.
 2. **Whether to add an `xer_parse` tool** that returns the raw parsed XER as JSON. Useful for ad-hoc queries the catalog doesn't anticipate, but risks Claude grabbing it and reimplementing analysis in the conversation context. Recommend *not* adding it initially.
-3. **Per-tool input validation** — what does the MCP do when `xer_path` doesn't exist, isn't an XER, or is locked by another process? Standardize error shape across all 41 tools. The milestone-ambiguity error shape (candidate list) is part of this — define it once.
+3. **Per-tool input validation** — what does the MCP do when `xer_path` doesn't exist, isn't an XER, or is locked by another process? Standardize error shape across all 46 tools. The milestone-ambiguity error shape (candidate list) and the `validate_xer_structure` issue shape are part of this — define both once and reuse.
 4. **Trade tagging source.** `get_trade_slip_summary` and the trade-filtering in `get_activities_to_start` need a canonical trade field. Westland's existing convention uses the activity-code field — confirm which code maps to "trade" before locking schemas. If multiple coding conventions exist across projects, the tool needs a `trade_field` input enum.
 5. **Owner attribution for `compute_change_order_delay`.** The "owner activities" list — how is it sourced? Hand-maintained per-project sidecar? Inferred from activity codes? Lock the input shape before implementing.
 6. **The omnibus tools** (`score_schedule`, `weekly_update_review`, `proposal_schedule_health`) — confirm exact field composition with the team before locking the shape; they're load-bearing for downstream skills.
