@@ -11,12 +11,16 @@ Claude's content differed from last week's version.
 Diff rendering rules:
     narratives with previous value + in changed_narrative_fields:
         rendered with word-level inline diff (<ins>/<del>)
-    list items by status:
-        active (no previous_text)          -> normal
-        active + previous_text differs     -> inline word-level diff
+    list items by status (v2 lifecycle: active -> removed -> dropped):
+        active (no prev_idx match)          -> normal
+        active + text differs from prev     -> inline word-level diff
         new + checked                       -> whole item wrapped in <ins>
         removed or active+unchecked         -> whole item wrapped in <del>
         archived                            -> omitted from the PDF
+
+    key_items_archived is intentionally excluded from PDF output — archived
+    items are hidden in the email body and the PDF alike; only the cloud
+    editor exposes them.
 
 Used at draft time. Entry point: `generate_changes_report_attachment(
 output_path, ...)` — if output_path ends in .pdf it generates a sibling
@@ -305,20 +309,6 @@ def _render_list(items, ordered, font):
     return '\n'.join(out)
 
 
-def _render_custom_paragraphs(paragraphs, font):
-    """Render checked closing paragraphs as plain <p> text (no card)."""
-    out = []
-    for p in paragraphs or []:
-        if not p.get('checked', True):
-            continue
-        body = p.get('text', '').strip()
-        if not body:
-            continue
-        out.append(
-            f'<p style="{font} margin:12pt 0 6pt 0;">{_md_inline_to_html(body)}</p>'
-        )
-    return '\n'.join(out)
-
 
 def _render_attachments_list(attachments, heading_style, font):
     """Bulleted list of attached files using the same marker style as lists:
@@ -344,7 +334,7 @@ def _render_attachments_list(attachments, heading_style, font):
     out = [f'<p style="{heading_style} margin:12pt 0 4pt 0;">Attachments:</p>']
     out.append(f'<ul style="{ul_style}">')
     for a in visible:
-        filename = a.get('filename', '')
+        filename = a.get('name') or a.get('filename', '')
         if not filename:
             continue
         status = (a.get('status') or 'active').lower()
@@ -466,7 +456,7 @@ def _build_diff_email_body(*,
         successes, gain_loss_narrative, eot_recovery, logic_changes,
         smartpm_changelog_url,
         red_flags, stalled_tasks, key_items,
-        custom_paragraphs, attachments,
+        closing_paragraphs_html, attachments,
         summary_screenshot_abs, graph_screenshot_abs,
         smartpm_project_url, smartpm_trends_url,
         signer_name, signer_title, signer_mobile,
@@ -631,10 +621,9 @@ def _build_diff_email_body(*,
         else:
             parts.append(f'<p style="margin:6pt 0;">{img_tag}</p>')
 
-    # --- Section 12: Custom closing paragraphs (plain text, no card) ---
-    cp_html = _render_custom_paragraphs(custom_paragraphs, font)
-    if cp_html:
-        parts.append(cp_html)
+    # --- Section 12: Closing paragraphs (pre-rendered HTML from editorial_to_kwargs) ---
+    if closing_paragraphs_html:
+        parts.append(closing_paragraphs_html)
 
     # --- Section 13: Attachments (simple bulleted list, not in change-report
     #     in the actual email body but useful in the PDF) ---
@@ -673,7 +662,7 @@ def generate_changes_report(output_path, *, project_info, date_label,
                             gain_loss_narrative='', eot_recovery='',
                             logic_changes='', smartpm_changelog_url='',
                             red_flags=None, stalled_tasks=None,
-                            key_items=None, custom_paragraphs=None,
+                            key_items=None, closing_paragraphs_html='',
                             summary_screenshot_rel='',
                             graph_screenshot_rels=None,
                             smartpm_project_url='', smartpm_trends_url='',
@@ -721,7 +710,7 @@ def generate_changes_report(output_path, *, project_info, date_label,
         red_flags=red_flags or [],
         stalled_tasks=stalled_tasks or [],
         key_items=key_items or [],
-        custom_paragraphs=custom_paragraphs or [],
+        closing_paragraphs_html=closing_paragraphs_html or '',
         attachments=attachments or [],
         summary_screenshot_abs=summary_abs,
         graph_screenshot_abs=graph_abs,
