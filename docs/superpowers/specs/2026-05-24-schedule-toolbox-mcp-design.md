@@ -76,13 +76,13 @@ The MCP fixes this at the seam:
 
 | Tool | Inputs | Output |
 |------|--------|--------|
-| `run_cpm` | `xer_path`, `output_path?`, `scheduling_options?` | `{ output_path, summary: { tasks_computed, milestones_detected, project_dates, anchor_conflicts_count } }` — writes new XER |
+| `run_cpm` | `xer_path`, `output_path?`, `scheduling_options?` | `{ output_path, summary: { tasks_computed, milestones_detected, project_dates } }` — writes new XER. Does *not* check anchors; that's a separate concern via `get_anchor_conflicts`. |
 | `get_critical_path` | `xer_path`, `milestone_id?` | `{ critical_path: [task_id, ...], target_milestone_id }` — when `milestone_id` is given, returns the path to that milestone; otherwise the longest path |
 | `get_near_critical_chains` | `xer_path`, `tolerance_days?` (default 5), `milestone_id?` | `{ chains: [{ tasks: [...], min_float }, ...], target_milestone_id }` |
 | `get_driving_paths` | `xer_path`, `activity_id` | `{ driving_paths: [...], near_critical_chains: [...], parallel_branches: [...] }` |
 | `get_parallel_branches` | `xer_path`, `start_date`, `end_date` | `{ parallel_branches: [{ tasks: [...] }, ...] }` |
-| `get_anchor_conflicts` | `xer_path` | `{ conflicts: [{ task_id, constraint_date, computed_date, variance_days }, ...] }` |
-| `get_anchor_absorption_suggestions` | `xer_path` | `{ suggestions: [{ task_id, absorption_potential_days, rationale }, ...] }` |
+| `get_anchor_conflicts` | `xer_path`, `anchors` (inline list) OR `anchors_path` (path to `proposal-anchors.json`), `tolerance_days?` (default 0) | `{ conflicts: [{ task_id, task_name, anchor_date, computed_date, anchor_kind, slip_days }, ...] }` — anchors are bid-given target dates (NTP, drawings issued, SC, final), *not* P6 hard constraints |
+| `get_anchor_absorption_suggestions` | `xer_path`, `anchors` OR `anchors_path`, `slip` (one entry from `get_anchor_conflicts`), `max_suggestions?` (default 8) | `{ suggestions: [{ task_id, absorption_potential_days, rationale }, ...] }` |
 | `get_milestone_path_coverage` | `xer_path`, `milestone_id?` | `{ milestone_id, coverage_pct, connected_activities: [...], disconnected_activities: [...] }` — was `get_sc_path_coverage`; if `milestone_id` omitted and ambiguous, returns candidate-list error |
 | `get_delay_impacts` | `xer_path`, `milestone_id?` | `{ milestone_id, delay_impacts: [{ task_id, delay_days_if_slips, criticality_rank }, ...] }` — impact on the target milestone's date |
 | `get_gantt_json` | `xer_path` | `{ activities: [...], dependencies: [...], milestones: [...] }` — for charting |
@@ -121,15 +121,99 @@ The MCP fixes this at the seam:
 | `compare_milestone_slip` | `baseline_path`, `current_path`, `milestone_id?` | `{ milestone_id, baseline_date, current_date, days_change }` — was `compare_sc_slip`; if `milestone_id` omitted and ambiguous, returns candidate-list error |
 | `compare_missed_dates` | `baseline_path`, `current_path` | `{ missed_starts: [...], missed_finishes: [...] }` |
 
+### Update analytics tools (new — derived from compare primitives)
+
+These tools answer "why did the schedule change" — attribution, not just enumeration. Each composes the existing compare primitives with the CPM cache to give consultants and the weekly email what they actually need.
+
+| Tool | Inputs | Output |
+|------|--------|--------|
+| `get_critical_path_changes` | `baseline_path`, `current_path`, `milestone_id?` | `{ milestone_id, baseline_cp: [...], current_cp: [...], moved_on: [{ task_id, task_name, prior_float }, ...], moved_off: [{ task_id, task_name, new_float }, ...], stable_count }` — top-3 schedule-update question |
+| `get_float_consumption` | `baseline_path`, `current_path`, `milestone_id?` | `{ milestone_id, by_activity: [{ task_id, baseline_float, current_float, delta }, ...], biggest_losers: [...], biggest_gainers: [...] }` |
+| `get_trade_slip_summary` | `baseline_path`, `current_path`, `milestone_id?`, `trade_field?` (default uses Westland's trade tagging) | `{ milestone_id, by_trade: [{ trade, activity_count, total_slip_days, worst_activity }, ...] }` |
+| `get_gain_loss_attribution` | `baseline_path`, `current_path`, `milestone_id?` | See gain/loss output shape below — partitions contributors by cause and flags items needing weekly-email documentation |
+
+#### `get_gain_loss_attribution` output shape (load-bearing)
+
+Every slip has a *cause category*. Operational causes are reality lagging the plan and the field tracks them; scheduler-initiated causes are network/duration/calendar/scope changes that the *weekly email must document* (Westland documentation discipline — if the scheduler changed the network this week, the owner needs to see why).
+
+```jsonc
+{
+  "milestone_id": "...",
+  "baseline_completion": "YYYY-MM-DD",
+  "current_completion":  "YYYY-MM-DD",
+  "net_slip_days":       int,
+
+  "contributors_by_category": {
+    "operational_slip": [
+      { "task_id", "task_name", "contribution_days",
+        "type": "late_start" | "late_finish" | "no_start" | "no_finish",
+        "planned_date", "actual_or_current_date" }
+    ],
+    "logic_change": [
+      { "task_id", "task_name", "contribution_days",
+        "predecessor_changes": [...], "successor_changes": [...] }
+    ],
+    "duration_change": [
+      { "task_id", "task_name", "contribution_days",
+        "baseline_duration", "current_duration", "delta_days" }
+    ],
+    "calendar_change": [
+      { "task_id", "task_name", "contribution_days", "what_changed" }
+    ],
+    "scope_change": [
+      { "task_id", "task_name", "contribution_days",
+        "type": "added" | "removed" }
+    ]
+  },
+
+  "weekly_email_documentation": {
+    "needs_narrative": [
+      /* items from logic_change / duration_change / calendar_change /
+         scope_change — the scheduler-initiated categories that the email
+         body must call out by name this week */
+    ],
+    "summary_paragraph_seed": "string — a generated first-draft paragraph
+                               the scheduler edits into the email"
+  }
+}
+```
+
+The `weekly_email_documentation.needs_narrative` array is the explicit input to `schedule-update`'s `phases/draft.md` "logic_changes" / "eot_recovery" text blocks. Today those are hand-written from memory; with this tool, they're seeded from data.
+
+### Delay analysis tools (new — `lib/delay_analysis.py`)
+
+Genuine new calculations, not wrappers. These are what a delay consultant runs.
+
+| Tool | Inputs | Output |
+|------|--------|--------|
+| `compute_tia` | `baseline_path`, `delay_fragment: { activity_id, duration_days, calendar_id?, description?, predecessor_relationship_type? }`, `milestone_id?` | `{ milestone_id, baseline_completion, projected_completion, net_delay_days, critical_path_changed, new_critical_activities: [...], removed_critical_activities: [...], affected_activities: [...] }` — Time Impact Analysis fragnet insertion |
+| `compute_window_analysis` | `baseline_path`, `current_path`, `windows: [{ start, end, label }, ...]`, `milestone_id?` | `{ milestone_id, windows: [{ label, start, end, slip_days, activities_responsible: [{ task_id, slip_days, cause_category }, ...] }, ...] }` — contemporaneous period analysis |
+| `compute_change_order_delay` | `baseline_path`, `current_path`, `change_event_date`, `owner_activities?: [task_id, ...]`, `milestone_id?` | `{ milestone_id, total_slip_days, attributable_to_change_event: int, attributable_to_other_causes: int, breakdown: [{ task_id, attribution: "change_event"\|"other", days }, ...] }` — owner-vs-contractor attribution from a change directive date |
+| `get_concurrent_delay_pairs` | `baseline_path`, `current_path`, `milestone_id?` | `{ concurrent_pairs: [{ activity_a, activity_b, shared_window: { start, end }, owner_a: "owner"\|"contractor"\|"unknown", owner_b: ... }, ...] }` — finds simultaneously slipping activities without a logic relationship between them (classic concurrent-delay defense candidates) |
+
 ### Omnibus tools (workflow-shaped bundles)
 
 | Tool | Inputs | Output |
 |------|--------|--------|
 | `score_schedule` | `xer_path`, `milestone_id?` | `{ milestone_id, score, grade, scored: [...], info: {...}, deductions: [...], scope: {...}, details: {...} }` — full scoring output; scoring is relative to the target milestone's date, not project end |
-| `weekly_update_review` | `xer_path`, `baseline_path?`, `data_date?`, `milestone_id?` | Combines `compare_activity_changes` + `compare_milestone_slip` + `get_activities_to_start` + `get_activities_to_finish` + DCMA-delta. Used by `schedule-update` report phase. |
+| `weekly_update_review` | `xer_path`, `baseline_path?`, `data_date?`, `milestone_id?` | Combines `compare_activity_changes` + `compare_milestone_slip` + `get_critical_path_changes` + `get_gain_loss_attribution` + `get_activities_to_start` + `get_activities_to_finish` + DCMA-delta. Used by `schedule-update` report phase — its output is the structured input to the weekly email draft. |
 | `proposal_schedule_health` | `xer_path`, `milestone_id?` | Combines `score_schedule` + `get_missing_logic` + `get_high_float_activities` + `get_anchor_conflicts`. Used by `schedule-create-proposal-schedule`'s iterate loop. |
 
-**Final tool count: 33** (30 narrow + 3 omnibus). The implementation plan tightens this — some narrow tools may merge if they share enough input/output shape, and the implementation phase may discover one or two missed questions.
+**Final tool count: 41** (38 narrow + 3 omnibus). The implementation plan tightens this — some narrow tools may merge if they share enough input/output shape, and the implementation phase may discover one or two missed questions.
+
+## CPM result caching
+
+Most tools need CPM-current results — early/late dates, total floats, the critical path — to answer their question. A raw XER (exported from P6 without recalculating) often has stale dates. Running CPM on every tool call works correctly but is wasteful: when Claude asks five questions about the same XER, CPM runs five times. For a Wellington-grade schedule (~5K activities, calendar-heavy), each CPM run takes seconds.
+
+**Design decision: the MCP caches CPM results keyed by `(xer_path, mtime)`.**
+
+- First call to any tool against an XER computes CPM and caches the parsed schedule + computed results in memory.
+- Subsequent calls for the same `(xer_path, mtime)` reuse the cache directly.
+- File mtime change invalidates the cache entry (the XER was edited or replaced).
+- LRU eviction at N entries (default 8) — enough for a week-over-week compare with a couple of side queries.
+- Tools that *don't* need CPM-current dates (`get_milestones`, `get_relationship_type_breakdown`, `compare_activity_changes` on raw fields) skip the CPM step and just parse the XER. Cache stores both layers separately.
+
+Behaviorally: every tool acts as CPM-current. The cache is a transparent optimization, not a contract Claude has to manage. No `prepare_xer` handle, no `assume_cpm_current` flag — that would push complexity to the caller.
 
 ## XER input/output handling
 
@@ -177,11 +261,18 @@ The MCP rides the plugin. Existing distribution pipeline (`python build.py sched
 
 `scheduling/.claude-plugin/plugin.json` adds an `mcpServers` field declaring the local server. Claude Code auto-registers on plugin load. Zero setup beyond `pip install mcp`.
 
-### Registration option B — explicit init skill
+### Registration option B — explicit init flow
 
-A `schedule-mcp-init` skill walks the user through: detects Python, installs the `mcp` package, writes the registration to `~/.claude/settings.json`, runs a smoke-test call against a sample XER, confirms success.
+Fallback if manifest auto-registration is unreliable: the troubleshoot skill (below) walks the user through registering the server in `~/.claude/settings.json` manually.
 
-**Recommendation:** start with **A + a thin init skill**. The plugin manifest handles registration (zero friction for the common case); the init skill handles the dependency install + sanity check + "you're good to go" confirmation. If manifest auto-registration turns out to be unreliable across the team's Claude Code versions, fall back to B handling both.
+**Recommendation: A + a thin troubleshoot skill.** The plugin manifest handles registration (zero friction for the common case). If it just works, it just works. The `westland-scheduler-mcp-troubleshoot` skill exists for when something's wrong:
+
+- Detects whether the MCP server is registered and reachable.
+- Verifies `mcp` Python SDK is installed (and runs `pip install mcp` if not).
+- Runs a smoke-test call (`get_milestones` against a sample XER fixture).
+- Reports what's broken with copy-pasteable fix steps.
+
+Schedulers who never hit a problem never run the skill. Schedulers who do hit a problem get a diagnostic, not a setup walkthrough they don't need.
 
 **Updates:** lessons learned → edit script → bump plugin version → merge → `python build.py` → distribute. Schedulers pick up the new version through the normal plugin update flow. No deploy lag, no separate MCP version to track.
 
@@ -209,8 +300,8 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
 
 | Risk | Mitigation |
 |------|------------|
-| Plugin manifest MCP-server declaration is unreliable across Claude Code versions on the team | Init skill (option B) becomes the primary registration path. Fall back is documented up front. |
-| Scheduler skips `pip install mcp` → MCP fails to start | Init skill is the *first thing* a scheduler runs after plugin install. Plugin README points to it. |
+| Plugin manifest MCP-server declaration is unreliable across Claude Code versions on the team | Troubleshoot skill includes a "manual registration" fallback path that writes the config to `~/.claude/settings.json`. Documented up front. |
+| Scheduler skips `pip install mcp` → MCP fails to start | Troubleshoot skill detects missing SDK and offers to install. Plugin README points to the skill on failure. |
 | Two schedulers on different plugin versions → divergent tool behavior | Same risk today with the Python scripts. Pre-commit hook enforces version bumps; team practice is to update on the same cadence. |
 | `lib/` rename breaks import paths in `iterate.py` or schedule-update phases | One-time refactor with explicit grep-replace pass. Test via existing test suites (proposal schedule iteration, schedule-update report run on a real project). |
 | Milestone auto-detect bug propagates to scripts that don't get migrated in step 3 | Audit every call to `find_sc_milestone` (and similar) across the scheduling plugin. The pre-merge checklist explicitly verifies the SC-name heuristic is gone everywhere. |
@@ -221,22 +312,27 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
 
 1. **Stand up the MCP server skeleton** in `scheduling/mcp-server/`. One tool to start (`get_critical_path`). Verify Claude Code can discover and call it.
 2. **Rename `references/*.py` → `lib/*.py`.** Update imports in `iterate.py` and any other direct caller. Run existing test suites.
-3. **Fix the milestone auto-detection in the underlying scripts.** `score_schedule.find_sc_milestone` and `path_analysis`'s SC-coverage computation replace name-based search with the "explicit `milestone_id` or enumerate-and-error" pattern. Add a `get_milestones()` helper to the parsing layer that both the scripts and the MCP can share.
-4. **Implement the 33 tools.** Group by source script; each tool is a 5-20 line adapter over an existing function.
-5. **Add the PreToolUse hook** blocking `Read`/`Edit`/`Write` on `lib/*.py` outside the `schedule-toolbox` skill.
-6. **Update `schedule-toolbox` `SKILL.md`** — routing table becomes tool names, Cardinal Rule removed.
-7. **Update `schedule-update` `phases/report.md` and `phases/draft.md`** to call MCP tools instead of the Python scripts. Note that `compare_sc_slip` references become `compare_milestone_slip` with an explicit `milestone_id` resolved up front.
-8. **Build the `schedule-mcp-init` skill** for `pip install mcp` + sanity check.
-9. **Release.** Bump scheduling plugin version, bump marketplace version, commit, merge, `python build.py scheduling`, distribute.
-10. **Smoke test on a real project's XER** (Wellington Temple or W1177) end-to-end before declaring done — exercise both the auto-detect path (single terminal milestone) and the explicit-id path (project with multiple candidates).
+3. **Implement the CPM result cache.** Single in-memory cache keyed by `(xer_path, mtime)`, LRU eviction. Used by every tool that needs CPM-current data. Verify behavior with a unit test that asserts the second call for the same XER is sub-millisecond.
+4. **Fix the milestone auto-detection in the underlying scripts.** `score_schedule.find_sc_milestone` and `path_analysis`'s SC-coverage computation replace name-based search with the "explicit `milestone_id` or enumerate-and-error" pattern. Add a `get_milestones()` helper to the parsing layer that both the scripts and the MCP can share.
+5. **Implement the 41 tools.** Group by source script; tiers in order:
+   - Tier 0: the 33 base-catalog tools (wrappers over existing functions). Each is a 5-20 line adapter.
+   - Tier 1: the 4 update-analytics tools (`get_critical_path_changes`, `get_float_consumption`, `get_trade_slip_summary`, `get_gain_loss_attribution`). Compositions of compare primitives + cache.
+   - Tier 2: the 4 delay-analysis tools (`compute_tia`, `compute_window_analysis`, `compute_change_order_delay`, `get_concurrent_delay_pairs`). New `lib/delay_analysis.py` module — these are genuine new calculations, ~200-400 LoC each.
+6. **Add the PreToolUse hook** blocking `Read`/`Edit`/`Write` on `lib/*.py` outside the `schedule-toolbox` skill.
+7. **Update `schedule-toolbox` `SKILL.md`** — routing table becomes tool names, Cardinal Rule removed.
+8. **Update `schedule-update` `phases/report.md` and `phases/draft.md`** to call MCP tools instead of the Python scripts. Note: `compare_sc_slip` references become `compare_milestone_slip` with an explicit `milestone_id` resolved up front; the `logic_changes` / `eot_recovery` blocks in `phases/draft.md` get seeded from `get_gain_loss_attribution.weekly_email_documentation.needs_narrative`.
+9. **Build the `westland-scheduler-mcp-troubleshoot` skill** — diagnostic-only, not a setup walkthrough. Detects registration, verifies `mcp` SDK, runs smoke test, reports fix steps.
+10. **Release.** Bump scheduling plugin version, bump marketplace version, commit, merge, `python build.py scheduling`, distribute.
+11. **Smoke test on a real project's XER** (Wellington Temple or W1177) end-to-end before declaring done — exercise both the auto-detect path (single terminal milestone) and the explicit-id path (project with multiple candidates), plus at least one delay-analysis tool against a real schedule change.
 
 ## Open questions for the implementation plan
 
 1. **Tool naming convention.** `get_critical_path` vs `critical_path` vs `cpm_critical_path` — pick one and apply consistently.
 2. **Whether to add an `xer_parse` tool** that returns the raw parsed XER as JSON. Useful for ad-hoc queries the catalog doesn't anticipate, but risks Claude grabbing it and reimplementing analysis in the conversation context. Recommend *not* adding it initially.
-3. **Per-tool input validation** — what does the MCP do when `xer_path` doesn't exist, isn't an XER, or is locked by another process? Standardize error shape across all 33 tools. The milestone-ambiguity error shape (candidate list) is part of this — define it once.
-4. **Caching.** Parsing a large XER takes seconds. If Claude calls 5 tools on the same `xer_path`, the server should parse once and serve all 5 from cache. Define cache eviction policy (LRU by path, with mtime check).
-5. **The `weekly_update_review` and `proposal_schedule_health` omnibus tools** — confirm exact field composition with the team before locking the shape; they're load-bearing for downstream skills.
+3. **Per-tool input validation** — what does the MCP do when `xer_path` doesn't exist, isn't an XER, or is locked by another process? Standardize error shape across all 41 tools. The milestone-ambiguity error shape (candidate list) is part of this — define it once.
+4. **Trade tagging source.** `get_trade_slip_summary` and the trade-filtering in `get_activities_to_start` need a canonical trade field. Westland's existing convention uses the activity-code field — confirm which code maps to "trade" before locking schemas. If multiple coding conventions exist across projects, the tool needs a `trade_field` input enum.
+5. **Owner attribution for `compute_change_order_delay`.** The "owner activities" list — how is it sourced? Hand-maintained per-project sidecar? Inferred from activity codes? Lock the input shape before implementing.
+6. **The omnibus tools** (`score_schedule`, `weekly_update_review`, `proposal_schedule_health`) — confirm exact field composition with the team before locking the shape; they're load-bearing for downstream skills.
 
 ---
 
