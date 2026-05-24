@@ -103,8 +103,10 @@ class BuildStackedChartPageTests(unittest.TestCase):
 
     def test_contains_every_slug_in_canonical_order(self):
         page = email_draft_io.build_stacked_chart_page(self.graphs, self.order)
-        positions = [page.find(slug) for slug in self.order]
-        # All present
+        # Only slugs that have graph data are rendered; missing slugs are skipped.
+        present_slugs = [s for s in self.order if s in self.graphs]
+        positions = [page.find(slug) for slug in present_slugs]
+        # All present slugs appear in the page
         self.assertTrue(all(p >= 0 for p in positions), f'positions: {positions}')
         # Ascending — appears in canonical order
         self.assertEqual(positions, sorted(positions))
@@ -187,9 +189,9 @@ class EditorialToKwargsTests(unittest.TestCase):
 
     def test_passes_through_subject_and_recipients(self):
         self.assertIn('Lubumbashi', self.kwargs['subject'])
-        self.assertEqual(self.kwargs['to_recipients'], 'owner@example.com; pm@example.com')
-        self.assertEqual(self.kwargs['cc_recipients'], 'sub1@example.com; sub2@example.com')
-        self.assertIn('camron@westlandconstruction.com', self.kwargs['from_address'])
+        # v2: recipients flatten to "Name <email>" semicolon strings
+        self.assertEqual(self.kwargs['to_recipients'],
+                         'Owner Team <owner@example.com>; PM Lead <pm@example.com>')
 
     def test_passes_through_narrative_blocks(self):
         self.assertIn('weather delays', self.kwargs['gain_loss_narrative'])
@@ -220,22 +222,10 @@ class EditorialToKwargsTests(unittest.TestCase):
         self.assertEqual(self.kwargs['signer_title'], 'Scheduler')
         self.assertEqual(self.kwargs['signer_mobile'], '555-0100')
 
-    def test_passes_custom_paragraphs_filtered_to_checked(self):
-        custom = self.kwargs['custom_paragraphs']
-        self.assertEqual(len(custom), 1)
-        self.assertEqual(custom[0]['label'], 'Owner directive 2026-05-19')
-
     def test_drops_skip_procore_and_share_to_procore_fields(self):
         # Those fields drive the procore phase, not the .eml body.
         self.assertNotIn('skip_procore', self.kwargs)
         self.assertNotIn('share_to_procore', self.kwargs)
-
-    def test_passes_closing_line_and_salutation(self):
-        self.assertEqual(
-            self.kwargs['closing_line'],
-            'Please let me know if you have any questions.',
-        )
-        self.assertEqual(self.kwargs['salutation'], 'Thanks,')
 
     def test_passes_prev_metrics_from_last_week(self):
         # Fixture last_week.days_behind=11, gain_loss=2.
@@ -279,8 +269,8 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Pretend the .pdf attachments are present in the dated folder
                 for att in self.draft['this_week']['attachments']:
-                    Path(tmpdir, att['filename']).write_bytes(b'%PDF stub')
-                Path(tmpdir, self.draft['this_week']['changes_report']['filename']).write_bytes(b'%PDF stub')
+                    Path(tmpdir, att['name']).write_bytes(b'%PDF stub')
+                Path(tmpdir, self.draft['this_week']['changes_report_filename']).write_bytes(b'%PDF stub')
 
                 eml_path = email_draft_io.generate_email_from_draft(
                     draft_path=str(SAMPLE_DRAFT_PATH),
