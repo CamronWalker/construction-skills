@@ -130,13 +130,13 @@ The weekly schedule email pipeline (`schedule-update` skill) round-trips through
 - Human: <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema>
 - Machine: <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema.json>
 
-The skill emits this shape into its seed; the Worker validates on `generate_weekly_schedule_update_email_draft` and on every `PUT /editorial`. Drift between this doc and the Worker schema is a bug in this doc — the Worker is authoritative.
+The skill emits this shape into its seed; the Worker validates on `generate_weekly_schedule_update_email_draft` and on every `PUT /editorial`. **If a `generate_weekly_schedule_update_email_draft` call returns 422 with a `violations[]` array, refetch the live schema from the URL above — the Worker is authoritative and this CLAUDE.md may have drifted.** Violations include `fuzzyHint` suggestions for typo fixes; surface them literally to the colleague.
 
-### The canonical shape
+### The canonical shape (v2)
 
 ```jsonc
 {
-  "version":     1,
+  "version":     2,
   "report_date": "YYYY-MM-DD",
   "project_info": {
     "project_name": "...",
@@ -146,59 +146,94 @@ The skill emits this shape into its seed; the Worker validates on `generate_week
   },
 
   "this_week": {
-    "subject": "...", "to": "...", "cc": "...",
-    "days_behind": int, "gain_loss": int,
+    "subject": "...",
+    "to_recipients": [ { "name": "...", "email": "..." } ],
+    "cc_recipients": [ { "name": "...", "email": "..." } ],
 
-    "successes":     [/* item rows */],
-    "red_flags":     [/* item rows */],
-    "stalled_tasks": [/* item rows */],
-    "key_items":     [/* item rows */],
+    "days_metric": { "direction": "behind" | "ahead", "value": int },
+    "gain_loss":   {
+      "direction": "loss" | "gain",
+      "value":     int,
+      "narrative": "...",
+      "narrative_changed": bool
+    },
 
-    "gain_loss_narrative":   "...",
+    "successes":          [/* item rows */],
+    "red_flags":          [/* item rows */],
+    "stalled_tasks":      [/* item rows */],
+    "key_items":          [/* item rows */],
+    "key_items_archived": [/* item rows — status="archived" */],
+
     "eot_recovery":          "...",
     "logic_changes":         "...",
     "smartpm_changelog_url": "https://...",
 
-    "custom_paragraphs": [{"label": "...", "text": "<div>...</div>", "checked": true}],
-    "attachments":       [/* attachment rows — see below */],
-    "changes_report":    {"include": bool, "filename": "..."},
-    "skip_procore":      bool,
+    "closing_paragraphs": [
+      { "label": "Questions", "checked": true, "text": "<div>Please let me know if you have any questions.</div>" }
+    ],
+    "closing_salutation": "Thanks,",
 
-    "closing_line": "Please let me know if you have any questions.",
-    "salutation":   "Thanks,",
-    "signer_name":  "...", "signer_title": "...", "signer_mobile": "..."
+    "signer_name":  "...",
+    "signer_title": "...",
+    "signer_mobile": "...",
+
+    "attachments": [
+      {
+        "name":     "Report 01 - Foo.pdf",
+        "ext":      "pdf",
+        "checked":  true,
+        "procore":  false,
+        "status":   "active",
+        "prev_idx": 0
+      }
+    ],
+    "skip_procore":            false,
+    "include_changes_report":  true,
+    "changes_report_filename": "...",
+
+    "graph_order": [
+      "01-planned-vs-actual-percent-complete",
+      "06-end-date-variance",
+      "07-schedule-compression-index-over-time",
+      "08-velocity",
+      "09-spi-over-time",
+      "10-activity-hit-rate",
+      "11-window-start-accuracy",
+      "12-window-finish-accuracy",
+      "smartpm-summary-report"
+    ]
   },
 
-  "last_week": { /* identical shape; frozen copy; null for week-1 of new pipeline */ },
-
-  "smartpm": { "project_name": "...", "scenario_id": null },
+  "last_week": { /* identical shape; frozen verbatim copy from prior week's this_week; null for week-1 of v2 */ },
 
   "graphs": {
-    "<slug>": { "html": "<svg…>…", "data": { } },
-    ...
+    "01-planned-vs-actual-percent-complete": { "html": "<svg…>…", "data": { } },
+    "06-end-date-variance":                   { "html": "<svg…>…", "data": { } }
   }
 }
 ```
 
-### Item row shape — used in `successes` / `red_flags` / `stalled_tasks` / `key_items`
+### Item row shape — used in `successes` / `red_flags` / `stalled_tasks` / `key_items` / `key_items_archived`
 
 ```jsonc
 {
-  "text":          "<div>Building slab pour complete; field has <strong>moved past</strong> the slab-prep front.</div>",
-  "checked":       true,
-  "status":        "active",   // 'active' | 'new' | 'removed' | 'archived'
-  "date_archived": "",          // 'YYYY-MM-DD' when status='archived', else ''
-  "prev_idx":      0             // index into last_week.<same-list>; null when status='new'
+  "text":     "<div>Building slab pour complete; field has <b>moved past</b> the slab-prep front.</div>",
+  "status":   "active",
+  "checked":  true,
+  "edited":   false,
+  "prev_idx": 0
 }
 ```
 
-Two breaking changes versus the legacy `-email-preview.html` shape:
+Three things to know about item rows:
 
-1. **`prev_idx` (int|null) replaces `previous_text`.** Diff overlays in the editor and "strikethrough-previous-metric" badges in the `.eml` are computed by walking from `this_week.<list>[i]` → `last_week.<list>[this_week.<list>[i].prev_idx]`. The denormalized `previous_text` field is gone.
-2. **`text` is HTML, not markdown.** Drop the `**bold**` / `==priority==` conventions. Use:
-   - `<strong>...</strong>` — bold
-   - `<span style="color:#C94444;font-weight:bold">...</span>` — priority red (Westland brand red)
-   - `<span style="background-color:#FFF59D">...</span>` — highlight (light yellow)
+1. **`status='archived'` belongs ONLY in `key_items_archived`.** The other four lists (`successes`, `red_flags`, `stalled_tasks`, `key_items`) follow active → removed → dropped lifecycle: items that fall out simply transition to `status='removed'` for one week and then drop entirely from the next week's seed. The 90-day archived-prune is `key_items`-only.
+2. **`prev_idx` is an int|null.** Diff overlays in the editor and "strikethrough-previous-metric" badges in the `.eml` walk `this_week.<list>[i]` → `last_week.<list>[this_week.<list>[i].prev_idx]`. There is no denormalized `previous_text` field.
+3. **`text` is HTML, not Markdown.** Four supported tags pass through verbatim into the email body:
+   - `<b>...</b>` — bold
+   - `<i>...</i>` — italic
+   - `<span style="background-color: #FFF4B8">...</span>` — highlight (light yellow)
+   - `<span style="color: #9B2C2C">...</span>` — important (Westland brand red)
 
    The Trix editor in the cloud surface emits these inline-style spans verbatim; the `.eml` builder passes them through without conversion.
 
@@ -206,22 +241,45 @@ Two breaking changes versus the legacy `-email-preview.html` shape:
 
 ```jsonc
 {
-  "filename":         "...",
-  "checked":          true,         // include in this email
-  "status":           "active",     // 'active' | 'new' | 'removed' | 'archived'
-  "date_archived":    "",
-  "share_to_procore": false,        // the P toggle — picks Procore upload set
-  "prev_idx":         0
+  "name":     "Report 01 - Foo.pdf",
+  "ext":      "pdf",
+  "checked":  true,
+  "procore":  false,
+  "status":   "active",
+  "prev_idx": 0
 }
 ```
 
+Attachments have no `archived` status and no `date_archived` field. They follow active → removed → dropped, same as the four list types above.
+
 ### The Procore fields are load-bearing
 
-`this_week.attachments[].share_to_procore` and `this_week.skip_procore` drive the Procore Documents upload via [`phases/procore.md`](skills/schedule-update/phases/procore.md). They are not cosmetic. Missing them in the JSON snapshot means the colleague's choice ("don't upload the owner summary to a public folder") is lost — that's a privacy bug, not a UX nit.
+`this_week.attachments[].procore` and `this_week.skip_procore` drive the Procore Documents upload via [`phases/procore.md`](skills/schedule-update/phases/procore.md). They are not cosmetic. Missing them in the JSON snapshot means the colleague's choice ("don't upload the owner summary to a public folder") is lost — that's a privacy bug, not a UX nit.
 
 ### `last_week` is frozen
 
-When `phases/draft.md` builds this week's seed, it takes the *prior* week's `{prev_date}-email.json` and copies the entire `this_week` subtree into the new `last_week` slot — unchanged for the lifetime of this week's draft. The SPA renders strikethroughs on changed metrics, diff badges on changed item text, and visual chips on attachments that moved between weeks, all by reading `last_week`. The local `.eml` builder reads `last_week.days_behind` / `last_week.gain_loss` to render strikethrough-previous-metric badges on the colored status lines.
+When `phases/draft.md` builds this week's seed, it takes the *prior* week's `{prev_date}-email.json` and copies the entire `this_week` subtree into the new `last_week` slot — unchanged for the lifetime of this week's draft. The SPA renders strikethroughs on changed metrics, diff badges on changed item text, and visual chips on attachments that moved between weeks, all by reading `last_week`. The local `.eml` builder reads `last_week.days_metric` / `last_week.gain_loss` to render strikethrough-previous-metric badges on the colored status lines.
+
+### Recipients arrays render to "Name <email>" strings
+
+`this_week.to_recipients` / `cc_recipients` are arrays of `{name, email}` objects on disk and in the Worker. The local `.eml` builder and the COM-Outlook path both need the legacy `Name <email>; Other <email2@x>` string form. `email_draft_io.editorial_to_kwargs()` flattens the arrays at the seam.
+
+### `days_metric` and `gain_loss` are objects, not signed ints
+
+v1's signed `days_behind` int became `days_metric: {direction: "behind"|"ahead", value: int}`. Same pattern for `gain_loss`, which v2 merges with `gain_loss_narrative` and adds a `narrative_changed` bool to drive the editor's "changed since last week" highlight.
+
+`editorial_to_kwargs()` collapses these to signed ints for the existing `.eml` / COM builder kwargs:
+
+```python
+days_behind = +days_metric.value if days_metric.direction == 'behind' else -days_metric.value
+gain_loss   = -gain_loss.value   if gain_loss.direction   == 'loss'   else +gain_loss.value
+```
+
+### Closing paragraphs and salutation
+
+v1's `closing_line` ("Please let me know if you have any questions.") and `custom_paragraphs` array merged into one v2 `closing_paragraphs` array. Each entry is `{label, checked, text}` and renders as HTML in the email body. The first entry (Westland default) is the "Questions" line above.
+
+`closing_salutation` (v1: `salutation`) is rendered as-is above the signer block.
 
 ### When you change the shape
 
@@ -238,7 +296,9 @@ The Worker schema is the source of truth. To extend the shape:
 
 ### Historical note
 
-The pre-cloud-editor `*-email-preview.html` round-trip is gone: `generate_email_preview_html.py`, `parse_email_html.py`, and `tests/test_email_preview_html.py` were removed alongside this contract. The seed-emission path in `phases/draft.md` reads `{prev_date}-email.json` only — there is no legacy HTML parser to fall back on.
+v1 of this shape (signed-int metrics, semicolon recipient strings, `custom_paragraphs` / `closing_line` / `salutation`, attachment `filename` + `share_to_procore`, four-list `archived` status, `date_archived` everywhere, `changes_report: {include, filename}` object) lived from 2026-05 until scheduling 6.0.0 landed. The Worker rejects v1 seeds with `SEED_VERSION_TOO_OLD` (422).
+
+The pre-cloud-editor `*-email-preview.html` round-trip is gone since v1 (`generate_email_preview_html.py`, `parse_email_html.py`, and `tests/test_email_preview_html.py` were removed). The seed-emission path in `phases/draft.md` reads `{prev_date}-email.json` only — there is no legacy HTML parser to fall back on.
 
 ## XER files are immutable
 
