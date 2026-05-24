@@ -21,11 +21,11 @@ Produce `{dated_folder}/{YYYY-MM-DD}-email.json` — the complete state Claude a
 
 ## The seed shape
 
-The seed is the new top-level email JSON shape minus `graphs` (the Worker renders those). See [scheduling/CLAUDE.md → Email JSON shape](../../../CLAUDE.md) for the full contract. Verbatim shape the MCP tool expects:
+The seed is the v2 top-level email JSON shape minus `graphs` (the Worker renders those). See [scheduling/CLAUDE.md → Email JSON shape](../../../CLAUDE.md) for the full contract. Verbatim shape the MCP tool expects:
 
 ```jsonc
 {
-  "version":     1,
+  "version":     2,
   "report_date": "YYYY-MM-DD",
   "project_info": {
     "project_name": "...", "job_number": "...",
@@ -33,31 +33,47 @@ The seed is the new top-level email JSON shape minus `graphs` (the Worker render
   },
 
   "this_week": {
-    "subject": "...", "to": "...", "cc": "...",
-    "days_behind": int, "gain_loss": int,
-    "successes":     [/* item rows */],
-    "red_flags":     [/* item rows */],
-    "stalled_tasks": [/* item rows */],
-    "key_items":     [/* item rows */],
-    "gain_loss_narrative": "...", "eot_recovery": "...", "logic_changes": "...",
+    "subject": "...",
+    "to_recipients": [{"name": "...", "email": "..."}],
+    "cc_recipients": [{"name": "...", "email": "..."}],
+    "days_metric": {"direction": "behind"|"ahead", "value": int},
+    "gain_loss":   {"direction": "loss"|"gain", "value": int,
+                    "narrative": "...", "narrative_changed": bool},
+
+    "successes":          [/* {text, status, checked, edited?, prev_idx} */],
+    "red_flags":          [/* same */],
+    "stalled_tasks":      [/* same */],
+    "key_items":          [/* same */],
+    "key_items_archived": [/* {text, status='archived', checked, date_archived, prev_idx} */],
+
+    "eot_recovery": "...", "logic_changes": "...",
     "smartpm_changelog_url": "...",
-    "custom_paragraphs": [{"label": "...", "text": "<div>...</div>", "checked": true}],
-    "attachments":      [/* {filename, checked, status, date_archived, share_to_procore, prev_idx} */],
-    "changes_report":   {"include": bool, "filename": "..."},
-    "skip_procore":     false,
-    "graph_order":      [/* slug list, canonical render order */],
-    "closing_line":     "Please let me know if you have any questions.",
-    "salutation":       "Thanks,",
-    "signer_name":      "...", "signer_title": "...", "signer_mobile": "..."
+    "closing_paragraphs": [{"label": "...", "checked": true,
+                             "text": "<div>...</div>"}],
+    "closing_salutation": "Thanks,",
+    "signer_name": "...", "signer_title": "...", "signer_mobile": "...",
+    "attachments": [/* {name, ext?, checked, procore, status, prev_idx} */],
+    "skip_procore": false,
+    "include_changes_report": bool,
+    "changes_report_filename": "...",
+    "graph_order": [
+      "01-planned-vs-actual-percent-complete",
+      "06-end-date-variance",
+      "07-schedule-compression-index-over-time",
+      "08-velocity",
+      "09-spi-over-time",
+      "10-activity-hit-rate",
+      "11-window-start-accuracy",
+      "12-window-finish-accuracy",
+      "smartpm-summary-report"
+    ]
   },
 
-  "last_week": { /* identical shape; frozen copy from last week's this_week; null if week-1 */ },
-
-  "smartpm": { "project_name": "...", "scenario_id": null }
+  "last_week": { /* identical shape; null if week-1 */ }
 }
 ```
 
-Item rows are `{text, checked, status, date_archived, prev_idx}` where `text` is HTML and `prev_idx` is an int (index into `last_week.<same-list>`) or `null` for status='new'. Attachment rows add `share_to_procore`.
+Item rows are `{text, status, checked, edited(optional), prev_idx}` where `text` is HTML and `prev_idx` is an int (index into `last_week.<same-list>`) or `null` for status='new'. Attachment rows: `{name, ext, checked, procore, status, prev_idx}`.
 
 ## Process
 
@@ -84,35 +100,47 @@ Read the XERs and the meeting transcript with the standard tools (Read + the XER
 
 ### 2. Build `this_week` via structured carry-forward
 
-The rule is **carry-forward then revise**: take `prev_draft['this_week']` field-by-field, then apply this week's deltas. Run list items through `carry_forward.reconcile_items` so `prev_idx` lands correctly:
+The rule is **carry-forward then revise**: take `prev_draft['this_week']` field-by-field, then apply this week's deltas. Run list items through `carry_forward.reconcile_items` (and key_items through `reconcile_key_items`):
 
 ```python
-from carry_forward import reconcile_items, transition_attachments
+from carry_forward import reconcile_items, reconcile_key_items, transition_attachments
 
 prev_this_week = (prev_draft or {}).get('this_week', {}) or {}
 
-# Each list: reconcile this week's HTML strings against last week's rows.
-successes_rows, _    = reconcile_items(prev_this_week.get('successes'),     this_week_success_html,     today_iso=today)
-red_flags_rows, _    = reconcile_items(prev_this_week.get('red_flags'),     this_week_red_flag_html,    today_iso=today)
-stalled_rows, _      = reconcile_items(prev_this_week.get('stalled_tasks'), this_week_stalled_html,     today_iso=today)
-key_items_rows, _    = reconcile_items(prev_this_week.get('key_items'),     this_week_key_item_html,    today_iso=today)
+successes_rows, _ = reconcile_items(prev_this_week.get('successes'),
+                                     this_week_success_html, today_iso=today)
+red_flags_rows, _ = reconcile_items(prev_this_week.get('red_flags'),
+                                     this_week_red_flag_html, today_iso=today)
+stalled_rows, _   = reconcile_items(prev_this_week.get('stalled_tasks'),
+                                     this_week_stalled_html, today_iso=today)
 
-# Attachments: fresh-glob from disk, fuzzy-match against last week.
-attachments_rows = transition_attachments(prev_this_week.get('attachments'), fresh_filenames, today_iso=today)
+# key_items: two inputs (active + archived), three outputs.
+key_items_rows, key_items_archived_rows, _ = reconcile_key_items(
+    prev_this_week.get('key_items'),
+    prev_this_week.get('key_items_archived'),
+    this_week_key_item_html,
+    today_iso=today,
+)
+
+attachments_rows = transition_attachments(
+    prev_this_week.get('attachments'),
+    fresh_filenames,
+    today_iso=today,
+)
 ```
 
 Standard moves for everything else:
 
 - **Subject:** swap last week's date for this week's; keep project name + job number.
-- **Narrative blocks (`gain_loss_narrative`, `eot_recovery`, `logic_changes`):** rewrite based on this week's XER deltas + transcript. Leave `smartpm_changelog_url` unchanged unless the URL pattern has shifted.
+- **Narrative blocks (`gain_loss.narrative`, `eot_recovery`, `logic_changes`):** rewrite based on this week's XER deltas + transcript. Leave `smartpm_changelog_url` unchanged unless the URL pattern has shifted.
 - **Signer block:** unchanged unless the colleague has rotated.
-- **`days_behind` / `gain_loss`:** compute from XER comparison (week-over-week delta on contractual completion + schedule variance).
-- **`graph_order`:** unchanged unless the colleague has reordered. Default order is the `graph_screenshots` list from `project-context.html` plus `smartpm-summary-report` last.
-- **`closing_line` / `salutation`:** preserve from last week, or default to `"Please let me know if you have any questions."` and `"Thanks,"`.
+- **`days_metric` / `gain_loss`:** compute from XER comparison (week-over-week delta on contractual completion + schedule variance). Express as `{direction, value}` objects — `direction` = `'behind'` when slipping vs contract, `'ahead'` when running early; `direction` = `'loss'` when worse than last week, `'gain'` when better. `gain_loss.narrative` is one short paragraph and `narrative_changed` is `True` when it differs from `last['gain_loss']['narrative']`.
+- **`graph_order`:** unchanged unless the colleague has reordered. Default is the 8-trend canonical order plus `'smartpm-summary-report'` last.
+- **`closing_paragraphs` / `closing_salutation`:** preserve from last week, or default to a single-entry list `[{label: "Questions", checked: true, text: "<div>Please let me know if you have any questions.</div>"}]` and `"Thanks,"`.
 
 ### 3. Build `last_week` (frozen)
 
-`last_week` is a **frozen verbatim copy** of last week's `this_week` — unchanged for the lifetime of this week's draft. The cloud editor reads it to render strikethroughs on changed metrics + diff badges on edited items; the local `.eml` builder reads `last_week.days_behind` / `last_week.gain_loss` to render strikethrough-previous-metric badges on the colored status lines.
+`last_week` is a **frozen verbatim copy** of last week's `this_week` — unchanged for the lifetime of this week's draft. The cloud editor reads it to render strikethroughs on changed metrics + diff badges on edited items; the local `.eml` builder reads `last_week.days_metric` / `last_week.gain_loss` to render strikethrough-previous-metric badges on the colored status lines.
 
 ```python
 last_week_block = prev_this_week if prev_draft else None
@@ -124,7 +152,7 @@ No recursion; `last_week.last_week` is not a thing.
 
 ```python
 seed = {
-    'version': 1,
+    'version': 2,
     'report_date': today_iso,
     'project_info': {
         'project_name': ctx['project_name'],
@@ -134,38 +162,36 @@ seed = {
     },
     'this_week': {
         'subject':       this_week_subject,
-        'to':            ctx['to_recipients_str'],
-        'cc':            ctx['cc_recipients_str'],
-        'days_behind':   this_week_days_behind,
-        'gain_loss':     this_week_gain_loss,
-        'successes':     successes_rows,
-        'red_flags':     red_flags_rows,
-        'stalled_tasks': stalled_rows,
-        'key_items':     key_items_rows,
-        'gain_loss_narrative':   this_week_gain_loss_narrative,
-        'eot_recovery':          this_week_eot_recovery,
-        'logic_changes':         this_week_logic_changes,
+        'to_recipients': ctx['to_recipients'],   # [{name, email}, ...] array
+        'cc_recipients': ctx['cc_recipients'],   # same
+        'days_metric':   this_week_days_metric,  # {direction, value}
+        'gain_loss':     this_week_gain_loss,    # {direction, value, narrative, narrative_changed}
+        'successes':           successes_rows,
+        'red_flags':           red_flags_rows,
+        'stalled_tasks':       stalled_rows,
+        'key_items':           key_items_rows,
+        'key_items_archived':  key_items_archived_rows,
+        'eot_recovery':         this_week_eot_recovery,
+        'logic_changes':        this_week_logic_changes,
         'smartpm_changelog_url': ctx['smartpm_changelog_url'],
-        'custom_paragraphs':     this_week_custom_paragraphs,   # carry forward verbatim
-        'attachments':           attachments_rows,
-        'changes_report':        {'include': True, 'filename': changes_report_filename},
-        'skip_procore':          prev_this_week.get('skip_procore', False),
-        'graph_order':           prev_this_week.get('graph_order') or default_graph_order,
-        'closing_line':          prev_this_week.get('closing_line') or 'Please let me know if you have any questions.',
-        'salutation':            prev_this_week.get('salutation')   or 'Thanks,',
-        'signer_name':           ctx['signer_name'],
-        'signer_title':          ctx['signer_title'],
-        'signer_mobile':         ctx['signer_mobile'],
+        'closing_paragraphs':   this_week_closing_paragraphs,
+        'closing_salutation':   this_week_closing_salutation,
+        'signer_name':          ctx['signer_name'],
+        'signer_title':         ctx['signer_title'],
+        'signer_mobile':        ctx['signer_mobile'],
+        'attachments':          attachments_rows,
+        'skip_procore':         prev_this_week.get('skip_procore', False),
+        'include_changes_report':  bool(prev_this_week.get('include_changes_report', True)),
+        'changes_report_filename': changes_report_filename,
+        'graph_order':          prev_this_week.get('graph_order') or default_graph_order_with_summary,
     },
-    'last_week': last_week_block,
-    'smartpm': {
-        'project_name': ctx['smartpm_project_name'],
-        'scenario_id':  None,    # MCP resolves
-    },
+    'last_week': prev_this_week if prev_draft else None,
 }
 with open(os.path.join(dated_folder, f'{today_iso}-email.seed.json'), 'w') as f:
     json.dump(seed, f, indent=2)
 ```
+
+If the current draft.md mentions a top-level `'smartpm'` key in the seed dict (it was in v1), this replacement drops it — the Worker resolves SmartPM from `project_info.job_number` in v2.
 
 ### 5. Generate the cloud draft
 
@@ -219,6 +245,19 @@ with open(os.path.join(dated_folder, f'{today_iso}-email.json'), 'w') as f:
 
 `result['graphs_ready_count'] < result['graphs_total']` means some charts are still placeholders or errored — warn the colleague before proceeding to `phases/email.md`. They can choose to ship with placeholders (rare; only if the data is truly unavailable) or wait + re-run from step 5.
 
+### 10. Build the .eml
+
+Before building the .eml, **re-read `phases/_render_graphs.md`** — the stacked-PNG rasterization recipe lives there. Then call `email_draft_io.generate_email_from_draft(...)`, which internally:
+
+1. Loads the v2 draft.
+2. Stacks `graphs.{slug}.html` chunks in `graph_order` order.
+3. Rasterizes to one PNG via `html_to_png.cjs`.
+4. Resolves attachment names against `dated_folder`.
+5. Calls `editorial_to_kwargs` to flatten v2 → builder kwargs.
+6. Calls `generate_update_email_eml` to write the .eml.
+
+If `graphs_ready_count < graphs_total` from the finalize response, warn the colleague before building (some chart cards will be placeholders).
+
 ## What this phase replaces
 
 The old flow wrote `{dated_folder}/{YYYY-MM-DD}-email-preview.html` and asked the colleague to open it in a browser to edit. That artifact is no longer produced, and the legacy `generate_email_preview_html.py` / `parse_email_html.py` scripts have been removed.
@@ -226,7 +265,7 @@ The old flow wrote `{dated_folder}/{YYYY-MM-DD}-email-preview.html` and asked th
 ## What this phase explicitly does NOT do
 
 - Build the `.eml` (that's `phases/email.md`).
-- Upload to Procore (that's `phases/procore.md` — and it reads `{YYYY-MM-DD}-email.json` directly for `skip_procore` + `attachments[].share_to_procore`).
+- Upload to Procore (that's `phases/procore.md` — and it reads `{YYYY-MM-DD}-email.json` directly for `skip_procore` + `attachments[].procore`).
 - Render chart PNGs in isolation (the cloud function renders + stores HTML+SVG chunks; the `.eml` build stacks them into one PNG).
 
 ## Cross-references
