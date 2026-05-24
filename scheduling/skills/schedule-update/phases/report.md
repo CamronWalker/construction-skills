@@ -1,7 +1,8 @@
-# Phase: `report` — Colleague Post-Meeting Flow (Steps 6–10)
+# Phase: `report` — Colleague Post-Meeting Flow (Steps 10–12)
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `report` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update report`.
-> Also requires `_carry_forward.md`, `_attachments.md`, `draft.md`, and `procore.md`.
+> Also requires `_carry_forward.md`, `_attachments.md`, `draft.md`, `_render_graphs.md`, and `procore.md`.
 
 End-to-end conversational flow that takes a colleague from "meeting is done" to "Outlook draft in Drafts folder + files in Procore." Covers steps 6–10 of the full pipeline.
 
@@ -20,7 +21,7 @@ Check for all required PNGs in `{dated_folder}/screenshots/`:
 - `smartpm-summary-report.png`
 - every file listed in `graph_screenshots` from `project-context.html`
 
-If any are missing, say: "I need to capture SmartPM graphs first — running screenshots now." Then execute the `screenshots` workflow (above) before continuing.
+If any are missing, say: "I need to capture SmartPM graphs first — running screenshots now." Then continue — graphs are fetched server-side after the seed POST; the stacked PNG is built locally during the .eml build step (see `phases/_render_graphs.md`).
 
 If SmartPM was uploaded less than ~30 minutes ago, warn the colleague it may still be processing and offer to wait.
 
@@ -39,20 +40,60 @@ Branch based on response:
 
 ### 3b. **No transcript** — XER-driven Q&A
 
-1. Find the two most recent XER files: current-week XER in `{dated_folder}/*.xer`, previous-week XER in the most recent prior dated folder.
-2. Parse both using `schedule-toolbox` and compute the delta:
-   - **SC date change** — "Substantial Completion moved from `{prev}` to `{current}` ({delta} days). What's the story?"
-   - **Activities completed this week** — "These finished since the last update: `{list}`. Which should I call out as successes?"
-   - **Activities that slipped** — "These moved later: `{name}` ({days_slipped} days). Red flag, slipping task, or expected?"
-   - **Activities that started late / didn't start** — "These were planned to start but haven't: `{list}`. Still blocked, or will they start soon?"
-   - **Logic/scope changes** — activity adds, deletes, relationship changes (count summary, then "Any scope changes worth mentioning?")
-   - **Near-critical/critical path movement** — "Critical path changed in these areas: `{list}`. Anything to highlight?"
-3. After the XER-driven round, ask the open-ended round:
-   - "Anything else going great that I should add to Successes?"
-   - "Any red flags coming from the field — material, trade performance, weather, owner decisions?"
-   - "What are the 2–3 key items the team needs to focus on this coming week?"
-   - "Is there an EOT/recovery update? What changed with trade performance?"
-4. Keep the conversation tight — ask 2–4 questions per turn, not a long wall. Confirm each answer before moving on.
+**Don't write ad-hoc XER-parsing Python.** The schedule-toolbox plugin already ships `xer_compare.compare_schedules` and `update_review.expected_updates` — use them.
+
+#### Resolve the script paths (path-portable)
+
+Use the Glob tool with pattern `**/scheduling/skills/schedule-toolbox/references/xer_compare.py` to find the absolute path. Save the result as `xer_compare_path`. Repeat for `update_review.py` → `update_review_path`.
+
+If Glob returns zero results for either, stop and tell the colleague:
+> "Schedule-toolbox not found. Install or update the `scheduling` plugin via the marketplace, then re-run."
+
+#### Compare this week's XER to last week's
+
+Find the two most recent XER files: current-week XER in `{dated_folder}/*.xer`, previous-week XER in the most recent prior dated folder.
+
+```bash
+python -c "
+import sys, json, os
+sys.path.insert(0, os.path.dirname(r'<xer_compare_path>'))
+from xer_compare import compare_schedules, _parse_xer_file
+current  = _parse_xer_file(r'<dated_folder>/<current_xer_filename>')
+previous = _parse_xer_file(r'<prev_dated_folder>/<prev_xer_filename>')
+result = compare_schedules(current, previous)
+print(json.dumps(result, indent=2, default=str))
+"
+```
+
+Substitute `<xer_compare_path>` with the Glob result and the two XER paths with absolute paths.
+
+Use the JSON output to populate the colleague-facing Q&A:
+- `result['sc_date_change']` → "Substantial Completion moved from `{prev}` to `{current}` (`{delta}` days). What's the story?"
+- `result['completed_this_week']` → "These finished since the last update: `{list}`. Which should I call out as successes?"
+- `result['slipped']` → "These moved later: `{name}` (`{days_slipped}` days). Red flag, slipping task, or expected?"
+- `result['unstarted']` → "These were planned to start but haven't: `{list}`. Still blocked, or will they start soon?"
+- `result['logic_changes']` → activity adds/deletes/relationship changes (count summary, then "Any scope changes worth mentioning?")
+- `result['critical_path_movement']` → "Critical path changed in these areas: `{list}`. Anything to highlight?"
+
+#### Trade-specific upcoming work
+
+If the colleague asks "what does {trade} need to update by next week?", drive `update_review.py` directly:
+
+```bash
+python "<update_review_path>" expected_updates "<current_xer_path>" "<future_date_YYYY-MM-DD>" --resource <trade_code>
+```
+
+The script returns JSON to stdout — `to_start`, `to_finish`, `in_progress` lists with task names + dates.
+
+#### Open-ended round
+
+After the XER-driven round, ask the open-ended round:
+- "Anything else going great that I should add to Successes?"
+- "Any red flags coming from the field — material, trade performance, weather, owner decisions?"
+- "What are the 2–3 key items the team needs to focus on this coming week?"
+- "Is there an EOT/recovery update? What changed with trade performance?"
+
+Keep the conversation tight — ask 2–4 questions per turn. Confirm each answer before moving on.
 
 ## Step 4: Carry Forward From Previous Email
 
@@ -81,7 +122,7 @@ If the colleague has already iterated on the content in their head and just want
 
 When the colleague says `done`:
 
-1. Finalize the cloud editor's draft via `finalize_weekly_schedule_update_email` and write the result to `{dated_folder}/{YYYY-MM-DD}-email.json`. Load it locally via `email_draft_io.load_draft(path)`. The returned dict's `this_week` block includes `attachments` (with `share_to_procore` per item) and the `skip_procore` toggle.
+1. Finalize the cloud editor's draft via `finalize_weekly_schedule_update_email` and write the result to `{dated_folder}/{YYYY-MM-DD}-email.json`. Load it locally via `email_draft_io.load_draft(path)`. The returned dict's `this_week` block includes `attachments` (with `procore` per item) and the `skip_procore` toggle.
 
 2. **Write the `.eml`** by following `draft.md`. (Phase file already loaded per the command matrix.)
 

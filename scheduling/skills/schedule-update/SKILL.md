@@ -21,19 +21,50 @@ description: >
 
 Each sub-command names the phase files you MUST read in full before acting. **Do not Read the `.py` or HTML scripts those phase files reference** — every phase file inlines the signatures and dict shapes you need. Reading the underlying script is a sign you skipped the phase file.
 
+## ⚠️ Re-read phase files on every phase transition
+
+A sub-command's full procedure lives in the phase files for that command (column 2 of the Command Matrix below). Reading them **once** at the start of the session is not enough — by the time you reach phase 3 of a multi-phase run, the earlier file's text is paraphrased in your working memory and lossy on details.
+
+**Mechanical rule:**
+
+When you build a `TaskCreate` list for any sub-command, the FIRST task for every phase the command pulls in must be `[re-read] phases/<file>.md`. The task description repeats the phase name in full. Example for `/schedule-update report`:
+
+```
+TaskCreate({
+  subject: "[re-read] phases/report.md",
+  description: "Re-read the full phases/report.md file. Do not start any step until it is loaded in current context."
+})
+TaskCreate({ subject: "Resolve folder + read project-context.html", ... })
+TaskCreate({
+  subject: "[re-read] phases/_carry_forward.md",
+  description: "Re-read the full phases/_carry_forward.md file before invoking carry_forward.reconcile_items / transition_attachments."
+})
+TaskCreate({ subject: "Reconcile this week's items + attachments", ... })
+TaskCreate({
+  subject: "[re-read] phases/draft.md",
+  description: "Re-read the full phases/draft.md file before building the v2 seed dict."
+})
+TaskCreate({ subject: "Assemble v2 seed and POST to generate_weekly_schedule_update_email_draft", ... })
+```
+
+Why this works: each re-read task forces the phase file's exact field names, function signatures, and ordering back into context just before the work that depends on them. After 100k+ of context the phase files' lemmas haven't drifted — just your recall of them.
+
+Phase files all open with an identical preamble (next section) so when you hit one of these tasks you know exactly what to load.
+
 ### Command Matrix
 
-| Invocation | Phase files to read first | Purpose |
+| Invocation | Phase files (re-read each at phase entry) | Purpose |
 |---|---|---|
 | `/schedule-update copy` | `phases/copy.md` | Pre-meeting folder setup |
-| `/schedule-update screenshots` | `phases/screenshots.md` | SmartPM trend data via MCP → HTML+SVG PNGs (JS CLI) |
-| `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md` | Camron's email draft path |
-| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/draft.md`, `phases/procore.md` | Colleague flow, steps 6–10 |
-| `/schedule-update draft` | `phases/draft.md`, `phases/_attachments.md`, `phases/procore.md` | `.eml` / COM draft + Procore publish |
+| `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_render_graphs.md` | Camron's email draft path |
+| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/draft.md`, `phases/_render_graphs.md`, `phases/procore.md` | Colleague flow, steps 10–12 |
+| `/schedule-update draft` | `phases/draft.md`, `phases/_attachments.md`, `phases/_render_graphs.md`, `phases/procore.md` | `.eml` / COM draft + Procore publish |
 | `/schedule-update procore` | `phases/procore.md`, `phases/_attachments.md` | Retry / standalone Procore publish |
 | `/schedule-update status` | `phases/status.md` | Phase detection |
 | `/schedule-update` (no arg) | `phases/status.md` | Auto-detect, route to recommended step |
 | `/write-weekly-schedule-email` | `commands/write-weekly-schedule-email.md` (thin shell) → same as `report` | Cowork drop-in |
+
+**The `screenshots` sub-command is retired.** In v1 it captured 17 SmartPM graph PNGs locally; in v2 the Worker renders graphs server-side and returns them in the finalize payload. The local stacked-PNG rasterization step is internal to `phases/draft.md` (via `phases/_render_graphs.md`) and not a user-invocable command.
 
 Read **every file in the column** for your invocation, in full, before taking any action.
 
@@ -146,15 +177,13 @@ Each dated folder gets a `YYYY-MM-DD-update-email.md` with two sections:
 | 3 | Update schedule using Excel file | Human | — |
 | 4 | Make corrections, discussion, complete update | Human | (in meeting) |
 | 5 | Export schedule files | Human | — |
-| 6 | Upload XER to SmartPM | Human | — |
+| 6 | Upload XER to SmartPM (Worker ingests it server-side after the seed POST) | Human | — |
 | 7 | Copy meeting transcript to meeting folder | Human | — |
 | 8 | Export PDF attachments from schedule software | Human | — |
 | 9 | Create next week's Excel files | Human | — |
-| 10 | Capture SmartPM graphs for email | Agent | `screenshots` |
-| 11 | Generate update email draft | Agent | `email` |
-| 12 | Review email draft | Human | — |
-| 13a | Create Outlook draft (`.eml`) | Agent | `draft` |
-| 13b | Publish XER + attachments to Procore | Agent | `procore` (auto-fanned-out by `draft`) |
-| 14 | Send email | Human | — |
+| 10 | Build seed, POST to MCP, hand editor URL to colleague | Agent | `report` (drives `draft`) |
+| 11 | Colleague edits in browser; Worker renders graphs async | Human + Worker | — |
+| 12 | Colleague says "done"; finalize draft, build `.eml`, publish Procore | Agent | `draft` (auto-fans into `procore`) |
+| 13 | Open `.eml`, review, Send | Human | — |
 
-Colleague-friendly shortcut: `report` covers rows 10–13b in a single guided conversation.
+Colleague-friendly shortcut: `report` covers rows 10–12 in a single guided conversation.

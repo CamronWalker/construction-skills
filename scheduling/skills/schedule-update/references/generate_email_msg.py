@@ -60,9 +60,10 @@ List items carry HTML, not markdown.
     `<li>` element — Outlook's Word renderer respects inline span styles.
 
     Westland's priority conventions (canonical to scheduling/CLAUDE.md):
-        <strong>...</strong>                                            — bold
-        <span style="color:#C94444;font-weight:bold">...</span>          — priority red
-        <span style="background-color:#FFF59D">...</span>                — highlight
+        <b>...</b>                                                       — bold
+        <i>...</i>                                                       — italic
+        <span style="background-color: #FFF4B8">...</span>               — highlight
+        <span style="color: #9B2C2C">...</span>                          — important (Westland red)
 """
 
 import os
@@ -211,7 +212,6 @@ def _build_html_body(
     key_items=None,
     include_compliance_report=False,
     include_procurement_sheets=False,
-    custom_paragraphs=None,
     has_summary_screenshot=False,
     graph_cid_names=None,
     smartpm_project_url='',
@@ -220,7 +220,7 @@ def _build_html_body(
     signer_title='',
     signer_mobile='',
     has_logo=False,
-    closing_line='',
+    closing_paragraphs_html='',
     salutation='',
     prev_days_behind=None,
     prev_gain_loss=None,
@@ -451,50 +451,16 @@ def _build_html_body(
             'hyperlink to View Trends URL]</p>'
         )
 
-    # --- Section 12: Closing Paragraphs (custom_paragraphs OR legacy flags) ---
-    if custom_paragraphs:
-        for p in custom_paragraphs:
-            if not p.get('checked', True):
-                continue
-            body_html = (p.get('text') or '').strip()
-            if not body_html:
-                continue
-            # Body text arrives as HTML from the cloud editor — pass through.
-            parts.append(
-                f'<p style="{font} margin:12pt 0 6pt 0;">{body_html}</p>'
-            )
-    else:
-        if include_compliance_report:
-            parts.append(
-                f'<p style="{font} margin:12pt 0 6pt 0;">'
-                'I have again included the Schedule Compliance Report in excel for your use. '
-                'Please note: You will need to verify responsibility for the impacts. '
-                'This report should be distributed to the Project Team each week and reviewed '
-                'in detail during the OAC. Please include the form with the meeting minutes and '
-                'add language to the minutes stating all parties reviewed the Schedule Compliance '
-                'Report in detail and acknowledge doing so. If they wish to make any adjustments, '
-                'or contest any information included in the report they may do so by responding '
-                'to the meeting minutes within 24 hours, or as defined by the contract.</p>'
-            )
-
-        if include_procurement_sheets:
-            parts.append(
-                f'<p style="{font} margin:6pt 0;">'
-                'I have included the procurement and progress update spreadsheets. '
-                'Please use these to fill out all actual dates and confirmed durations '
-                'prior to each update. This will significantly reduce the time we spend '
-                'updating each week to give us more time to work on recovery planning.</p>'
-            )
+    # --- Section 12: Closing Paragraphs ---
+    # Closing paragraphs: pre-joined HTML from email_draft_io._join_closing_paragraphs
+    # (or empty). Renders verbatim — the Trix editor emits inline-style HTML that
+    # Outlook's Word renderer respects.
+    closing_html_block = closing_paragraphs_html or ''
+    if closing_html_block:
+        parts.append(closing_html_block)
 
     # --- Closing ---
-    # closing_line + salutation are HTML strings from the cloud editor; the
-    # legacy "Please let me know..." / "Thanks," strings are the defaults
-    # when the editor leaves the fields blank.
-    closing_html = closing_line or 'Please let me know if you have any questions.'
     salutation_html = salutation or 'Thanks,'
-    parts.append(
-        f'<p style="{font} margin:12pt 0 0 0;">{closing_html}</p>'
-    )
     # Blank spacer paragraph — Camron prefers a visible gap before the salutation.
     parts.append(f'<p style="{font} margin:0;">&nbsp;</p>')
     parts.append(f'<p style="{font} margin:0 0 12pt 0;">{salutation_html}</p>')
@@ -581,7 +547,7 @@ def generate_update_email_msg(
     key_items=None,
     include_compliance_report=False,
     include_procurement_sheets=False,
-    custom_paragraphs=None,
+    closing_paragraphs_html='',
     summary_screenshot_path=None,
     graph_screenshot_paths=None,
     to_recipients='',
@@ -594,7 +560,7 @@ def generate_update_email_msg(
     signer_title='SCHEDULER',
     signer_mobile='',
     logo_path=None,
-    closing_line='',
+    from_address='',
     salutation='',
     prev_days_behind=None,
     prev_gain_loss=None,
@@ -617,16 +583,18 @@ def generate_update_email_msg(
                       contractual_completion, projected_completion
         days_behind: Positive = behind (red), negative = ahead (green)
         gain_loss: Positive = days gained (green), negative = days lost (red)
-        successes: List of HTML strings
+        successes: List of item dicts ({text, checked, status, prev_idx})
         gain_loss_narrative: Explanation of what drove the gain/loss
         eot_recovery: EOT / recovery efforts narrative
         logic_changes: Significant logic changes narrative
         smartpm_changelog_url: URL to SmartPM change log
-        red_flags: List of HTML strings (use priority-red span for high priority)
-        stalled_tasks: List of HTML strings
-        key_items: List of HTML strings
+        red_flags: List of item dicts
+        stalled_tasks: List of item dicts
+        key_items: List of item dicts
         include_compliance_report: Whether to include compliance report paragraph
         include_procurement_sheets: Whether to include procurement sheets paragraph
+        closing_paragraphs_html: Pre-rendered HTML string for the closing
+                                 paragraphs block (from editorial_to_kwargs)
         summary_screenshot_path: Path to SmartPM summary report PNG (optional)
         graph_screenshot_paths: List of paths to individual graph PNGs (optional)
         to_recipients: Semicolon-separated To addresses
@@ -640,6 +608,12 @@ def generate_update_email_msg(
         signer_mobile: Mobile phone for signature (optional, office is hardcoded)
         logo_path: Path to Westland logo PNG for signature (defaults to
                    references/westland-logo.png)
+        from_address: Sender address (accepted for editorial_to_kwargs compat;
+                      not applied to the COM MailItem — Outlook uses the
+                      default account).
+        salutation: Closing salutation line (e.g. 'Thanks,')
+        prev_days_behind: Previous week's days_behind for strikethrough badge
+        prev_gain_loss: Previous week's gain_loss for strikethrough badge
 
     Returns:
         The output_path identifier.
@@ -686,7 +660,6 @@ def generate_update_email_msg(
         key_items=key_items,
         include_compliance_report=include_compliance_report,
         include_procurement_sheets=include_procurement_sheets,
-        custom_paragraphs=custom_paragraphs,
         has_summary_screenshot=has_summary,
         graph_cid_names=[cid for _, cid in graph_images],
         smartpm_project_url=smartpm_project_url,
@@ -695,7 +668,7 @@ def generate_update_email_msg(
         signer_title=signer_title,
         signer_mobile=signer_mobile,
         has_logo=has_logo,
-        closing_line=closing_line,
+        closing_paragraphs_html=closing_paragraphs_html,
         salutation=salutation,
         prev_days_behind=prev_days_behind,
         prev_gain_loss=prev_gain_loss,

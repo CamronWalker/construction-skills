@@ -178,14 +178,13 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
     last_items = list(last_week_items or [])
 
     # Normalized echo of last week — pass-through copy preserving each row's
-    # text/checked/status/date_archived. This is what gets written to
+    # text/checked/status. This is what gets written to
     # this week's seed under `last_week.<list>`.
     last_week_baseline = [
         {
             'text': (it.get('text') or ''),
             'checked': bool(it.get('checked', True)),
             'status': it.get('status', 'active'),
-            'date_archived': it.get('date_archived', '') or '',
         }
         for it in last_items
     ]
@@ -224,27 +223,28 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
                     'text': text,
                     'checked': True,
                     'status': 'new',
-                    'date_archived': '',
                     'prev_idx': None,
                 })
             else:
-                matched.append({
+                row = {
                     'text': text,
                     'checked': True,
                     'status': 'active',
-                    'date_archived': '',
                     'prev_idx': best_idx,
-                })
+                }
+                prev_text = (last_items[best_idx].get('text') or '').strip()
+                if text != prev_text:
+                    row['edited'] = True
+                matched.append(row)
         else:
             matched.append({
                 'text': text,
                 'checked': True,
                 'status': 'new',
-                'date_archived': '',
                 'prev_idx': None,
             })
 
-    # --- Drop phase: last-week items Claude didn't include ---------
+    # --- Drop phase: last-week items Claude didn't include (v2 lifecycle) ---
     dropped = []
     for i, it in enumerate(last_items):
         if i in used:
@@ -254,162 +254,232 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
             continue
         prev_status = it.get('status', 'active')
 
+        # v2: only 'active' or 'new' last week → 'removed' this week. Anything
+        # already 'removed' last week drops entirely (no archived pile for
+        # the four primary lists). 'archived' shouldn't appear here (it's
+        # isolated to key_items_archived in v2) — treat defensively as drop.
         if prev_status in ('active', 'new'):
-            new_status = 'removed'
-            new_checked = False
-            new_archived = ''
-        elif prev_status == 'removed':
-            new_status = 'archived'
-            new_checked = False
-            new_archived = today_iso
-        elif prev_status == 'archived':
-            new_status = 'archived'
-            new_checked = False
-            new_archived = it.get('date_archived', today_iso)
-        else:
-            new_status = 'active'
-            new_checked = bool(it.get('checked', True))
-            new_archived = ''
-
-        # 90-day prune
-        if (new_status == 'archived'
-                and _too_old(new_archived, today, max_archived_days)):
-            continue
-
-        dropped.append({
-            'text': prev_text,
-            'checked': new_checked,
-            'status': new_status,
-            'date_archived': new_archived,
-            'prev_idx': i,
-        })
+            dropped.append({
+                'text': prev_text,
+                'checked': False,
+                'status': 'removed',
+                'prev_idx': i,
+            })
+        # else: drop. Do not append.
 
     this_week_rows = matched + dropped
     return this_week_rows, last_week_baseline
 
 
-def transition_items(last_week_items, new_texts=None, today_iso=None,
-                     max_archived_days=MAX_ARCHIVED_DAYS):
-    """Apply week-over-week state transitions.
+def reconcile_key_items(last_week_key_items, last_week_key_items_archived,
+                        this_week_texts, today_iso=None,
+                        similarity_threshold=0.6,
+                        max_archived_days=MAX_ARCHIVED_DAYS):
+    """v2 key_items reconciliation — splits output into active + archived.
+
+    Unlike `reconcile_items`, key_items maintains an archived pile in a
+    separate sibling list (`key_items_archived`) for delay-claim evidence.
+    Archived rows older than `max_archived_days` drop entirely.
 
     Args:
-        last_week_items: list of dicts {text, checked, status, date_archived}
-                         from last week's `email-draft.json`
-                         (e.g. `last_draft['this_week']['red_flags']`).
-        new_texts: list of plain strings — items discovered this week that
-                   were not in last week's list. Each gets status='new'.
-        today_iso: 'YYYY-MM-DD'. Used as date_archived when transitioning
-                   removed -> archived. Defaults to today.
-        max_archived_days: archived items older than this many days are
-                           pruned from the result (default 90).
+        last_week_key_items: prior week's `this_week.key_items` rows
+            (active/new/removed status).
+        last_week_key_items_archived: prior week's
+            `this_week.key_items_archived` rows (archived status,
+            with `date_archived`).
+        this_week_texts: HTML strings Claude wrote for this update's
+            key items.
+        today_iso: 'YYYY-MM-DD' for transitions & pruning.
+        similarity_threshold: fuzzy-match cutoff.
+        max_archived_days: prune archived items older than this.
 
     Returns:
-        list of dicts ready for the seed's `this_week.<list>` slot.
+        (this_week_rows, this_week_archived_rows, last_week_baseline):
+            - this_week_rows: active/new/removed for seed.this_week.key_items.
+              Carries `prev_idx`, optional `edited`.
+            - this_week_archived_rows: archived for
+              seed.this_week.key_items_archived. Each row has
+              `date_archived` set.
+            - last_week_baseline: pass-through copy of last_week_key_items
+              (active key_items only) for seed.last_week.key_items.
+
+    Lifecycle:
+        active/new in last_week.key_items → matched this week: active.
+                                          → unmatched this week: removed.
+        removed in last_week.key_items   → unmatched: archived (date_archived=today).
+        archived in last_week.key_items_archived
+                                        → matched this week: new (resurrection).
+                                        → unmatched: stays archived (original date).
+                                        → past max_archived_days: dropped.
     """
     if today_iso is None:
         today_iso = date.today().isoformat()
     today = date.fromisoformat(today_iso)
 
-    result = []
-    for item in last_week_items or []:
-        status = item.get('status', 'active')
-        checked = bool(item.get('checked', True))
-        new_item = {
-            'text': item.get('text', ''),
-            'checked': True,
-            'status': 'active',
-            'date_archived': '',
+    last_active = list(last_week_key_items or [])
+    last_archived = list(last_week_key_items_archived or [])
+
+    last_week_baseline = [
+        {
+            'text': (it.get('text') or ''),
+            'checked': bool(it.get('checked', True)),
+            'status': it.get('status', 'active'),
         }
+        for it in last_active
+    ]
 
-        if status == 'new':
-            new_item['status'] = 'active' if checked else 'removed'
-            new_item['checked'] = bool(checked)
-        elif status == 'active':
-            new_item['status'] = 'active' if checked else 'removed'
-            new_item['checked'] = bool(checked)
-        elif status == 'removed':
-            if checked:
-                new_item['status'] = 'active'
-                new_item['checked'] = True
-            else:
-                new_item['status'] = 'archived'
-                new_item['checked'] = False
-                new_item['date_archived'] = today_iso
-        elif status == 'archived':
-            if checked:
-                new_item['status'] = 'active'
-                new_item['checked'] = True
-            else:
-                new_item['status'] = 'archived'
-                new_item['checked'] = False
-                new_item['date_archived'] = item.get('date_archived', today_iso)
+    # Build combined search space for fuzzy matching: active items first,
+    # then archived. Track which list each index belongs to.
+    search = [(i, 'active', it) for i, it in enumerate(last_active)] + \
+             [(i, 'archived', it) for i, it in enumerate(last_archived)]
+    used_active = set()
+    used_archived = set()
+
+    matched = []
+    for raw in (this_week_texts or []):
+        text = (raw or '').strip()
+        if not text:
+            continue
+        best = None  # (ratio, idx_in_search)
+        for s_idx, (orig_idx, kind, it) in enumerate(search):
+            if kind == 'active' and orig_idx in used_active:
+                continue
+            if kind == 'archived' and orig_idx in used_archived:
+                continue
+            prev_text = (it.get('text') or '').strip()
+            if not prev_text:
+                continue
+            if prev_text == text:
+                best = (1.0, s_idx)
+                break
+            r = _similarity(prev_text, text)
+            if best is None or r > best[0]:
+                best = (r, s_idx)
+
+        if best is not None and best[0] >= similarity_threshold:
+            orig_idx, kind, it = search[best[1]]
+            prev_text = (it.get('text') or '').strip()
+            if kind == 'active':
+                used_active.add(orig_idx)
+                prev_status = it.get('status', 'active')
+                if prev_status in ('removed',):
+                    matched.append({
+                        'text': text,
+                        'checked': True,
+                        'status': 'new',
+                        'prev_idx': None,
+                    })
+                else:
+                    row = {
+                        'text': text,
+                        'checked': True,
+                        'status': 'active',
+                        'prev_idx': orig_idx,
+                    }
+                    if text != prev_text:
+                        row['edited'] = True
+                    matched.append(row)
+            else:  # kind == 'archived' — resurrection
+                used_archived.add(orig_idx)
+                matched.append({
+                    'text': text,
+                    'checked': True,
+                    'status': 'new',
+                    'prev_idx': None,
+                })
         else:
-            new_item['status'] = 'active'
-            new_item['checked'] = bool(checked)
+            matched.append({
+                'text': text,
+                'checked': True,
+                'status': 'new',
+                'prev_idx': None,
+            })
 
-        # 90-day prune: archived items past max age drop out entirely
-        if (new_item['status'] == 'archived'
-                and _too_old(new_item.get('date_archived'),
-                             today, max_archived_days)):
+    # Drop phase for active items: unmatched last-week active/new → 'removed' this week.
+    dropped_active = []
+    new_archived = []
+    for i, it in enumerate(last_active):
+        if i in used_active:
             continue
-
-        result.append(new_item)
-
-    # Append newly discovered items
-    existing_texts = {
-        (r['text'] or '').strip().lower() for r in result if r.get('text')
-    }
-    for text in (new_texts or []):
-        key = (text or '').strip().lower()
-        if not key or key in existing_texts:
+        prev_text = (it.get('text') or '').strip()
+        if not prev_text:
             continue
-        result.append({
-            'text': text,
-            'checked': True,
-            'status': 'new',
-            'date_archived': '',
+        prev_status = it.get('status', 'active')
+        if prev_status in ('active', 'new'):
+            dropped_active.append({
+                'text': prev_text,
+                'checked': False,
+                'status': 'removed',
+                'prev_idx': i,
+            })
+        elif prev_status == 'removed':
+            # removed last week, still gone this week → archive now
+            new_archived.append({
+                'text': prev_text,
+                'checked': False,
+                'status': 'archived',
+                'date_archived': today_iso,
+                'prev_idx': i,
+            })
+
+    # Drop phase for archived items: unmatched archives stay archived
+    # (original date), prune anything older than max_archived_days.
+    for i, it in enumerate(last_archived):
+        if i in used_archived:
+            continue
+        prev_text = (it.get('text') or '').strip()
+        if not prev_text:
+            continue
+        date_archived = it.get('date_archived', today_iso) or today_iso
+        if _too_old(date_archived, today, max_archived_days):
+            continue
+        new_archived.append({
+            'text': prev_text,
+            'checked': False,
+            'status': 'archived',
+            'date_archived': date_archived,
+            # prev_idx for archived rows references the archived baseline,
+            # which is its own list — leave None to avoid ambiguity. The
+            # editor uses date_archived to render the row, not prev_idx.
+            'prev_idx': None,
         })
-        existing_texts.add(key)
 
-    return result
+    this_week_rows = matched + dropped_active
+    return this_week_rows, new_archived, last_week_baseline
 
 
 def transition_attachments(last_week_attachments, fresh_filenames=None,
-                           today_iso=None,
-                           max_archived_days=MAX_ARCHIVED_DAYS):
-    """Match this week's freshly-globbed filenames against last week's
-    tracked attachments by DATE-STRIPPED name. Files that are just
-    last week's template with an updated date carry forward as
-    `status='active'` (the filename is UPDATED to the current week's
-    version). Only attachments that normalize to a brand-new key become
-    `status='new'`.
+                           today_iso=None):
+    """v2 attachment reconciliation.
 
-    Unmatched last-week items (Claude/globs dropped them) transition:
-        active/new -> removed
-        removed    -> archived (date_archived = today)
-        archived   -> archived (original date preserved, 90-day prune)
+    Match fresh-globbed filenames against last week's attachments by
+    date-stripped fuzzy name. Files that re-appear week-over-week
+    (only the date token changed) carry forward as `status='active'`
+    with the FRESH filename. Files only in fresh become `status='new'`.
+
+    Unmatched last-week items (Claude/glob dropped them) transition:
+        active/new → removed
+        removed   → drop entirely (no archived pile for attachments)
 
     Args:
         last_week_attachments: list of dicts from last week's
-            `email-draft.json` (`last_draft['this_week']['attachments']`).
-        fresh_filenames: this week's freshly-resolved filenames (from
-            project-context.md globs matched against the dated folder).
-        today_iso: 'YYYY-MM-DD' for transitions & pruning (defaults to today).
-        max_archived_days: drop archives older than this (default 90).
+            email-draft.json (`last_draft['this_week']['attachments']`).
+            Expected v2 fields: name, ext (optional), checked, procore,
+            status, prev_idx.
+        fresh_filenames: this week's freshly-resolved basename strings.
+        today_iso: 'YYYY-MM-DD' for transitions (defaults to today).
 
     Returns:
-        list of {filename, checked, status, date_archived, share_to_procore}
-        dicts ready for the seed's `this_week.attachments` slot.
+        list of {name, ext, checked, procore, status, prev_idx} dicts
+        ready for seed.this_week.attachments.
     """
     if today_iso is None:
         today_iso = date.today().isoformat()
-    today = date.fromisoformat(today_iso)
 
     last_items = list(last_week_attachments or [])
-    # Normalized-name index into last_items. First occurrence wins.
     norm_index = {}
     for i, a in enumerate(last_items):
-        norm = _normalize_attachment_name(a.get('filename', ''))
+        norm = _normalize_attachment_name(a.get('name', '') or a.get('filename', ''))
         if norm:
             norm_index.setdefault(norm, i)
 
@@ -421,88 +491,82 @@ def transition_attachments(last_week_attachments, fresh_filenames=None,
         if not fn:
             continue
         norm = _normalize_attachment_name(fn)
+        ext = _ext_of(fn)
         if norm and norm in norm_index and norm_index[norm] not in used:
             i = norm_index[norm]
             used.add(i)
             last_a = last_items[i]
             last_status = last_a.get('status', 'active')
-            last_checked = bool(last_a.get('checked', True))
 
-            if last_status in ('active', 'new'):
-                status = 'active'
-                checked = True
-            elif last_status == 'removed':
-                # It's back in the fresh glob set — treat as restored.
-                # If the user had it checked = True last week too (a revert),
-                # keep it active; if unchecked, they explicitly removed it
-                # and the glob re-adding it looks odd, but active is safer.
-                status = 'active'
-                checked = True
-            elif last_status == 'archived':
-                # Coming back from the archive — call it new so the user
-                # sees it as a fresh addition this update.
-                status = 'new'
-                checked = True
+            if last_status in ('active', 'new', 'removed'):
+                # Restoration / continuation — call it active.
+                row = {
+                    'name': fn,
+                    'checked': True,
+                    'status': 'active',
+                    'procore': bool(last_a.get('procore',
+                                                last_a.get('share_to_procore', False))),
+                    'prev_idx': i,
+                }
+                if ext:
+                    row['ext'] = ext
+                result.append(row)
             else:
-                status = 'active'
-                checked = True
-
-            # NEW — share_to_procore preserved from last week
-            share_to_procore = bool(last_a.get('share_to_procore', False))
-
-            result.append({
-                'filename': fn,  # fresh filename — carries this week's date
-                'checked': checked,
-                'status': status,
-                'date_archived': '',
-                'share_to_procore': share_to_procore,   # NEW
-            })
+                # Defensive: unknown status, treat as new.
+                row = {
+                    'name': fn,
+                    'checked': True,
+                    'status': 'new',
+                    'procore': _bootstrap_share_to_procore(fn),
+                    'prev_idx': None,
+                }
+                if ext:
+                    row['ext'] = ext
+                result.append(row)
         else:
-            # No match → genuinely new attachment; bootstrap from filename
-            result.append({
-                'filename': fn,
+            row = {
+                'name': fn,
                 'checked': True,
                 'status': 'new',
-                'date_archived': '',
-                'share_to_procore': _bootstrap_share_to_procore(fn),   # NEW
-            })
+                'procore': _bootstrap_share_to_procore(fn),
+                'prev_idx': None,
+            }
+            if ext:
+                row['ext'] = ext
+            result.append(row)
 
     # --- Drop phase: last-week items not matched this week -------------
     for i, a in enumerate(last_items):
         if i in used:
             continue
         last_status = a.get('status', 'active')
-        last_checked = bool(a.get('checked', True))
-        # NEW — preserve share_to_procore on dropped items too
-        share_to_procore = bool(a.get('share_to_procore', False))
+        name = a.get('name', '') or a.get('filename', '')
+        if not name:
+            continue
+        ext = a.get('ext') or _ext_of(name)
 
         if last_status in ('active', 'new'):
-            new_status = 'removed'
-            new_checked = False
-            new_archived = ''
-        elif last_status == 'removed':
-            new_status = 'archived'
-            new_checked = False
-            new_archived = today_iso
-        elif last_status == 'archived':
-            new_status = 'archived'
-            new_checked = False
-            new_archived = a.get('date_archived', today_iso)
-        else:
-            new_status = 'active'
-            new_checked = last_checked
-            new_archived = ''
-
-        if (new_status == 'archived'
-                and _too_old(new_archived, today, max_archived_days)):
-            continue
-
-        result.append({
-            'filename': a.get('filename', ''),
-            'checked': new_checked,
-            'status': new_status,
-            'date_archived': new_archived,
-            'share_to_procore': share_to_procore,   # NEW
-        })
+            row = {
+                'name': name,
+                'checked': False,
+                'status': 'removed',
+                'procore': bool(a.get('procore',
+                                       a.get('share_to_procore', False))),
+                'prev_idx': i,
+            }
+            if ext:
+                row['ext'] = ext
+            result.append(row)
+        # else: drop entirely (no archived pile for attachments in v2).
 
     return result
+
+
+def _ext_of(filename):
+    """Return lowercase extension without dot, or '' if no extension."""
+    if not filename:
+        return ''
+    base = filename.rsplit('/', 1)[-1].rsplit('\\', 1)[-1]
+    if '.' not in base:
+        return ''
+    return base.rsplit('.', 1)[-1].lower()

@@ -1,36 +1,38 @@
 # _carry_forward — week-over-week state propagation
 
-> **Internal reference** (underscore-prefix). Loaded by `draft.md` and `report.md`.
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `_carry_forward` phase; any divergence from it is a bug.
+> **Internal reference** (underscore-prefix). Loaded by `draft.md` and `report.md` (called as an internal dependency from another phase).
 
 ## Function signatures (inline)
 
 ```python
-# carry_forward.transition_items(last_week_items, new_texts=None,
-#                                today_iso=None, max_archived_days=90)
-#     -> list of {text, checked, status, date_archived}
+# carry_forward.reconcile_items(last_week_items, this_week_texts,
+#                               today_iso=None, similarity_threshold=0.6)
+#     -> (this_week_rows, last_week_baseline)
 #
-# Apply git-diff state transitions to list items (red_flags, successes,
-# stalled_tasks, key_items). 90-day prune drops stale archives.
+# v2: rows are {text, status, checked, edited(optional), prev_idx}.
+# No date_archived. Status lifecycle: active → removed → dropped (no
+# archived pile in these four lists).
+
+# carry_forward.reconcile_key_items(last_week_key_items,
+#                                   last_week_key_items_archived,
+#                                   this_week_texts, today_iso=None,
+#                                   similarity_threshold=0.6,
+#                                   max_archived_days=90)
+#     -> (this_week_rows, this_week_archived_rows, last_week_baseline)
+#
+# v2-only: key_items has a sibling key_items_archived list. Lifecycle
+# active → removed → archived (1 week later) → archived for 90 days →
+# dropped. Resurrection counts as 'new'.
 
 # carry_forward.transition_attachments(last_week_attachments,
 #                                      fresh_filenames=None,
-#                                      today_iso=None, max_archived_days=90)
-#     -> list of {filename, checked, status, date_archived, share_to_procore}
+#                                      today_iso=None)
+#     -> list of {name, ext(optional), checked, procore, status, prev_idx}
 #
-# Date-stripped fuzzy match against last week. Preserves share_to_procore
-# verbatim. Bootstrap rule for new attachments: True for *View* / *Update
-# Request*.xlsm, False otherwise. See _attachments.md for details.
-
-# carry_forward.reconcile_items(last_week_items, this_week_texts,
-#                               today_iso=None, similarity_threshold=0.6,
-#                               max_archived_days=90)
-#     -> (this_week_rows, last_week_baseline)
-#
-# Fuzzy-matches this week's HTML strings against last week's tracked items.
-# Each this_week_row carries prev_idx (int | null pointing into the
-# returned last_week_baseline) instead of a denormalized previous_text.
-# last_week_baseline is a normalized pass-through of last_week_items —
-# write it into the seed under `last_week.<list>`.
+# v2: name (not filename), procore (not share_to_procore), optional ext.
+# No date_archived; no archived state. Lifecycle is
+# active → removed → dropped.
 ```
 
 ## Last week's draft — what to pull
@@ -55,35 +57,51 @@ else:
 
 If no prior `{prev_date}-email.json` exists, treat as "first update" and skip carry-forward — `last_week` in the new seed becomes `null`.
 
-The top-level JSON shape is canonical in scheduling/CLAUDE.md "Email JSON shape — single source of truth". Inside `this_week`, list items are dicts (`{text, checked, status, date_archived, prev_idx}`) and item `text` is HTML.
+The top-level JSON shape is canonical in scheduling/CLAUDE.md "Email JSON shape — single source of truth". Inside `this_week`, list items are dicts (`{text, checked, status, prev_idx}`) and item `text` is HTML.
 
 Pull the carry-forward values from `last`:
 
 | Field on `last` (this_week dict) | Pass to seed as | Purpose |
 |---|---|---|
-| `last['days_behind']`, `last['gain_loss']` | seed.last_week.days_behind / .gain_loss | week-over-week strikethrough on the metric lines |
-| `last['gain_loss_narrative']`, `last['eot_recovery']`, `last['logic_changes']` | seed.last_week.<field> | inline narrative diff in the editor |
-| `last['successes']`, `last['red_flags']`, `last['stalled_tasks']`, `last['key_items']` | through `reconcile_items()` → seed.this_week.<list> + seed.last_week.<list> | per-item state transitions + prev_idx |
-| `last['attachments']` | through `transition_attachments()` → seed.this_week.attachments | file carry-forward + Procore preservation |
-| `last['custom_paragraphs']` | seed.this_week.custom_paragraphs verbatim | closing paragraphs (no diff semantics) |
-| `last['changes_report']['include']` | seed.this_week.changes_report.include default | changelog PDF toggle |
+| `last['days_metric']`, `last['gain_loss']` | seed.last_week.days_metric / .gain_loss verbatim | week-over-week strikethrough on the metric lines |
+| `last['gain_loss']['narrative']`, `last['eot_recovery']`, `last['logic_changes']` | seed.last_week.<field> | inline narrative diff in the editor |
+| `last['successes']`, `last['red_flags']`, `last['stalled_tasks']` | through `reconcile_items()` → seed.this_week.<list> + seed.last_week.<list> | per-item state transitions + prev_idx |
+| `last['key_items']`, `last['key_items_archived']` | through `reconcile_key_items()` → seed.this_week.key_items + seed.this_week.key_items_archived + seed.last_week.key_items | key_items + archived sibling reconciliation |
+| `last['attachments']` | through `transition_attachments()` → seed.this_week.attachments | file carry-forward + procore preservation |
+| `last['closing_paragraphs']` | seed.this_week.closing_paragraphs verbatim | closing paragraphs (no diff semantics) |
+| `last['include_changes_report']`, `last['changes_report_filename']` | seed.this_week.include_changes_report / .changes_report_filename default | changelog PDF toggle |
 | `last['skip_procore']` | seed.this_week.skip_procore default | inherit master Procore-skip toggle |
-| `last['closing_line']`, `last['salutation']` | seed.this_week.<field> default | preserve colleague's last edits |
+| `last['closing_salutation']` | seed.this_week.closing_salutation default | preserve colleague's last edit |
 
 ## Reconciliation recipe
 
-For list items (red_flags / successes / stalled_tasks / key_items):
+For list items (red_flags / successes / stalled_tasks):
 
 ```python
 from carry_forward import reconcile_items
 
 red_flags_this_week, red_flags_last_week = reconcile_items(
     last['red_flags'],
-    this_week_red_flag_html_strings,   # HTML strings Claude wrote
+    this_week_red_flag_html_strings,
     today_iso=today_iso,
 )
-# Use red_flags_this_week for seed.this_week.red_flags.
-# Use red_flags_last_week for seed.last_week.red_flags.
+```
+
+For key_items (note the two-input + three-output signature):
+
+```python
+from carry_forward import reconcile_key_items
+
+key_items_rows, key_items_archived_rows, key_items_baseline = reconcile_key_items(
+    last['key_items'],
+    last['key_items_archived'],
+    this_week_key_item_html_strings,
+    today_iso=today_iso,
+)
+# Use:
+#   key_items_rows           → seed.this_week.key_items
+#   key_items_archived_rows  → seed.this_week.key_items_archived
+#   key_items_baseline       → seed.last_week.key_items (active only)
 ```
 
 For attachments:
@@ -109,22 +127,26 @@ The reconciled lists go into the seed JSON that `phases/draft.md` passes to the 
 
 ```python
 seed_this_week = {
-    **last,            # carry forward everything from last_week verbatim
+    **last,
     'subject':       this_week_subject,
-    'days_behind':   this_week_days_behind,
-    'gain_loss':     this_week_gain_loss,
-    'gain_loss_narrative': this_week_narratives['gain_loss_narrative'],
+    'days_metric':   {'direction': 'behind' if days_behind_int >= 0 else 'ahead',
+                      'value': abs(days_behind_int)},
+    'gain_loss':     {'direction': 'gain' if gl_int >= 0 else 'loss',
+                      'value': abs(gl_int),
+                      'narrative': this_week_narratives['gain_loss_narrative'],
+                      'narrative_changed': narrative_changed_flag},
     'eot_recovery':        this_week_narratives['eot_recovery'],
     'logic_changes':       this_week_narratives['logic_changes'],
-    'successes':     successes_this_week,    # from reconcile_items
-    'red_flags':     red_flags_this_week,
-    'stalled_tasks': stalled_this_week,
-    'key_items':     key_items_this_week,
-    'attachments':   attachments_new,
+    'successes':           successes_this_week,
+    'red_flags':           red_flags_this_week,
+    'stalled_tasks':       stalled_this_week,
+    'key_items':           key_items_rows,
+    'key_items_archived':  key_items_archived_rows,
+    'attachments':         attachments_new,
 }
 ```
 
-`last_week` in the seed is the prior week's `this_week` verbatim — the cloud editor uses it for diff overlays and the .eml builder reads `last_week.days_behind` / `last_week.gain_loss` for strikethrough-previous-metric badges.
+`last_week` in the seed is the prior week's `this_week` verbatim — the cloud editor uses it for diff overlays and the .eml builder reads `last_week.days_metric` / `last_week.gain_loss` for strikethrough-previous-metric badges.
 
 ## Changed narrative fields
 
@@ -132,8 +154,12 @@ Diff each narrative against last week's value (trim + case-insensitive compare).
 
 ```python
 changed_narrative_fields = set()
-for field in ('gain_loss_narrative', 'eot_recovery', 'logic_changes'):
-    if (this_week_narratives[field] or '').strip().lower() != (last[field] or '').strip().lower():
+prev_gl_narrative = ((last.get('gain_loss') or {}).get('narrative') or '').strip().lower()
+this_gl_narrative = (this_week_narratives['gain_loss_narrative'] or '').strip().lower()
+if prev_gl_narrative != this_gl_narrative:
+    changed_narrative_fields.add('gain_loss_narrative')
+for field in ('eot_recovery', 'logic_changes'):
+    if (this_week_narratives[field] or '').strip().lower() != (last.get(field) or '').strip().lower():
         changed_narrative_fields.add(field)
 ```
 

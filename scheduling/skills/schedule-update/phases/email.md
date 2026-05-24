@@ -1,5 +1,6 @@
 # Phase: `email` — Build the .eml from the finalized draft
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `email` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update email`.
 > Requires `phases/draft.md` to have already produced `{dated_folder}/{YYYY-MM-DD}-email.json`.
 
@@ -24,7 +25,7 @@ from email_draft_io import load_draft
 draft = load_draft(dated_folder + f'/{report_date_iso}-email.json')
 ```
 
-`draft` has the top-level shape canonical to scheduling/CLAUDE.md: `version`, `report_date`, `project_info`, `this_week`, `last_week` (or null), `smartpm`, `graphs`.
+`draft` has the v2 top-level shape (see scheduling/CLAUDE.md "Email JSON shape"): `version: 2`, `report_date`, `project_info`, `this_week` (with v2 field names — recipients arrays, days_metric/gain_loss objects, closing_paragraphs, attachments name/procore), `last_week` (or null), `graphs`.
 
 ### 2. Build the .eml
 
@@ -43,7 +44,7 @@ eml_path = generate_email_from_draft(
 This orchestrator does three things end-to-end:
 - Renders the stacked-graphs PNG into `{dated_folder}/screenshots/{job_number}-{report_date}-all-graphs-stacked.png` via the renderer agent's `html_to_png.cjs`.
 - Resolves `this_week.attachments` filenames against `dated_folder` (skipping files that aren't on disk).
-- Calls the existing `generate_update_email_eml` with the resolved kwargs (including `prev_days_behind` / `prev_gain_loss` from `last_week` when present, and `closing_line` / `salutation` from `this_week`), `summary_screenshot_path=<stacked PNG>` and `graph_screenshot_paths=[]`.
+- Calls the existing `generate_update_email_eml` with the resolved kwargs produced by `editorial_to_kwargs()` (including `prev_days_behind` / `prev_gain_loss` from `last_week` when present, and `closing_paragraphs_html` / `salutation` flattened from v2's `closing_paragraphs` / `closing_salutation`), `summary_screenshot_path=<stacked PNG>` and `graph_screenshot_paths=[]`.
 
 All charts are embedded as one stacked PNG; per-chart artifacts are not used in the `.eml` body.
 
@@ -68,7 +69,7 @@ Double-click `eml_path`. Outlook should open in compose mode with To/Cc/Subject 
 ## What this phase explicitly does NOT do
 
 - Edit or compose the email content — that's done in the browser editor during `phases/draft.md`.
-- Upload to Procore — that's `phases/procore.md`. It reads `{YYYY-MM-DD}-email.json` directly for `this_week.skip_procore` + `this_week.attachments[].share_to_procore`.
+- Upload to Procore — that's `phases/procore.md`. It reads `{YYYY-MM-DD}-email.json` directly for `this_week.skip_procore` + `this_week.attachments[].procore`.
 - Render charts in isolation — the stacked PNG is the only chart artifact this phase touches.
 
 ## Cross-references

@@ -252,9 +252,7 @@ class CrossPathParityTests(unittest.TestCase):
             red_flags=SAMPLE_KW['red_flags'],
             stalled_tasks=SAMPLE_KW['stalled_tasks'],
             key_items=SAMPLE_KW['key_items'],
-            include_compliance_report=False,
-            include_procurement_sheets=False,
-            custom_paragraphs=None,
+            closing_paragraphs_html='',
             has_summary_screenshot=False,
             graph_cid_names=[],
             smartpm_project_url='',
@@ -334,6 +332,43 @@ class TestSubjectDateSuffix(unittest.TestCase):
         import re as _re
         self.assertRegex(subject, r'\d{4}-\d{2}-\d{2}\s*$',
                          f'Subject {subject!r} must end with YYYY-MM-DD')
+
+
+class BuildHtmlBodyV2Tests(unittest.TestCase):
+    """v2 _build_html_body uses closing_paragraphs_html kwarg, no longer
+    accepts closing_line / custom_paragraphs."""
+
+    def _common_kwargs(self):
+        return dict(
+            project_info={
+                'project_name': 'Test', 'job_number': 'G0000',
+                'contractual_completion': 'TBD', 'projected_completion': 'TBD',
+            },
+            days_behind=0, gain_loss=0,
+            successes=[], red_flags=[], stalled_tasks=[], key_items=[],
+            gain_loss_narrative='', eot_recovery='', logic_changes='',
+            smartpm_changelog_url='',
+            salutation='Thanks,',
+            signer_name='Camron', signer_title='Scheduler', signer_mobile='555-0100',
+            smartpm_project_url='', smartpm_trends_url='',
+        )
+
+    def test_closing_paragraphs_html_renders_verbatim(self):
+        from generate_email_msg import _build_html_body
+        kwargs = self._common_kwargs()
+        kwargs['closing_paragraphs_html'] = '<div>Please ask questions.</div><div>Owner directive applied.</div>'
+        html = _build_html_body(**kwargs)
+        self.assertIn('Please ask questions.', html)
+        self.assertIn('Owner directive applied.', html)
+
+    def test_no_closing_line_kwarg_required(self):
+        """The signature must not require closing_line."""
+        from generate_email_msg import _build_html_body
+        kwargs = self._common_kwargs()
+        kwargs['closing_paragraphs_html'] = ''
+        # If closing_line were still required, this raises TypeError.
+        html = _build_html_body(**kwargs)
+        self.assertIsInstance(html, str)
 
 
 if __name__ == '__main__':

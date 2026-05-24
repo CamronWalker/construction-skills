@@ -1,5 +1,6 @@
 # Phase: `copy` — Pre-Meeting Folder Setup
 
+> **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `copy` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update copy`.
 
 Creates a new dated folder for today's schedule update.
