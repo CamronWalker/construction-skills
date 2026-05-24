@@ -8,9 +8,9 @@ Publishes three artifacts to Procore in one step:
 
 1. **XER → Schedule tool** (parsed into the live schedule).
 2. **Dated `YYYY-MM-DD` folder → Documents tool** (created under the project's configured documents folder).
-3. **Selected attachments → dated folder** (the `share_to_procore`-tagged subset, verified by listing, with one retry on failure).
+3. **Selected attachments → dated folder** (the `procore`-tagged subset, verified by listing, with one retry on failure).
 
-All Procore work uses MCP tools called directly by Claude. There is no Python orchestrator. The bootstrap rule for `share_to_procore` defaults lives in `carry_forward.transition_attachments` — see `_attachments.md`.
+All Procore work uses MCP tools called directly by Claude. There is no Python orchestrator. The bootstrap rule for `procore` defaults lives in `carry_forward.transition_attachments` — see `_attachments.md`.
 
 ## Skip conditions
 
@@ -163,7 +163,7 @@ Filter the parsed attachments:
 ```python
 candidates = [
     a for a in parsed['attachments']
-    if a.get('share_to_procore') and a.get('checked')
+    if a.get('procore') and a.get('checked')
        and a.get('status') != 'archived'
 ]
 ```
@@ -172,9 +172,9 @@ Resolve each filename to an absolute path the same way the parser does — relat
 
 ```python
 import os
-def resolve(filename, dated_folder):
-    return filename if os.path.isabs(filename) else os.path.normpath(
-        os.path.join(dated_folder, filename)
+def resolve(name, dated_folder):
+    return name if os.path.isabs(name) else os.path.normpath(
+        os.path.join(dated_folder, name)
     )
 ```
 
@@ -182,7 +182,7 @@ For each candidate, run the verify-and-retry loop:
 
 ```
 for a in candidates:
-    upload_path = resolve(a['filename'], dated_folder)
+    upload_path = resolve(a['name'], dated_folder)
     upload_basename = os.path.basename(upload_path)
 
     # Pre-check: already uploaded? (idempotent retry on same day)
@@ -243,5 +243,5 @@ If any line is `failed:` or `skipped:`, end with:
 
 - Read `email_draft_io.py`, `parse_project_context_html.py`, `generate_*.py`, or the project-context HTML directly. Use the documented function signatures only.
 - Re-prompt for IDs already in `project-context.html`. The whole point of the write-back is that subsequent runs are silent.
-- Upload `share_to_procore: false` attachments. The folder is public; explicit opt-in is the safety net.
-- Upload the SmartPM Summary screenshot or any other file outside the user's curated `share_to_procore` set.
+- Upload `procore: false` attachments. The folder is public; explicit opt-in is the safety net.
+- Upload the SmartPM Summary screenshot or any other file outside the user's curated `procore` set.
