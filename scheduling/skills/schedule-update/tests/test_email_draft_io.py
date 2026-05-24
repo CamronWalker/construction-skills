@@ -21,7 +21,7 @@ SAMPLE_DRAFT_PATH = FIXTURES_DIR / 'email-draft-sample.json'
 class LoadDraftTests(unittest.TestCase):
     def test_load_draft_returns_parsed_dict(self):
         draft = email_draft_io.load_draft(str(SAMPLE_DRAFT_PATH))
-        self.assertEqual(draft['version'], 1)
+        self.assertEqual(draft['version'], 2)
         self.assertEqual(draft['report_date'], '2026-05-21')
         self.assertEqual(draft['project_info']['job_number'], 'G2203')
 
@@ -58,6 +58,33 @@ class LoadDraftTests(unittest.TestCase):
         try:
             draft = email_draft_io.load_draft(path)
             self.assertIsNone(draft['last_week'])
+        finally:
+            os.unlink(path)
+
+    def test_load_draft_raises_on_v1(self):
+        """v1 is no longer supported; the Worker rejects v1 seeds too."""
+        v1 = json.loads(SAMPLE_DRAFT_PATH.read_text())
+        v1['version'] = 1
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump(v1, f)
+            path = f.name
+        try:
+            with self.assertRaises(email_draft_io.DraftError) as ctx:
+                email_draft_io.load_draft(path)
+            self.assertIn('version', str(ctx.exception).lower())
+        finally:
+            os.unlink(path)
+
+    def test_load_draft_accepts_v2(self):
+        """v2 is the only supported version."""
+        v2 = json.loads(SAMPLE_DRAFT_PATH.read_text())
+        v2['version'] = 2
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump(v2, f)
+            path = f.name
+        try:
+            draft = email_draft_io.load_draft(path)
+            self.assertEqual(draft['version'], 2)
         finally:
             os.unlink(path)
 

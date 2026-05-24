@@ -41,7 +41,7 @@ import tempfile
 from pathlib import Path
 
 
-SUPPORTED_VERSIONS = {1}
+SUPPORTED_VERSIONS = {2}
 
 REQUIRED_TOP_LEVEL_KEYS = {'version', 'report_date', 'project_info', 'this_week'}
 
