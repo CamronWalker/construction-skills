@@ -22,7 +22,7 @@ Expose the toolbox's question-answering surface through MCP tools, so Claude int
 ## Non-goals
 
 - **Not replacing the scripts.** The `.py` files stay in the repo and stay importable for non-Claude callers (the `iterate.py` proposal-schedule loop, `schedule-update`'s report/draft phases, future automation). MCP is a *new entry point*, not a rewrite.
-- **Not wrapping the monolithic XER generator.** `build_from_raw_template.py` produces malformed XERs (current bug: imports fail intermittently into P6 and Procore) precisely *because* monolithic generation is brittle — one missing cross-reference and the file is rejected. The MCP takes a different path: ship a known-good skeleton template + populate it via `apply_xer_changes` (see § XER modification and generation). `build_from_raw_template.py` becomes deprecated after the compositional path proves itself on a real proposal schedule; not deleted until then.
+- **Not wrapping monolithic XER generation in v1.** `build_from_raw_template.py` is an in-progress attempt at "JSON spec → emit a full XER." It works partway but hits "are all these tables required, and which fields matter" complexity that's hard to answer in the abstract. The MCP v1 takes a compositional path instead — extract a skeleton from a known-good Westland XER + populate it via `apply_xer_changes` (see § XER modification and generation). This sidesteps the table-presence question by inheriting it from a working file. `build_from_raw_template.py` stays in `lib/` as-is; if a JSON-spec-in/XER-out tool earns its keep later, we revisit.
 - **Not a remote MCP.** Diagnosed failure is behavioral, not contract-correctness. A remote MCP would (a) make XER inputs awkward (multi-MB payloads), (b) require returning the new XER from `run_cpm` over the wire, (c) break the lessons-learned loop. Local MCP solves all three.
 
 ## Architecture
@@ -208,7 +208,7 @@ The MCP exposes a single polymorphic modification tool plus targeted helpers. Ev
 | `validate_xer_structure` | `xer_path` | `{ issues: [{ severity: "error"\|"warning"\|"info", category, message, affected: [...] }, ...], import_ready: bool }` — comprehensive file-integrity check. Catches duplicate activity IDs, duplicate predecessor-successor pairs, dangling references (predecessor/successor/calendar/WBS doesn't exist), negative durations, invalid dates, predecessor-type errors, status-code mismatches, orphaned WBS branches. Run for "will this import into P6/Procore." Does not duplicate `quality_checks` (those are schedule-health, not file-integrity). |
 | `fix_duplicate_activity_ids` | `xer_path`, `strategy?: "renumber"\|"report_only"\|"merge_consolidate"` (default `"renumber"`), `output_path?` | `{ output_path, duplicates_found: int, mapping: [{ original_id, new_id }, ...] }` — targeted fix for the single most common XER bug |
 | `apply_xer_changes` | `xer_path`, `changes: [...]` (typed records, see below), `output_path?`, `target_milestone_id?` | Rich shape — see § `apply_xer_changes` output below. Atomic: all changes validated upfront, no file written if any error. |
-| `create_xer_from_template` | `template_name` (one of `"westland-skeleton"`, future templates), `project_metadata: { project_name, project_id, planned_start, planned_data_date, ... }`, `output_path?` | `{ output_path, template_used, milestone_ids: { ntp, sc } }` — copies a known-good skeleton and sets project header. Skeleton ships in `scheduling/mcp-server/templates/` and is hand-validated against both P6 and Procore imports. |
+| `create_xer_from_template` | `template_name` (one of `"westland-skeleton-v1"`, future templates), `project_metadata: { project_name, project_id, planned_start, planned_data_date, ... }`, `output_path?` | `{ output_path, template_used, milestone_ids: { ntp, sc } }` — copies a skeleton extracted from a known-good Westland XER and sets the project header. Skeleton ships in `scheduling/mcp-server/templates/`; see § Skeleton extraction below. |
 | `invalidate_cache_for` | `xer_path` | `{ invalidated: bool }` — explicit cache busting; usually unnecessary because the size+mtime key catches every legitimate overwrite |
 
 #### `apply_xer_changes` — input change types
@@ -278,18 +278,29 @@ On validation failure: no file written, full error list returned in `summary.val
 
 **One CPM run** after all changes are applied. Per-change feedback is derived by diffing the cached pre-state against the new post-state — equivalent information to per-change CPM at 1/N the compute cost.
 
-#### How new-XER generation works (compositional, not monolithic)
+#### How new-XER generation works (compositional)
 
 The user-visible flow for "create a new schedule from scratch":
 
-1. `create_xer_from_template("westland-skeleton", { project_name, project_id, planned_start, ... })` → empty schedule with NTP and SC milestones, returns the new path.
+1. `create_xer_from_template("westland-skeleton-v1", { project_name, project_id, planned_start, ... })` → empty schedule with NTP and SC milestones, returns the new path.
 2. `apply_xer_changes` with a single big `changes` list containing all `add_activity` and `add_logic` records for the schedule.
 3. `score_schedule` + `validate_xer_structure` to check the result.
 4. Iterate as needed via additional `apply_xer_changes` calls.
 
-A 200-activity proposal schedule = one `create_xer_from_template` + one `apply_xer_changes` call with ~400-500 change records. Validation catches issues per-change with precise error messages. The skeleton template carries the P6/Procore boilerplate — no field is missing, no cross-reference is wrong, because the template was hand-crafted and tested.
+A 200-activity proposal schedule = one `create_xer_from_template` + one `apply_xer_changes` call with ~400-500 change records. Validation catches issues per-change with precise error messages. The skeleton carries the P6/Procore boilerplate empirically (it came from a working file), so no missing-table or missing-field issue can land.
 
-This replaces the monolithic `build_from_raw_template.py` for new MCP-driven workflows. The script stays in `lib/` until the compositional path has produced ≥3 successful proposal schedules; then it gets retired in a follow-up.
+#### Skeleton extraction
+
+The "are all XER tables required?" question is hard to answer abstractly — that's the same wall the in-progress monolithic generator hit. The MCP sidesteps it by inheriting the answer from a working file:
+
+1. **Source XER:** a recent Westland project XER known to import cleanly into both P6 and Procore (e.g. W1177 or Wellington Temple).
+2. **`make-skeleton.py` helper** (ships in `scheduling/mcp-server/templates/` alongside the skeleton output): strips all TASK rows, all TASKPRED rows, all TASKRSRC rows, all UDFVALUE rows referencing deleted activities. Keeps PROJECT header, all CALENDAR tables, PROJWBS (root + one level), default RSRC, ACTVTYPE / ACTVCODE definitions, project-level scheduling options. Optionally writes NTP and SC milestones with an FS relationship between them.
+3. **Manual verification:** the stripped file is imported into P6 and Procore once, by hand, to confirm clean import. Versioned as `westland-skeleton-v1.xer` with a sidecar `westland-skeleton-v1.source.txt` noting the source project.
+4. **Future updates:** if P6 schema evolves or Westland's coding conventions change, re-run `make-skeleton.py` against a fresh source and bump to `-v2`.
+
+This is more pragmatic than hand-crafting a skeleton. We never have to prove which tables matter — we just keep everything that was already in a working file.
+
+`build_from_raw_template.py` stays in `lib/` unchanged. If a fully-monolithic generator earns its keep later (e.g., for non-Westland-format consumers), it can be picked back up. For now, compositional is the v1 path.
 
 **Final tool count: 46** (43 narrow + 3 omnibus). The implementation plan tightens this — some narrow tools may merge if they share enough input/output shape, and the implementation phase may discover one or two missed questions.
 
@@ -401,6 +412,7 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
 | Milestone auto-detect bug propagates to scripts that don't get migrated in step 3 | Audit every call to `find_sc_milestone` (and similar) across the scheduling plugin. The pre-merge checklist explicitly verifies the SC-name heuristic is gone everywhere. |
 | Westland skeleton template fails to import into a future P6 or Procore version | Pre-merge smoke test imports the skeleton into both tools. Template is versioned (`westland-skeleton-v1.xer`, `westland-skeleton-v2.xer`); a `template_version` field in `create_xer_from_template` output makes regressions traceable. |
 | Compositional generation produces a schedule that imports but is operationally wrong (wrong WBS depth, missing required activity codes, etc.) | The first ≥3 proposal schedules built via the compositional path get hand-reviewed by a Westland scheduler before commit. Lessons-learned cycle (per repo CLAUDE.md) tightens `apply_xer_changes` validation each time. |
+| `make-skeleton.py` strips a table that turns out to be load-bearing for some P6 or Procore feature we don't exercise during smoke-test | Conservative default: strip only TASK / TASKPRED / TASKRSRC / activity-scoped UDFs. Keep everything else verbatim from the source XER. If a v2 skeleton needs to be slimmer, prove each removal empirically against a real import. |
 | `apply_xer_changes` validation rejects a change set the scheduler genuinely wants (false positive) | Validation has an `--allow-warnings` mode (or equivalent input flag). Errors are absolute; warnings are advisory. The scheduler can override warnings explicitly; errors require fixing the change set. |
 | MCP server has a bug that affects all schedulers simultaneously (vs. today's "the script is buggy on one machine") | Pre-merge testing on a real project's XER catches it before distribution. Worst case, roll back the plugin version. |
 | Adding `mcp-server/` triggers the version-bump pre-commit hook for *every* commit that touches it | This is the desired behavior, not a bug. Same as any plugin change today. |
@@ -415,7 +427,10 @@ Three downstream surfaces switch from "run the Python script" to "call the MCP t
    - Tier 0: the 33 base-catalog tools (wrappers over existing functions). Each is a 5-20 line adapter.
    - Tier 1: the 4 update-analytics tools (`get_critical_path_changes`, `get_float_consumption`, `get_trade_slip_summary`, `get_gain_loss_attribution`). Compositions of compare primitives + cache.
    - Tier 2: the 4 delay-analysis tools in new `lib/delay_analysis.py` (`compute_tia`, `compute_window_analysis`, `compute_change_order_delay`, `get_concurrent_delay_pairs`). Genuine new calculations, ~200-400 LoC each.
-   - Tier 3: the 5 modification tools in new `lib/xer_modify.py` (`validate_xer_structure`, `fix_duplicate_activity_ids`, `apply_xer_changes`, `create_xer_from_template`, `invalidate_cache_for`). Includes the Westland skeleton template fixture under `scheduling/mcp-server/templates/westland-skeleton.xer`.
+   - Tier 3: the 5 modification tools in new `lib/xer_modify.py` (`validate_xer_structure`, `fix_duplicate_activity_ids`, `apply_xer_changes`, `create_xer_from_template`, `invalidate_cache_for`). Also includes:
+     - `scheduling/mcp-server/templates/make-skeleton.py` — extract helper described in § Skeleton extraction.
+     - `scheduling/mcp-server/templates/westland-skeleton-v1.xer` — the extracted skeleton, sourced from a Westland project XER and manually verified against P6 + Procore imports.
+     - `scheduling/mcp-server/templates/westland-skeleton-v1.source.txt` — sidecar noting source project + extraction date.
 6. **Add the PreToolUse hook** blocking `Read`/`Edit`/`Write` on `lib/*.py` outside the `schedule-toolbox` skill.
 7. **Update `schedule-toolbox` `SKILL.md`** — routing table becomes tool names, Cardinal Rule removed.
 8. **Update `schedule-update` `phases/report.md` and `phases/draft.md`** to call MCP tools instead of the Python scripts. Note: `compare_sc_slip` references become `compare_milestone_slip` with an explicit `milestone_id` resolved up front; the `logic_changes` / `eot_recovery` blocks in `phases/draft.md` get seeded from `get_gain_loss_attribution.weekly_email_documentation.needs_narrative`.
