@@ -40,20 +40,60 @@ Branch based on response:
 
 ### 3b. **No transcript** — XER-driven Q&A
 
-1. Find the two most recent XER files: current-week XER in `{dated_folder}/*.xer`, previous-week XER in the most recent prior dated folder.
-2. Parse both using `schedule-toolbox` and compute the delta:
-   - **SC date change** — "Substantial Completion moved from `{prev}` to `{current}` ({delta} days). What's the story?"
-   - **Activities completed this week** — "These finished since the last update: `{list}`. Which should I call out as successes?"
-   - **Activities that slipped** — "These moved later: `{name}` ({days_slipped} days). Red flag, slipping task, or expected?"
-   - **Activities that started late / didn't start** — "These were planned to start but haven't: `{list}`. Still blocked, or will they start soon?"
-   - **Logic/scope changes** — activity adds, deletes, relationship changes (count summary, then "Any scope changes worth mentioning?")
-   - **Near-critical/critical path movement** — "Critical path changed in these areas: `{list}`. Anything to highlight?"
-3. After the XER-driven round, ask the open-ended round:
-   - "Anything else going great that I should add to Successes?"
-   - "Any red flags coming from the field — material, trade performance, weather, owner decisions?"
-   - "What are the 2–3 key items the team needs to focus on this coming week?"
-   - "Is there an EOT/recovery update? What changed with trade performance?"
-4. Keep the conversation tight — ask 2–4 questions per turn, not a long wall. Confirm each answer before moving on.
+**Don't write ad-hoc XER-parsing Python.** The schedule-toolbox plugin already ships `xer_compare.compare_schedules` and `update_review.expected_updates` — use them.
+
+#### Resolve the script paths (path-portable)
+
+Use the Glob tool with pattern `**/scheduling/skills/schedule-toolbox/references/xer_compare.py` to find the absolute path. Save the result as `xer_compare_path`. Repeat for `update_review.py` → `update_review_path`.
+
+If Glob returns zero results for either, stop and tell the colleague:
+> "Schedule-toolbox not found. Install or update the `scheduling` plugin via the marketplace, then re-run."
+
+#### Compare this week's XER to last week's
+
+Find the two most recent XER files: current-week XER in `{dated_folder}/*.xer`, previous-week XER in the most recent prior dated folder.
+
+```bash
+python -c "
+import sys, json, os
+sys.path.insert(0, os.path.dirname(r'<xer_compare_path>'))
+from xer_compare import compare_schedules, _parse_xer_file
+current  = _parse_xer_file(r'<dated_folder>/<current_xer_filename>')
+previous = _parse_xer_file(r'<prev_dated_folder>/<prev_xer_filename>')
+result = compare_schedules(current, previous)
+print(json.dumps(result, indent=2, default=str))
+"
+```
+
+Substitute `<xer_compare_path>` with the Glob result and the two XER paths with absolute paths.
+
+Use the JSON output to populate the colleague-facing Q&A:
+- `result['sc_date_change']` → "Substantial Completion moved from `{prev}` to `{current}` (`{delta}` days). What's the story?"
+- `result['completed_this_week']` → "These finished since the last update: `{list}`. Which should I call out as successes?"
+- `result['slipped']` → "These moved later: `{name}` (`{days_slipped}` days). Red flag, slipping task, or expected?"
+- `result['unstarted']` → "These were planned to start but haven't: `{list}`. Still blocked, or will they start soon?"
+- `result['logic_changes']` → activity adds/deletes/relationship changes (count summary, then "Any scope changes worth mentioning?")
+- `result['critical_path_movement']` → "Critical path changed in these areas: `{list}`. Anything to highlight?"
+
+#### Trade-specific upcoming work
+
+If the colleague asks "what does {trade} need to update by next week?", drive `update_review.py` directly:
+
+```bash
+python "<update_review_path>" expected_updates "<current_xer_path>" "<future_date_YYYY-MM-DD>" --resource <trade_code>
+```
+
+The script returns JSON to stdout — `to_start`, `to_finish`, `in_progress` lists with task names + dates.
+
+#### Open-ended round
+
+After the XER-driven round, ask the open-ended round:
+- "Anything else going great that I should add to Successes?"
+- "Any red flags coming from the field — material, trade performance, weather, owner decisions?"
+- "What are the 2–3 key items the team needs to focus on this coming week?"
+- "Is there an EOT/recovery update? What changed with trade performance?"
+
+Keep the conversation tight — ask 2–4 questions per turn. Confirm each answer before moving on.
 
 ## Step 4: Carry Forward From Previous Email
 
