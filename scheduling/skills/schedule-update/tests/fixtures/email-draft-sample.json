@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "report_date": "2026-05-21",
   "project_info": {
     "project_name": "Lubumbashi MTC",
@@ -9,105 +9,133 @@
   },
   "this_week": {
     "subject": "G2203 — Lubumbashi MTC — Weekly Update — 2026-05-21",
-    "from": "Camron Walker <camron@westlandconstruction.com>",
-    "to": "owner@example.com; pm@example.com",
-    "cc": "sub1@example.com; sub2@example.com",
-    "days_behind": 14,
-    "gain_loss": -3,
+    "to_recipients": [
+      { "name": "Owner Team", "email": "owner@example.com" },
+      { "name": "PM Lead",    "email": "pm@example.com" }
+    ],
+    "cc_recipients": [
+      { "name": "Sub One", "email": "sub1@example.com" },
+      { "name": "Sub Two", "email": "sub2@example.com" }
+    ],
+    "days_metric": { "direction": "behind", "value": 14 },
+    "gain_loss":   {
+      "direction": "loss",
+      "value":     3,
+      "narrative": "Lost 3 days this week to weather delays on the south elevation.",
+      "narrative_changed": true
+    },
     "successes": [
-      { "text": "Foundation pour complete on Building A.", "checked": true, "status": "active", "date_archived": "", "prev_idx": 0 },
-      { "text": "Steel delivery confirmed for week of 2026-06-01.", "checked": true, "status": "new", "date_archived": "", "prev_idx": null },
-      { "text": "Old success kept for history.", "checked": false, "status": "archived", "date_archived": "2026-05-07", "prev_idx": 2 }
+      { "text": "<div>Foundation pour complete on Building A.</div>", "status": "active", "checked": true, "prev_idx": 0 },
+      { "text": "<div>Steel delivery confirmed for week of 2026-06-01.</div>", "status": "new", "checked": true, "prev_idx": null }
     ],
     "red_flags": [
-      { "text": "<span style=\"color:#C94444;font-weight:bold\">MEP coordination behind two weeks</span> — see RFI 0142.", "checked": true, "status": "active", "date_archived": "", "prev_idx": 0 }
+      { "text": "<div><span style=\"color: #9B2C2C\">MEP coordination behind two weeks</span> — see RFI 0142.</div>", "status": "active", "checked": true, "edited": true, "prev_idx": 0 }
     ],
     "stalled_tasks": [
-      { "text": "Roofing material approval pending owner sign-off.", "checked": true, "status": "active", "date_archived": "", "prev_idx": 0 }
+      { "text": "<div>Roofing material approval pending owner sign-off.</div>", "status": "active", "checked": true, "prev_idx": 0 }
     ],
     "key_items": [
-      { "text": "Owner walkthrough scheduled 2026-05-28.", "checked": true, "status": "active", "date_archived": "", "prev_idx": 0 }
+      { "text": "<div>Owner walkthrough scheduled 2026-05-28.</div>", "status": "active", "checked": true, "prev_idx": 0 }
     ],
-    "gain_loss_narrative": "Lost 3 days this week to weather delays on the south elevation.",
+    "key_items_archived": [
+      { "text": "<div>Old archived key item.</div>", "status": "archived", "checked": false, "date_archived": "2026-04-15", "prev_idx": null }
+    ],
     "eot_recovery": "Filing EOT request 0017 for the weather impact; recovery plan attached.",
     "logic_changes": "Reordered MEP rough-in to allow steel erection to continue in parallel.",
     "smartpm_changelog_url": "https://app.smartpm.com/projects/12345/changelog",
-    "custom_paragraphs": [
-      { "label": "Owner directive 2026-05-19", "text": "Owner directed switch to alternate roofing material per email.", "checked": true }
+    "closing_paragraphs": [
+      { "label": "Questions", "checked": true, "text": "<div>Please let me know if you have any questions.</div>" },
+      { "label": "Owner directive 2026-05-19", "checked": true, "text": "<div>Owner directed switch to alternate roofing material per email.</div>" }
     ],
-    "attachments": [
-      { "filename": "G2203 Weekly Report 2026-05-21.pdf", "checked": true, "status": "active", "date_archived": "", "share_to_procore": true, "prev_idx": 0 },
-      { "filename": "G2203 EOT Request 0017.pdf", "checked": true, "status": "new", "date_archived": "", "share_to_procore": false, "prev_idx": null }
-    ],
-    "changes_report": { "include": true, "filename": "G2203 Changes Report 2026-05-21.pdf" },
-    "skip_procore": false,
-    "closing_line": "Please let me know if you have any questions.",
-    "salutation": "Thanks,",
+    "closing_salutation": "Thanks,",
     "signer_name": "Camron Walker",
     "signer_title": "Scheduler",
     "signer_mobile": "555-0100",
+    "attachments": [
+      { "name": "G2203 Weekly Report 2026-05-21.pdf", "ext": "pdf", "checked": true, "procore": true,  "status": "active", "prev_idx": 0 },
+      { "name": "G2203 EOT Request 0017.pdf",         "ext": "pdf", "checked": true, "procore": false, "status": "new",    "prev_idx": null }
+    ],
+    "skip_procore": false,
+    "include_changes_report": true,
+    "changes_report_filename": "G2203 Changes Report 2026-05-21.pdf",
     "graph_order": [
       "01-planned-vs-actual-percent-complete",
-      "02-schedule-quality-grade-over-time",
-      "03-project-health-index-over-time",
+      "06-end-date-variance",
+      "07-schedule-compression-index-over-time",
+      "08-velocity",
+      "09-spi-over-time",
+      "10-activity-hit-rate",
+      "11-window-start-accuracy",
+      "12-window-finish-accuracy",
       "smartpm-summary-report"
     ]
   },
   "last_week": {
     "subject": "G2203 — Lubumbashi MTC — Weekly Update — 2026-05-14",
-    "from": "Camron Walker <camron@westlandconstruction.com>",
-    "to": "owner@example.com; pm@example.com",
-    "cc": "sub1@example.com; sub2@example.com",
-    "days_behind": 11,
-    "gain_loss": 2,
+    "to_recipients": [
+      { "name": "Owner Team", "email": "owner@example.com" },
+      { "name": "PM Lead",    "email": "pm@example.com" }
+    ],
+    "cc_recipients": [
+      { "name": "Sub One", "email": "sub1@example.com" },
+      { "name": "Sub Two", "email": "sub2@example.com" }
+    ],
+    "days_metric": { "direction": "behind", "value": 11 },
+    "gain_loss":   {
+      "direction": "gain",
+      "value":     2,
+      "narrative": "Gained 2 days from re-sequencing.",
+      "narrative_changed": false
+    },
     "successes": [
-      { "text": "Foundation pour complete on Building A.", "checked": true, "status": "active", "date_archived": "" },
-      { "text": "Trim out kicked off in Building B.", "checked": true, "status": "active", "date_archived": "" },
-      { "text": "Old success kept for history.", "checked": false, "status": "removed", "date_archived": "" }
+      { "text": "<div>Foundation pour complete on Building A.</div>", "status": "active", "checked": true },
+      { "text": "<div>Trim out kicked off in Building B.</div>",       "status": "active", "checked": true }
     ],
     "red_flags": [
-      { "text": "<span style=\"color:#C94444;font-weight:bold\">MEP coordination behind one week.</span>", "checked": true, "status": "active", "date_archived": "" }
+      { "text": "<div><span style=\"color: #9B2C2C\">MEP coordination behind one week.</span></div>", "status": "active", "checked": true }
     ],
     "stalled_tasks": [
-      { "text": "Roofing material approval pending owner sign-off.", "checked": true, "status": "active", "date_archived": "" }
+      { "text": "<div>Roofing material approval pending owner sign-off.</div>", "status": "active", "checked": true }
     ],
     "key_items": [
-      { "text": "Owner walkthrough scheduled 2026-05-28.", "checked": true, "status": "active", "date_archived": "" }
+      { "text": "<div>Owner walkthrough scheduled 2026-05-28.</div>", "status": "active", "checked": true }
     ],
-    "gain_loss_narrative": "Gained 2 days from re-sequencing.",
+    "key_items_archived": [],
     "eot_recovery": "Drafting EOT request 0017.",
     "logic_changes": "",
     "smartpm_changelog_url": "https://app.smartpm.com/projects/12345/changelog",
-    "custom_paragraphs": [],
-    "attachments": [
-      { "filename": "G2203 Weekly Report 2026-05-14.pdf", "checked": true, "status": "active", "date_archived": "", "share_to_procore": true }
+    "closing_paragraphs": [
+      { "label": "Questions", "checked": true, "text": "<div>Please let me know if you have any questions.</div>" }
     ],
-    "changes_report": { "include": false, "filename": "" },
-    "skip_procore": false,
-    "closing_line": "Please let me know if you have any questions.",
-    "salutation": "Thanks,",
+    "closing_salutation": "Thanks,",
     "signer_name": "Camron Walker",
     "signer_title": "Scheduler",
     "signer_mobile": "555-0100",
+    "attachments": [
+      { "name": "G2203 Weekly Report 2026-05-14.pdf", "ext": "pdf", "checked": true, "procore": true, "status": "active" }
+    ],
+    "skip_procore": false,
+    "include_changes_report": false,
+    "changes_report_filename": "",
     "graph_order": [
       "01-planned-vs-actual-percent-complete",
-      "02-schedule-quality-grade-over-time",
-      "03-project-health-index-over-time",
+      "06-end-date-variance",
+      "07-schedule-compression-index-over-time",
+      "08-velocity",
+      "09-spi-over-time",
+      "10-activity-hit-rate",
+      "11-window-start-accuracy",
+      "12-window-finish-accuracy",
       "smartpm-summary-report"
     ]
   },
-  "smartpm": { "project_name": "Lubumbashi MTC", "scenario_id": null },
   "graphs": {
     "01-planned-vs-actual-percent-complete": {
       "html": "<div class=\"chart-card\" data-slug=\"01-planned-vs-actual-percent-complete\"><h3>Planned vs Actual % Complete</h3><svg viewBox=\"0 0 1728 432\"><g class=\"series\"><!-- real svg here --></g></svg></div>",
       "data": { "stub": "real SmartPM response here" }
     },
-    "02-schedule-quality-grade-over-time": {
-      "html": "<div class=\"chart-card chart-card--placeholder\" data-slug=\"02-schedule-quality-grade-over-time\"><h3>Schedule Quality Grade Over Time</h3><svg viewBox=\"0 0 1728 432\"><!-- clock icon + 'Data not yet available' --></svg></div>",
-      "data": {}
-    },
-    "03-project-health-index-over-time": {
-      "html": "<div class=\"chart-card chart-card--placeholder\" data-slug=\"03-project-health-index-over-time\"><h3>Project Health Index Over Time</h3><svg viewBox=\"0 0 1728 432\"><!-- warn icon + 'Render failed' --></svg></div>",
+    "06-end-date-variance": {
+      "html": "<div class=\"chart-card\" data-slug=\"06-end-date-variance\"><h3>End Date Variance</h3><svg viewBox=\"0 0 1728 432\"></svg></div>",
       "data": {}
     },
     "smartpm-summary-report": {
