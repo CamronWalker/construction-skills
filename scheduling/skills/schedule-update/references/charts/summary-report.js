@@ -293,10 +293,14 @@ function renderFeasibilityCard(cards) {
   // Pre-prediction state (week 1 of a project, or before SmartPM has accumulated
   // enough schedule updates to compute a predicted end date): mirror SmartPM's
   // own "N/A / N/A" treatment in its dashboard so the cell isn't a blank slot.
+  // Use neutral dark ink (matches the other metric numbers like .spi/.metric-num)
+  // rather than SCI_GREEN — a green "N/A" misreads as "on track" instead of
+  // "no data yet".
   let pcMonth = '', pcDay = 'N/A', pcYear = 'N/A';
-  let pcColor = SCI_GREEN;
+  let pcColor = '#222';
   let deltaHtml = '';
   if (pcStr) {
+    pcColor = SCI_GREEN;
     const pcd = parseDate(pcStr);
     pcMonth = pcd.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
     pcDay   = String(pcd.getUTCDate()).padStart(2, '0');
