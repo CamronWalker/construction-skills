@@ -178,14 +178,13 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
     last_items = list(last_week_items or [])
 
     # Normalized echo of last week — pass-through copy preserving each row's
-    # text/checked/status/date_archived. This is what gets written to
+    # text/checked/status. This is what gets written to
     # this week's seed under `last_week.<list>`.
     last_week_baseline = [
         {
             'text': (it.get('text') or ''),
             'checked': bool(it.get('checked', True)),
             'status': it.get('status', 'active'),
-            'date_archived': it.get('date_archived', '') or '',
         }
         for it in last_items
     ]
@@ -224,27 +223,28 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
                     'text': text,
                     'checked': True,
                     'status': 'new',
-                    'date_archived': '',
                     'prev_idx': None,
                 })
             else:
-                matched.append({
+                row = {
                     'text': text,
                     'checked': True,
                     'status': 'active',
-                    'date_archived': '',
                     'prev_idx': best_idx,
-                })
+                }
+                prev_text = (last_items[best_idx].get('text') or '').strip()
+                if text != prev_text:
+                    row['edited'] = True
+                matched.append(row)
         else:
             matched.append({
                 'text': text,
                 'checked': True,
                 'status': 'new',
-                'date_archived': '',
                 'prev_idx': None,
             })
 
-    # --- Drop phase: last-week items Claude didn't include ---------
+    # --- Drop phase: last-week items Claude didn't include (v2 lifecycle) ---
     dropped = []
     for i, it in enumerate(last_items):
         if i in used:
@@ -254,35 +254,18 @@ def reconcile_items(last_week_items, this_week_texts, today_iso=None,
             continue
         prev_status = it.get('status', 'active')
 
+        # v2: only 'active' or 'new' last week → 'removed' this week. Anything
+        # already 'removed' last week drops entirely (no archived pile for
+        # the four primary lists). 'archived' shouldn't appear here (it's
+        # isolated to key_items_archived in v2) — treat defensively as drop.
         if prev_status in ('active', 'new'):
-            new_status = 'removed'
-            new_checked = False
-            new_archived = ''
-        elif prev_status == 'removed':
-            new_status = 'archived'
-            new_checked = False
-            new_archived = today_iso
-        elif prev_status == 'archived':
-            new_status = 'archived'
-            new_checked = False
-            new_archived = it.get('date_archived', today_iso)
-        else:
-            new_status = 'active'
-            new_checked = bool(it.get('checked', True))
-            new_archived = ''
-
-        # 90-day prune
-        if (new_status == 'archived'
-                and _too_old(new_archived, today, max_archived_days)):
-            continue
-
-        dropped.append({
-            'text': prev_text,
-            'checked': new_checked,
-            'status': new_status,
-            'date_archived': new_archived,
-            'prev_idx': i,
-        })
+            dropped.append({
+                'text': prev_text,
+                'checked': False,
+                'status': 'removed',
+                'prev_idx': i,
+            })
+        # else: drop. Do not append.
 
     this_week_rows = matched + dropped
     return this_week_rows, last_week_baseline

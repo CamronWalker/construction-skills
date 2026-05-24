@@ -188,5 +188,69 @@ class TransitionAttachmentsProcoreTests(unittest.TestCase):
         self.assertTrue(result[0]['share_to_procore'])
 
 
+class ReconcileItemsV2RowShapeTests(unittest.TestCase):
+    """v2: rows have no date_archived field. status='archived' is impossible
+    in these four lists; lifecycle is active → removed → dropped."""
+
+    def test_active_row_has_no_date_archived_key(self):
+        rows, _ = cf.reconcile_items(
+            [{'text': 'Steel up.', 'checked': True, 'status': 'active'}],
+            ['Steel up.'],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(rows[0]['status'], 'active')
+        self.assertNotIn('date_archived', rows[0])
+
+    def test_removed_row_has_no_date_archived_key(self):
+        rows, _ = cf.reconcile_items(
+            [{'text': 'Steel up.', 'checked': True, 'status': 'active'}],
+            [],  # nothing this week — last week's row drops
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'removed')
+        self.assertNotIn('date_archived', rows[0])
+
+    def test_removed_does_not_transition_to_archived_in_these_four_lists(self):
+        # Last week's row was already 'removed'. This week it's still
+        # absent. In v1 it would transition to 'archived'; in v2 it just
+        # drops entirely from the result.
+        rows, _ = cf.reconcile_items(
+            [{'text': 'Steel up.', 'checked': False, 'status': 'removed'}],
+            [],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(rows, [])
+
+    def test_edited_flag_set_when_text_changed(self):
+        rows, _ = cf.reconcile_items(
+            [{'text': 'MEP behind two weeks.', 'checked': True, 'status': 'active'}],
+            ['MEP behind three weeks — see RFI 0142.'],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(rows[0]['status'], 'active')
+        self.assertEqual(rows[0].get('edited'), True)
+        self.assertEqual(rows[0]['prev_idx'], 0)
+
+    def test_edited_flag_absent_or_false_when_text_unchanged(self):
+        rows, _ = cf.reconcile_items(
+            [{'text': 'Steel up.', 'checked': True, 'status': 'active'}],
+            ['Steel up.'],
+            today_iso='2026-05-22',
+        )
+        self.assertFalse(rows[0].get('edited', False))
+
+    def test_new_row_has_no_edited_no_date_archived(self):
+        rows, _ = cf.reconcile_items(
+            [],
+            ['Brand new item.'],
+            today_iso='2026-05-22',
+        )
+        self.assertEqual(rows[0]['status'], 'new')
+        self.assertIsNone(rows[0]['prev_idx'])
+        self.assertNotIn('edited', rows[0])
+        self.assertNotIn('date_archived', rows[0])
+
+
 if __name__ == '__main__':
     unittest.main()
