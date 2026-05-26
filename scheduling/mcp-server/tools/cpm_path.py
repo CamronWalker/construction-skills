@@ -35,6 +35,7 @@ from cpm_engine import (  # noqa: E402
 from cpm_engine import _path_task_summary  # noqa: E402
 from path_analysis import (  # noqa: E402
     analyze_sc_path_coverage,
+    compute_delay_impacts,
     trace_driving_path,
 )
 
@@ -186,6 +187,34 @@ def get_anchor_conflicts_impl(
     results, _metadata = cache.get_cpm(xer_path)
     slips = check_anchor_dates(results, anchors or [], tolerance_days=tolerance_days)
     return {"slips": slips}
+
+
+def get_delay_impacts_impl(
+    xer_path: str,
+    impact_activities: Optional[list],
+    milestone_id: Optional[str],
+    cache,
+) -> dict:
+    """Float Path Delay Analysis: how delayed activities push the terminal
+    milestone. The underlying function runs its own CPM internally (it needs
+    the late-date fields to compute float-based variance) so the cache's CPM
+    result isn't reused here.
+    """
+    parsed = cache.get_parsed(xer_path)
+    # Match the data_date selection logic the cache uses for consistency.
+    project_rows = parsed.get("PROJECT") or [{}]
+    data_date = (
+        project_rows[0].get("last_recalc_date")
+        or project_rows[0].get("data_date", "")
+    )
+    return compute_delay_impacts(
+        parsed.get("TASK", []),
+        parsed.get("TASKPRED", []),
+        parsed.get("CALENDAR", []),
+        data_date,
+        impact_activities=impact_activities,
+        milestone_id=milestone_id,
+    )
 
 
 def get_milestone_path_coverage_impl(
@@ -350,6 +379,35 @@ def register(mcp, cache):
         """
         return get_anchor_conflicts_impl(
             xer_path, anchors, anchors_path, tolerance_days, cache
+        )
+
+    @mcp.tool()
+    def get_delay_impacts(
+        xer_path: str,
+        impact_activities: Optional[list] = None,
+        milestone_id: Optional[str] = None,
+    ) -> dict:
+        """Float Path Delay Analysis: how delayed (or specified impact)
+        activities push the terminal milestone.
+
+        Args:
+            xer_path: Path to the .xer file.
+            impact_activities: Optional list of task_ids to analyze. When
+                omitted, the underlying function auto-detects IMPACT/delay
+                activities by name.
+            milestone_id: Optional terminal milestone task_id. Raises
+                ``MilestoneAmbiguousError`` when omitted on multi-terminal
+                schedules.
+
+        Returns:
+            ``{ sc_task_id, sc_task_name, sc_task_code, baseline_sc_date,
+            data_date, impacts: [{task_id, task_code, task_name, data_date,
+            previous_sc_date, revised_sc_date, variance_cal_days,
+            driving_path, driving_path_names, is_critical,
+            total_float_days}, ...] }``.
+        """
+        return get_delay_impacts_impl(
+            xer_path, impact_activities, milestone_id, cache
         )
 
     @mcp.tool()

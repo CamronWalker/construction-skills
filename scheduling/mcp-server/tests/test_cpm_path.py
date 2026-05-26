@@ -222,6 +222,51 @@ class TestGetAnchorConflicts(unittest.TestCase):
             os.unlink(anchors_path)
 
 
+class TestGetDelayImpacts(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_impacts_key(self):
+        result = cpm_path.get_delay_impacts_impl(
+            str(FIXTURE),
+            impact_activities=None,
+            milestone_id=None,
+            cache=self.cache,
+        )
+        self.assertIn("impacts", result)
+        self.assertIsInstance(result["impacts"], list)
+
+    def test_no_impacts_on_minimal_fixture(self):
+        """No IMPACT-named tasks in the fixture -> auto-detect returns []."""
+        result = cpm_path.get_delay_impacts_impl(
+            str(FIXTURE),
+            impact_activities=None,
+            milestone_id=None,
+            cache=self.cache,
+        )
+        self.assertEqual(result["impacts"], [])
+
+    def test_explicit_milestone_id_propagates(self):
+        result = cpm_path.get_delay_impacts_impl(
+            str(FIXTURE),
+            impact_activities=None,
+            milestone_id="10002",
+            cache=self.cache,
+        )
+        self.assertEqual(result["sc_task_id"], "10002")
+
+    def test_impact_activities_param_accepted(self):
+        result = cpm_path.get_delay_impacts_impl(
+            str(FIXTURE),
+            impact_activities=["10001"],
+            milestone_id=None,
+            cache=self.cache,
+        )
+        # NTP isn't an "impact" task semantically, but the function will
+        # produce an entry for any task_id passed in.
+        self.assertEqual(len(result["impacts"]), 1)
+
+
 class TestGetMilestonePathCoverage(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
