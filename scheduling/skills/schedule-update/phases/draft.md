@@ -11,7 +11,7 @@ Produce `{dated_folder}/{YYYY-MM-DD}-email.json` — the complete state Claude a
 
 - `{dated_folder}/project-context.html` — recipients, signer info, SmartPM IDs (via `parse_project_context_html`).
 - Last week's `{prev_dated_folder}/{prev_date}-email.json` — for carry-forward of items and narratives. Missing for week-1 projects; in that case `last_week` is `null` and the editor renders without diff overlays.
-- This week's `{dated_folder}/*.xer` + last week's XER for delta analysis (use the schedule plugin's XER parser).
+- This week's `{dated_folder}/*.xer` + last week's XER for delta analysis (via the Westland Scheduler Local MCP — see "Compute the XER deltas" below; do not Read the .xer files directly).
 - This week's meeting transcript at `{dated_folder}/meeting-transcript.md` if present.
 
 ## Outputs
@@ -96,7 +96,31 @@ if os.path.isfile(prev_email_json):
 # else: week-1 project — prev_draft stays None and last_week=null.
 ```
 
-Read the XERs and the meeting transcript with the standard tools (Read + the XER parser).
+Read the meeting transcript with the Read tool. **Do not Read the .xer files directly** — they're tab-delimited proprietary exports and the byte content is not what you need. Instead, drive the week-over-week analysis through the Westland Scheduler Local MCP tools (next step).
+
+#### Compute the XER deltas
+
+Load and invoke the comparison tools against this week's and last week's `*.xer`:
+
+```text
+ToolSearch select:get_milestones,compare_milestone_slip,compare_activity_changes,compare_date_slips
+```
+
+```text
+compare_milestone_slip(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>, milestone_id=<resolved>?)
+compare_activity_changes(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)
+compare_date_slips(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)
+```
+
+`compare_milestone_slip` auto-resolves the terminal milestone on single-terminal schedules. On phased work with multiple terminal milestones it raises `MilestoneAmbiguousError` — call `get_milestones(xer_path=<current_xer>)` first to enumerate candidates, then re-call with `milestone_id=<resolved_task_id_or_code>`.
+
+Use the returned dicts to drive the narrative-rewrite step (§ 2 "Standard moves"):
+
+- `compare_milestone_slip.sc_date_old` / `sc_date_new` / `sc_slip_days` → drives `days_metric` and the "Substantial Completion moved …" narrative.
+- `compare_activity_changes.status_changes` / `added_tasks` / `removed_tasks` / `changed_durations` → drives `logic_changes` and surfaces completed-this-week tasks for `successes`.
+- `compare_date_slips.date_slippage` → drives the "what slipped" rows for `red_flags` / `stalled_tasks`.
+
+If `ToolSearch select:<tool>` returns nothing, invoke the `westland-scheduler-mcp-troubleshoot` skill — do not Read `schedule-toolbox/lib/*.py` as a fallback (the PreToolUse hook blocks those reads, and even with the hook disabled, in-place edits drift from the canonical analysis behavior).
 
 ### 2. Build `this_week` via structured carry-forward
 
@@ -134,7 +158,7 @@ Standard moves for everything else:
 - **Subject:** swap last week's date for this week's; keep project name + job number.
 - **Narrative blocks (`gain_loss.narrative`, `eot_recovery`, `logic_changes`):** rewrite based on this week's XER deltas + transcript. Leave `smartpm_changelog_url` unchanged unless the URL pattern has shifted.
 - **Signer block:** unchanged unless the colleague has rotated.
-- **`days_metric` / `gain_loss`:** compute from XER comparison (week-over-week delta on contractual completion + schedule variance). Express as `{direction, value}` objects — `direction` = `'behind'` when slipping vs contract, `'ahead'` when running early; `direction` = `'loss'` when worse than last week, `'gain'` when better. `gain_loss.narrative` is one short paragraph and `narrative_changed` is `True` when it differs from `last['gain_loss']['narrative']`.
+- **`days_metric` / `gain_loss`:** compute from the `compare_milestone_slip` result captured in § 1. `days_metric.value` = days between `sc_date_new` and the contractual completion; `direction` = `'behind'` when slipping vs contract, `'ahead'` when running early. `gain_loss.value` = `sc_slip_days`; `direction` = `'loss'` when SC slipped vs last week, `'gain'` when SC pulled in. `gain_loss.narrative` is one short paragraph and `narrative_changed` is `True` when it differs from `last['gain_loss']['narrative']`.
 - **`graph_order`:** unchanged unless the colleague has reordered. Default is the 8-trend canonical order plus `'smartpm-summary-report'` last.
 - **`closing_paragraphs` / `closing_salutation`:** preserve from last week, or default to a single-entry list `[{label: "Questions", checked: true, text: "<div>Please let me know if you have any questions.</div>"}]` and `"Thanks,"`.
 
