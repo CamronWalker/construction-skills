@@ -222,6 +222,39 @@ class TestGetAnchorConflicts(unittest.TestCase):
             os.unlink(anchors_path)
 
 
+class TestGetAnchorAbsorptionSuggestions(unittest.TestCase):
+    """The minimal fixture only has milestones (no real-duration tasks), so
+    the underlying function returns an empty list. We verify shape, parameter
+    plumbing, and the empty-list path; richer scenarios are validated during
+    the F1 batch's spec review against real XERs."""
+
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_suggestions_key(self):
+        slip = {"task_id": "10002", "slip_days": 24}
+        result = cpm_path.get_anchor_absorption_suggestions_impl(
+            str(FIXTURE), slip=slip, max_suggestions=8, cache=self.cache
+        )
+        self.assertIn("suggestions", result)
+        self.assertIsInstance(result["suggestions"], list)
+
+    def test_empty_on_minimal_fixture(self):
+        slip = {"task_id": "10002", "slip_days": 24}
+        result = cpm_path.get_anchor_absorption_suggestions_impl(
+            str(FIXTURE), slip=slip, max_suggestions=8, cache=self.cache
+        )
+        # Only milestones upstream of SC -> no duration-cut candidates.
+        self.assertEqual(result["suggestions"], [])
+
+    def test_max_suggestions_parameter_accepted(self):
+        slip = {"task_id": "10002", "slip_days": 24}
+        result = cpm_path.get_anchor_absorption_suggestions_impl(
+            str(FIXTURE), slip=slip, max_suggestions=3, cache=self.cache
+        )
+        self.assertLessEqual(len(result["suggestions"]), 3)
+
+
 class TestGetParallelBranches(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()

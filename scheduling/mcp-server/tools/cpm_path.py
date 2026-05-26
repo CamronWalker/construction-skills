@@ -27,7 +27,11 @@ if str(_LIB) not in sys.path:
 
 import json
 
-from cpm_engine import check_anchor_dates, extract_paths  # noqa: E402
+from cpm_engine import (  # noqa: E402
+    check_anchor_dates,
+    extract_paths,
+    suggest_anchor_absorption,
+)
 from cpm_engine import _path_task_summary  # noqa: E402
 from path_analysis import trace_driving_path  # noqa: E402
 
@@ -181,6 +185,23 @@ def get_anchor_conflicts_impl(
     return {"slips": slips}
 
 
+def get_anchor_absorption_suggestions_impl(
+    xer_path: str, slip: dict, max_suggestions: int, cache
+) -> dict:
+    """Return ranked duration-cut suggestions that would pull a slipped
+    anchor task back to its target date. Thin pass-through to
+    :func:`suggest_anchor_absorption`."""
+    parsed = cache.get_parsed(xer_path)
+    results, _metadata = cache.get_cpm(xer_path)
+    suggestions = suggest_anchor_absorption(
+        results,
+        parsed.get("TASKPRED", []),
+        slip,
+        max_suggestions=max_suggestions,
+    )
+    return {"suggestions": suggestions}
+
+
 def get_parallel_branches_impl(
     xer_path: str,
     start_date: Optional[str],
@@ -302,6 +323,31 @@ def register(mcp, cache):
         """
         return get_anchor_conflicts_impl(
             xer_path, anchors, anchors_path, tolerance_days, cache
+        )
+
+    @mcp.tool()
+    def get_anchor_absorption_suggestions(
+        xer_path: str, slip: dict, max_suggestions: int = 8
+    ) -> dict:
+        """Given a single anchor slip (typically one entry from
+        ``get_anchor_conflicts`` output), return ranked duration-cut
+        candidates on the driving path that could absorb the slip.
+
+        Args:
+            xer_path: Path to the .xer file.
+            slip: Slip dict with ``task_id`` and ``slip_days``. The other
+                fields from ``get_anchor_conflicts`` output are ignored.
+            max_suggestions: Cap on the number of candidates returned.
+                Defaults to 8.
+
+        Returns:
+            ``{ suggestions: [{task_id, task_code, task_name,
+            current_duration_days, suggested_max_cut_days,
+            total_float_days, kind, rationale}, ...] }`` ranked by leverage
+            (largest current_duration_days first).
+        """
+        return get_anchor_absorption_suggestions_impl(
+            xer_path, slip, max_suggestions, cache
         )
 
     @mcp.tool()
