@@ -1,5 +1,5 @@
 {
-  "description": "Westland Project Files hook — three-rule policy on the Westland share: (1) modify-prompt on any existing file (auto-mode cannot auto-approve); (2) version-controlled types (.xer, ...) hard-denied for in-place changes (force -vN versioning); (3) delete hard-denied (move to _Archive / _to_delete instead). Files outside the share are not affected.",
+  "description": "Westland Project Files hook — three-rule policy on the Westland share: (1) modify-prompt on any existing file (auto-mode cannot auto-approve); (2) version-controlled types (.xer, ...) hard-denied for in-place changes (force -vN versioning); (3) delete hard-denied (move to _Archive / _to_delete instead). Files outside the share are not affected. The wrapper (run-hook.ps1) blocks (exit 2) if no real Python is on PATH so the safety rules never silently no-op.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -c \"import os,re,runpy;r=os.environ['CLAUDE_PLUGIN_ROOT'];m=re.match(r'^/([a-zA-Z])/(.*)',r) if os.name=='nt' else None;r=(m.group(1).upper()+':/'+m.group(2)) if m else r;runpy.run_path(r+'/hooks/westland_share_guard.py',run_name='__main__')\""
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CLAUDE_PLUGIN_ROOT;if($r -match '^/([a-zA-Z])/(.*)$'){$r=$matches[1].ToUpper()+':/'+$matches[2]};& \\\"$r/hooks/run-hook.ps1\\\" westland_share_guard.py;exit $LASTEXITCODE\""
           }
         ]
       }

@@ -1,5 +1,5 @@
 {
-  "description": "Scheduling — advisory hook steering Claude toward the parse/generate scripts for managed HTML artifacts (project-context.html). Always advisory; never blocks.",
+  "description": "Scheduling — advisory hook steering Claude toward the parse/generate scripts for managed HTML artifacts (project-context.html). Always advisory; never blocks. The wrapper (run-hook.ps1) blocks (exit 2) if no real Python is on PATH so silent failure modes are surfaced.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -c \"import os,re,runpy;r=os.environ['CLAUDE_PLUGIN_ROOT'];m=re.match(r'^/([a-zA-Z])/(.*)',r) if os.name=='nt' else None;r=(m.group(1).upper()+':/'+m.group(2)) if m else r;runpy.run_path(r+'/hooks/check_html_discipline.py',run_name='__main__')\""
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CLAUDE_PLUGIN_ROOT;if($r -match '^/([a-zA-Z])/(.*)$'){$r=$matches[1].ToUpper()+':/'+$matches[2]};& \\\"$r/hooks/run-hook.ps1\\\" check_html_discipline.py;exit $LASTEXITCODE\""
           }
         ]
       }
