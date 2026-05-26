@@ -9,6 +9,8 @@ candidates, raise :class:`MilestoneAmbiguousError` with the candidate list so
 the MCP-tool layer can surface a structured choice prompt to the user.
 """
 
+from collections import defaultdict
+
 EXCLUDE_TYPES = {"TT_WBS", "TT_LOE"}
 MILESTONE_TYPES = {"TT_Mile", "TT_FinMile"}
 
@@ -47,3 +49,49 @@ def get_milestones(tasks: list, include_complete: bool = False) -> list:
             "status_code": t.get("status_code"),
         })
     return result
+
+
+def resolve_default_milestone(tasks: list, preds: list):
+    """Auto-resolve the project's terminal milestone when caller didn't pass one.
+
+    A terminal milestone is a non-WBS / non-LOE / non-complete milestone with
+    no successors among the incomplete-task graph. The convention is that a
+    construction schedule should have exactly one — typically Substantial
+    Completion. If zero are found we return None and the caller falls back to
+    full-incomplete-scope mode (same behavior the old ``find_sc_milestone``
+    heuristic gave when it couldn't find anything by name). If more than one
+    is found we raise :class:`MilestoneAmbiguousError` so the MCP-tool layer
+    can surface a structured choice prompt instead of silently picking the
+    wrong one.
+    """
+    milestones = get_milestones(tasks)
+    if not milestones:
+        return None
+
+    in_scope_ids = {
+        t["task_id"]
+        for t in tasks
+        if t.get("status_code", "") != "TK_Complete"
+        and t.get("task_type", "") not in EXCLUDE_TYPES
+    }
+
+    succ_count = defaultdict(int)
+    for p in preds:
+        pred_id = p.get("pred_task_id", "")
+        succ_id = p.get("task_id", "")
+        if pred_id in in_scope_ids and succ_id in in_scope_ids:
+            succ_count[pred_id] += 1
+
+    terminals = [m for m in milestones if succ_count.get(m["task_id"], 0) == 0]
+
+    if len(terminals) == 1:
+        return terminals[0]["task_id"]
+
+    if not terminals:
+        return None
+
+    raise MilestoneAmbiguousError(
+        f"Found {len(terminals)} terminal milestones; pass milestone_id "
+        "explicitly to pick one.",
+        candidates=terminals,
+    )

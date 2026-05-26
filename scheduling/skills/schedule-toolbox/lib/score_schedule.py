@@ -20,7 +20,11 @@ CLI:
 
 from collections import defaultdict, Counter
 
-from milestones import get_milestones, MilestoneAmbiguousError
+from milestones import (
+    get_milestones,
+    MilestoneAmbiguousError,
+    resolve_default_milestone,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -34,52 +38,11 @@ def safe_float(val, default=0):
         return default
 
 
-def _resolve_default_milestone(tasks, preds):
-    """Auto-resolve the project's terminal milestone when caller didn't pass one.
-
-    A terminal milestone is a non-WBS / non-LOE / non-complete milestone with
-    no successors among the incomplete-task graph. The convention is that a
-    construction schedule should have exactly one — typically Substantial
-    Completion. If zero are found we return None and the scorer falls back to
-    full-incomplete-scope mode (same behavior the old find_sc_milestone gave
-    when it couldn't find anything by name). If more than one is found we
-    raise so the MCP tool layer can surface a structured choice prompt
-    instead of silently picking the wrong one.
-    """
-    milestones = get_milestones(tasks)
-    if not milestones:
-        return None
-
-    # Build successor counts over non-complete, non-WBS/LOE tasks.
-    exclude_types = {'TT_WBS', 'TT_LOE'}
-    in_scope_ids = {
-        t['task_id'] for t in tasks
-        if t.get('status_code', '') != 'TK_Complete'
-        and t.get('task_type', '') not in exclude_types
-    }
-
-    succ_count = defaultdict(int)
-    for p in preds:
-        pred_id = p.get('pred_task_id', '')
-        succ_id = p.get('task_id', '')
-        if pred_id in in_scope_ids and succ_id in in_scope_ids:
-            succ_count[pred_id] += 1
-
-    terminals = [m for m in milestones if succ_count.get(m['task_id'], 0) == 0]
-
-    if len(terminals) == 1:
-        return terminals[0]['task_id']
-
-    if not terminals:
-        # No terminal milestone — fall through; scoring still works in
-        # full-incomplete-scope mode without one.
-        return None
-
-    raise MilestoneAmbiguousError(
-        f"Found {len(terminals)} terminal milestones; pass milestone_id "
-        "explicitly to pick one.",
-        candidates=terminals,
-    )
+# ``_resolve_default_milestone`` was a thin wrapper around what is now
+# :func:`milestones.resolve_default_milestone`. We keep the old underscored
+# name as a private re-export so existing tests / call sites that imported
+# the private helper from this module keep working.
+_resolve_default_milestone = resolve_default_milestone
 
 
 def get_predecessor_scope(sc_task_id, preds):
@@ -141,7 +104,7 @@ def compute_quality_score(tasks, preds, data_date=None, milestone_id=None):
     Returns: (score, grade, scored_metrics, info_metrics, deductions, scope, details)
     """
     if milestone_id is None:
-        milestone_id = _resolve_default_milestone(tasks, preds)
+        milestone_id = resolve_default_milestone(tasks, preds)
 
     # --- SCOPE FILTERING ---
     # SmartPM checks all incomplete activities, NOT just SC-path predecessors.
