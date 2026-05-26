@@ -20,6 +20,8 @@ CLI:
 
 from collections import defaultdict, Counter
 
+from milestones import get_milestones, MilestoneAmbiguousError
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,39 +34,52 @@ def safe_float(val, default=0):
         return default
 
 
-def find_sc_milestone(tasks):
-    """Find the Substantial Completion milestone (incomplete, non-WBS/LOE)."""
-    exc = {'TT_WBS', 'TT_LOE'}
+def _resolve_default_milestone(tasks, preds):
+    """Auto-resolve the project's terminal milestone when caller didn't pass one.
 
-    # Priority 1: "Substantial Completion & Turnover to Owner"
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        name = t.get('task_name', '')
-        if 'Substantial Completion' in name and 'Turnover to Owner' in name:
-            if t.get('status_code', '') != 'TK_Complete':
-                return t['task_id']
+    A terminal milestone is a non-WBS / non-LOE / non-complete milestone with
+    no successors among the incomplete-task graph. The convention is that a
+    construction schedule should have exactly one — typically Substantial
+    Completion. If zero are found we return None and the scorer falls back to
+    full-incomplete-scope mode (same behavior the old find_sc_milestone gave
+    when it couldn't find anything by name). If more than one is found we
+    raise so the MCP tool layer can surface a structured choice prompt
+    instead of silently picking the wrong one.
+    """
+    milestones = get_milestones(tasks)
+    if not milestones:
+        return None
 
-    # Priority 2: Exact "Substantial Completion" milestone
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_name', '').strip() == 'Substantial Completion':
-            if t.get('task_type', '') in ('TT_FinMile', 'TT_Mile'):
-                if t.get('status_code', '') != 'TK_Complete':
-                    return t['task_id']
+    # Build successor counts over non-complete, non-WBS/LOE tasks.
+    exclude_types = {'TT_WBS', 'TT_LOE'}
+    in_scope_ids = {
+        t['task_id'] for t in tasks
+        if t.get('status_code', '') != 'TK_Complete'
+        and t.get('task_type', '') not in exclude_types
+    }
 
-    # Priority 3: Any milestone containing "Substantial Completion"
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_type', '') not in ('TT_FinMile', 'TT_Mile'):
-            continue
-        if 'Substantial Completion' in t.get('task_name', ''):
-            if t.get('status_code', '') != 'TK_Complete':
-                return t['task_id']
+    succ_count = defaultdict(int)
+    for p in preds:
+        pred_id = p.get('pred_task_id', '')
+        succ_id = p.get('task_id', '')
+        if pred_id in in_scope_ids and succ_id in in_scope_ids:
+            succ_count[pred_id] += 1
 
-    return None  # No SC milestone found — use full incomplete scope
+    terminals = [m for m in milestones if succ_count.get(m['task_id'], 0) == 0]
+
+    if len(terminals) == 1:
+        return terminals[0]['task_id']
+
+    if not terminals:
+        # No terminal milestone — fall through; scoring still works in
+        # full-incomplete-scope mode without one.
+        return None
+
+    raise MilestoneAmbiguousError(
+        f"Found {len(terminals)} terminal milestones; pass milestone_id "
+        "explicitly to pick one.",
+        candidates=terminals,
+    )
 
 
 def get_predecessor_scope(sc_task_id, preds):
@@ -110,12 +125,24 @@ def _task_label(t):
 # Main scoring function
 # ---------------------------------------------------------------------------
 
-def compute_quality_score(tasks, preds, data_date=None):
+def compute_quality_score(tasks, preds, data_date=None, milestone_id=None):
     """
     Compute schedule quality score and all metrics.
     Pass ALL tasks and ALL predecessors — filtering is handled internally.
+
+    ``milestone_id`` identifies the project's terminal milestone (e.g. the
+    Substantial Completion finish marker). When omitted, the function
+    auto-resolves to the single terminal non-WBS / non-LOE / non-complete
+    milestone in the network; if multiple terminal milestones exist it
+    raises :class:`MilestoneAmbiguousError` so the caller can prompt the
+    user to pick one explicitly. Pass ``milestone_id`` directly to skip the
+    auto-resolution entirely.
+
     Returns: (score, grade, scored_metrics, info_metrics, deductions, scope, details)
     """
+    if milestone_id is None:
+        milestone_id = _resolve_default_milestone(tasks, preds)
+
     # --- SCOPE FILTERING ---
     # SmartPM checks all incomplete activities, NOT just SC-path predecessors.
     # SC scope filtering causes false-positive missing_logic hits and score mismatches.
@@ -413,8 +440,6 @@ def compute_quality_score(tasks, preds, data_date=None):
     score = round(max(0, score), 1)
     grade = get_grade(score)
 
-    sc_id = find_sc_milestone(tasks)
-
     scope_info = {
         'total_tasks': len(tasks),
         'complete': len([t for t in tasks if t.get('status_code') == 'TK_Complete']),
@@ -424,6 +449,7 @@ def compute_quality_score(tasks, preds, data_date=None):
         'total_relationships': n_rels,
         'sc_filtered': False,
         'neg_float_schedule': neg_float_schedule,
+        'milestone_id': milestone_id,
     }
 
     return score, grade, scored, info, deductions, scope_info, details
@@ -495,7 +521,12 @@ def end_finding(key, scored, info):
 
 
 def generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope, details=None):
-    """Generate a Markdown schedule quality report."""
+    """Generate a Markdown schedule quality report.
+
+    The scored milestone is carried inside ``scope['milestone_id']`` from
+    :func:`compute_quality_score` — pass that scope dict through directly,
+    no separate argument needed.
+    """
     lines = []
     lines.append(f"# Schedule Quality Report — {project_name}")
     lines.append("")
