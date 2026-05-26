@@ -33,7 +33,10 @@ from cpm_engine import (  # noqa: E402
     suggest_anchor_absorption,
 )
 from cpm_engine import _path_task_summary  # noqa: E402
-from path_analysis import trace_driving_path  # noqa: E402
+from path_analysis import (  # noqa: E402
+    analyze_sc_path_coverage,
+    trace_driving_path,
+)
 
 
 def _resolve_metadata_for_milestone(
@@ -185,6 +188,30 @@ def get_anchor_conflicts_impl(
     return {"slips": slips}
 
 
+def get_milestone_path_coverage_impl(
+    xer_path: str, milestone_id: Optional[str], cache
+) -> dict:
+    """Connect/disconnect analysis against the terminal milestone.
+
+    Raises :class:`milestones.MilestoneAmbiguousError` (via the underlying
+    function) when ``milestone_id`` is omitted and the schedule has more
+    than one terminal milestone.
+    """
+    parsed = cache.get_parsed(xer_path)
+    coverage = analyze_sc_path_coverage(
+        parsed.get("TASK", []),
+        parsed.get("TASKPRED", []),
+        wbs_rows=parsed.get("PROJWBS", []),
+        milestone_id=milestone_id,
+    )
+    # The underlying function returns ``connected_ids`` as a Python set;
+    # convert to a sorted list so the JSON serializer is happy and callers
+    # get a stable order.
+    if isinstance(coverage.get("connected_ids"), set):
+        coverage["connected_ids"] = sorted(coverage["connected_ids"])
+    return coverage
+
+
 def get_anchor_absorption_suggestions_impl(
     xer_path: str, slip: dict, max_suggestions: int, cache
 ) -> dict:
@@ -324,6 +351,29 @@ def register(mcp, cache):
         return get_anchor_conflicts_impl(
             xer_path, anchors, anchors_path, tolerance_days, cache
         )
+
+    @mcp.tool()
+    def get_milestone_path_coverage(
+        xer_path: str, milestone_id: Optional[str] = None
+    ) -> dict:
+        """Identify which incomplete activities trace to the terminal
+        milestone and which don't (= dangling work that needs a successor
+        added).
+
+        Args:
+            xer_path: Path to the .xer file.
+            milestone_id: Optional task_id of the terminal milestone. Omit
+                on single-terminal schedules to auto-resolve; raises
+                ``MilestoneAmbiguousError`` when omitted and multiple
+                terminal milestones exist.
+
+        Returns:
+            ``{ sc_task_id, sc_task_name, sc_task_code, connected_count,
+            connected_ids: [...], disconnected_count, disconnected_tasks,
+            disconnected_by_wbs, coverage_pct, total_incomplete,
+            recommendations }``.
+        """
+        return get_milestone_path_coverage_impl(xer_path, milestone_id, cache)
 
     @mcp.tool()
     def get_anchor_absorption_suggestions(

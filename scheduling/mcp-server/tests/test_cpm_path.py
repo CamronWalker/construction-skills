@@ -222,6 +222,38 @@ class TestGetAnchorConflicts(unittest.TestCase):
             os.unlink(anchors_path)
 
 
+class TestGetMilestonePathCoverage(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_coverage_pct(self):
+        result = cpm_path.get_milestone_path_coverage_impl(
+            str(FIXTURE), milestone_id=None, cache=self.cache
+        )
+        self.assertIn("coverage_pct", result)
+        self.assertIsInstance(result["coverage_pct"], (int, float))
+
+    def test_minimal_fixture_full_coverage(self):
+        """NTP -> SC FS link: both activities trace to SC. Coverage = 100%."""
+        result = cpm_path.get_milestone_path_coverage_impl(
+            str(FIXTURE), milestone_id=None, cache=self.cache
+        )
+        self.assertEqual(result["coverage_pct"], 100.0)
+
+    def test_explicit_milestone_id_accepted(self):
+        result = cpm_path.get_milestone_path_coverage_impl(
+            str(FIXTURE), milestone_id="10002", cache=self.cache
+        )
+        self.assertEqual(result["sc_task_id"], "10002")
+
+    def test_connected_ids_is_list_not_set(self):
+        """JSON serialization can't handle sets. The MCP layer must convert."""
+        result = cpm_path.get_milestone_path_coverage_impl(
+            str(FIXTURE), milestone_id=None, cache=self.cache
+        )
+        self.assertIsInstance(result.get("connected_ids"), list)
+
+
 class TestGetAnchorAbsorptionSuggestions(unittest.TestCase):
     """The minimal fixture only has milestones (no real-duration tasks), so
     the underlying function returns an empty list. We verify shape, parameter
