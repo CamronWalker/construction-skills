@@ -145,6 +145,40 @@ def get_driving_paths_impl(
     }
 
 
+def get_parallel_branches_impl(
+    xer_path: str,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    cache,
+) -> dict:
+    """Diverge-then-converge subgraphs ranked by criticality.
+
+    Optional date window filters branches whose ``diverge_at`` task starts
+    within ``[start_date, end_date]`` (inclusive, ISO ``YYYY-MM-DD``). When
+    either bound is None it's treated as unbounded on that side.
+    """
+    parsed = cache.get_parsed(xer_path)
+    results, metadata = cache.get_cpm(xer_path)
+    paths = extract_paths(results, metadata, parsed.get("TASKPRED", []))
+    branches = paths.get("parallel_branches", [])
+
+    if start_date is None and end_date is None:
+        return {"parallel_branches": branches}
+
+    def _in_window(branch: dict) -> bool:
+        es = (branch.get("diverge_at") or {}).get("early_start", "")
+        if not es:
+            return False
+        # early_start is YYYY-MM-DD (string compare works).
+        if start_date and es < start_date:
+            return False
+        if end_date and es > end_date:
+            return False
+        return True
+
+    return {"parallel_branches": [b for b in branches if _in_window(b)]}
+
+
 def get_near_critical_chains_impl(
     xer_path: str, tolerance_days: float, cache
 ) -> dict:
@@ -205,6 +239,30 @@ def register(mcp, cache):
             end_task_name, chain: [task_summary, ...]}, ...] }``.
         """
         return get_driving_paths_impl(xer_path, activity_id, cache)
+
+    @mcp.tool()
+    def get_parallel_branches(
+        xer_path: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> dict:
+        """Diverge-then-converge subgraphs through the schedule, ranked by
+        the minimum total float across both branches.
+
+        Args:
+            xer_path: Path to the .xer file.
+            start_date: Optional ISO ``YYYY-MM-DD`` lower bound on
+                ``diverge_at.early_start``.
+            end_date: Optional ISO ``YYYY-MM-DD`` upper bound.
+
+        Returns:
+            ``{ parallel_branches: [{diverge_at, converge_at, min_float_days,
+            branches: [[summary, ...], [summary, ...]]}, ...] }`` sorted by
+            ``min_float_days`` ascending.
+        """
+        return get_parallel_branches_impl(
+            xer_path, start_date, end_date, cache
+        )
 
     @mcp.tool()
     def get_near_critical_chains(

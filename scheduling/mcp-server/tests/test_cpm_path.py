@@ -120,6 +120,35 @@ class TestGetDrivingPaths(unittest.TestCase):
             self.assertIsInstance(p["chain"], list)
 
 
+class TestGetParallelBranches(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_parallel_branches_key(self):
+        result = cpm_path.get_parallel_branches_impl(
+            str(FIXTURE), start_date=None, end_date=None, cache=self.cache
+        )
+        self.assertIn("parallel_branches", result)
+        self.assertIsInstance(result["parallel_branches"], list)
+
+    def test_empty_on_minimal_fixture(self):
+        """Two-activity FS chain has no divergent successors -> no branches."""
+        result = cpm_path.get_parallel_branches_impl(
+            str(FIXTURE), start_date=None, end_date=None, cache=self.cache
+        )
+        self.assertEqual(result["parallel_branches"], [])
+
+    def test_date_window_params_accepted(self):
+        """Passing a window must not error."""
+        result = cpm_path.get_parallel_branches_impl(
+            str(FIXTURE),
+            start_date="2026-01-01",
+            end_date="2026-12-31",
+            cache=self.cache,
+        )
+        self.assertIn("parallel_branches", result)
+
+
 class TestGetNearCriticalChains(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
