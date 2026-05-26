@@ -32,7 +32,10 @@ Fixtures:
 * ``minimal_v2.xer`` -- copy of ``minimal.xer`` with SC's six date fields
   pushed +14 calendar days. The data_date is identical to minimal.xer.
 """
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -352,6 +355,65 @@ class TestProposalScheduleHealth(unittest.TestCase):
         self.assertIsNotNone(ac)
         self.assertIn("slips", ac)
         self.assertIsInstance(ac["slips"], list)
+
+    def test_anchor_conflicts_with_anchors_path_file(self):
+        """When ``anchors_path`` points at a JSON file with the canonical
+        ``{"anchors": [...]}`` shape, the file-loading branch at
+        ``tools/omnibus.py:325-328`` reads and unwraps it the same way as
+        an inline ``anchors=[...]`` call. Use an SC anchor that produces a
+        non-zero slip relative to the CPM-computed SC date."""
+        anchors_doc = {
+            "anchors": [
+                {
+                    "task_code": "M2000",
+                    "anchor_date": "2026-05-01",
+                    "anchor_kind": "finish",
+                    "kind_label": "SC",
+                }
+            ]
+        }
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        )
+        try:
+            json.dump(anchors_doc, tmp)
+            tmp.close()
+            anchors_path = tmp.name
+            result = omnibus.proposal_schedule_health_impl(
+                str(FIXTURE_V1),
+                milestone_id=None,
+                anchors_path=anchors_path,
+                anchors=None,
+                cache=self.cache,
+            )
+            ac = result["anchor_conflicts"]
+            self.assertIsNotNone(ac)
+            self.assertIsInstance(ac, dict)
+            self.assertIn("slips", ac)
+            self.assertIsInstance(ac["slips"], list)
+            self.assertGreaterEqual(len(ac["slips"]), 1)
+        finally:
+            os.unlink(anchors_path)
+
+    def test_anchor_conflicts_rejects_both_anchors_and_anchors_path(self):
+        """Passing both ``anchors`` and ``anchors_path`` is a usage error --
+        the guard at ``tools/omnibus.py:285-288`` raises ``ValueError``."""
+        anchors = [
+            {
+                "task_code": "M2000",
+                "anchor_date": "2026-05-01",
+                "anchor_kind": "finish",
+                "kind_label": "SC",
+            }
+        ]
+        with self.assertRaises(ValueError):
+            omnibus.proposal_schedule_health_impl(
+                str(FIXTURE_V1),
+                milestone_id=None,
+                anchors_path="/tmp/whatever.json",
+                anchors=anchors,
+                cache=self.cache,
+            )
 
 
 if __name__ == "__main__":
