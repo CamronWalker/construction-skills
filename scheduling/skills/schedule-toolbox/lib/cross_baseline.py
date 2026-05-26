@@ -26,3 +26,150 @@ from typing import Optional
 from cpm_engine import extract_paths
 from milestones import MilestoneAmbiguousError, get_milestones
 from xer_compare import compare_xer_pair
+
+
+def compute_critical_path_changes(
+    baseline_parsed: dict,
+    current_parsed: dict,
+    baseline_cpm: tuple,
+    current_cpm: tuple,
+    milestone_id: Optional[str] = None,
+) -> dict:
+    """Diff the critical path between baseline and current.
+
+    The critical path is what ``extract_paths`` returns under
+    ``"critical_path"`` -- the longest contiguous TF<=0 chain ending at the
+    terminal milestone. This function calls ``extract_paths`` on each side
+    (in-memory traversal of the cached CPM results -- no fresh CPM pass)
+    and computes set-difference of the resulting task_code sets.
+
+    Args:
+        baseline_parsed: ``parsed`` dict from the cache (baseline XER).
+        current_parsed:  ``parsed`` dict from the cache (current XER).
+        baseline_cpm:    ``(results, metadata)`` tuple from the cache for
+            the baseline XER.
+        current_cpm:     ``(results, metadata)`` tuple for the current.
+        milestone_id:    Optional terminal milestone task_id. When None,
+            ``extract_paths`` uses the metadata's auto-resolved
+            ``sc_milestone_id`` on each side independently. When provided,
+            both sides resolve to this milestone via a shallow-copied
+            metadata; raises :class:`MilestoneAmbiguousError` if the
+            milestone is missing from one side.
+
+    Returns:
+        ``{milestone_id, baseline_cp, current_cp, moved_on, moved_off,
+        stable_count}``. ``baseline_cp`` / ``current_cp`` are the full
+        ``extract_paths`` task-summary lists. ``moved_on`` /
+        ``moved_off`` carry the rows present on one side but not the
+        other (matched by ``task_code``). ``stable_count`` is the size of
+        the intersection.
+    """
+    base_results, base_metadata = baseline_cpm
+    curr_results, curr_metadata = current_cpm
+
+    if milestone_id is not None:
+        # Shallow-copy each side's metadata so the cache entries aren't
+        # mutated. The current-side milestone resolution is canonical;
+        # match by task_code to handle task_id renumbering.
+        base_metadata = _override_sc_milestone(
+            base_metadata, milestone_id, baseline_parsed.get("TASK", []),
+        )
+        curr_metadata = _override_sc_milestone(
+            curr_metadata, milestone_id, current_parsed.get("TASK", []),
+        )
+
+    base_paths = extract_paths(
+        base_results, base_metadata, baseline_parsed.get("TASKPRED", []),
+    )
+    curr_paths = extract_paths(
+        curr_results, curr_metadata, current_parsed.get("TASKPRED", []),
+    )
+
+    base_cp = [_with_task_code(t) for t in base_paths.get("critical_path", [])]
+    curr_cp = [_with_task_code(t) for t in curr_paths.get("critical_path", [])]
+
+    base_codes = {t.get("task_code") for t in base_cp}
+    curr_codes = {t.get("task_code") for t in curr_cp}
+
+    moved_off = [t for t in base_cp if t.get("task_code") not in curr_codes]
+    moved_on = [t for t in curr_cp if t.get("task_code") not in base_codes]
+    stable_count = len(base_codes & curr_codes)
+
+    return {
+        "milestone_id": milestone_id or curr_metadata.get("sc_milestone_id"),
+        "baseline_cp": base_cp,
+        "current_cp": curr_cp,
+        "moved_on": moved_on,
+        "moved_off": moved_off,
+        "stable_count": stable_count,
+    }
+
+
+def _with_task_code(summary: dict) -> dict:
+    """Normalize an ``extract_paths`` task-summary dict to carry a
+    ``task_code`` key. ``_path_task_summary`` in ``cpm_engine`` writes the
+    activity code into ``id``; this module's diffing logic matches by the
+    conceptual ``task_code`` field, so we copy it through here without
+    mutating the original dict.
+    """
+    if "task_code" in summary:
+        return summary
+    out = dict(summary)
+    out["task_code"] = summary.get("id", "")
+    return out
+
+
+def _override_sc_milestone(metadata: dict, milestone_id, tasks: list) -> dict:
+    """Shallow-copy ``metadata`` with ``sc_milestone_*`` keys overridden
+    to point at ``milestone_id``. Helper used by every function in this
+    module that accepts an optional ``milestone_id`` parameter.
+
+    Raises :class:`MilestoneAmbiguousError` carrying the candidate
+    milestone list if ``milestone_id`` doesn't exist in ``tasks`` AND the
+    schedule has multiple terminal milestones -- a missing-milestone error
+    in a multi-terminal schedule is symptomatic of the caller not knowing
+    which to pick.
+    """
+    if milestone_id is None:
+        return metadata
+    new_meta = dict(metadata)
+    new_meta["sc_milestone_id"] = milestone_id
+    found = False
+    for t in tasks:
+        if t.get("task_id") == milestone_id:
+            new_meta["sc_milestone_name"] = t.get("task_name", "")
+            new_meta["sc_milestone_code"] = t.get("task_code", "")
+            new_meta["sc_milestone_date"] = t.get("early_end_date", "")
+            found = True
+            break
+    if not found:
+        # Raise ambiguous-error carrying the candidates so the caller can
+        # repair the request.
+        candidates = get_milestones(tasks, include_complete=False)
+        raise MilestoneAmbiguousError(
+            f"milestone_id '{milestone_id}' not found; "
+            f"{len(candidates)} candidate(s) available",
+            candidates=candidates,
+        )
+    return new_meta
+
+
+# ---------------------------------------------------------------------------
+# Stubs for C3-C5 -- these keep the test-module import resolving while the
+# real implementations land in subsequent tasks. Remove when the real
+# functions are implemented.
+# ---------------------------------------------------------------------------
+
+def compute_float_consumption(*args, **kwargs):
+    """Stub -- real implementation lands in C3."""
+    raise NotImplementedError("compute_float_consumption: pending C3")
+
+
+def compute_trade_slip_summary(*args, **kwargs):
+    """Stub -- real implementation lands in C4."""
+    raise NotImplementedError("compute_trade_slip_summary: pending C4")
+
+
+def compute_gain_loss_attribution(*args, **kwargs):
+    """Stub -- real implementation lands in C5."""
+    raise NotImplementedError("compute_gain_loss_attribution: pending C5")
