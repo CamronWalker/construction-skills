@@ -10,5 +10,11 @@
   "keywords": [
     "construction",
     "scheduling"
-  ]
+  ],
+  "mcpServers": {
+    "westland-scheduler-mcp": {
+      "command": "python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/server.py"]
+    }
+  }
 }
