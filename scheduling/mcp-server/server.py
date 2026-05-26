@@ -8,7 +8,14 @@ from mcp.server.fastmcp import FastMCP
 sys.path.insert(0, str(Path(__file__).parent))
 
 from cache import CpmCache  # noqa: E402
-from tools import cpm_path, structure  # noqa: E402
+from tools import (  # noqa: E402
+    compare,
+    cpm_path,
+    omnibus,
+    quality,
+    structure,
+    update_review,
+)
 
 mcp = FastMCP("westland-scheduler-mcp")
 _cache = CpmCache()
@@ -23,6 +30,10 @@ def ping() -> dict:
 # Register all tool modules.
 structure.register(mcp, _cache)
 cpm_path.register(mcp, _cache)
+quality.register(mcp, _cache)
+update_review.register(mcp, _cache)
+compare.register(mcp, _cache)
+omnibus.register(mcp, _cache)
 
 
 if __name__ == "__main__":
