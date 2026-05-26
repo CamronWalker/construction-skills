@@ -123,3 +123,60 @@ class TestComputeCriticalPathChanges(unittest.TestCase):
             )
         self.assertTrue(hasattr(ctx.exception, "candidates"))
         self.assertGreater(len(ctx.exception.candidates), 0)
+
+
+class TestComputeFloatConsumption(unittest.TestCase):
+    """compute_float_consumption returns per-activity total_float deltas.
+    A negative delta means float was consumed (slip risk increased);
+    positive means float was added back (schedule healthier)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cache = CpmCache()
+        cls.base_path = str(FIXTURES / "cp_baseline.xer")
+        cls.curr_path = str(FIXTURES / "cp_shifted.xer")
+        cls.base_parsed = cls.cache.get_parsed(cls.base_path)
+        cls.curr_parsed = cls.cache.get_parsed(cls.curr_path)
+        cls.base_cpm = cls.cache.get_cpm(cls.base_path)
+        cls.curr_cpm = cls.cache.get_cpm(cls.curr_path)
+
+    def test_returns_required_keys(self):
+        result = compute_float_consumption(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        for key in (
+            "milestone_id", "by_activity", "biggest_losers", "biggest_gainers",
+        ):
+            self.assertIn(key, result)
+
+    def test_by_activity_is_sorted_by_abs_delta_desc(self):
+        result = compute_float_consumption(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        deltas = [abs(row["delta_hours"]) for row in result["by_activity"]]
+        self.assertEqual(deltas, sorted(deltas, reverse=True))
+
+    def test_b_chain_lost_float(self):
+        """B-chain went from 80hr float to 0hr float in cp_shifted (now CP).
+        B1000 and B1010 should show up in biggest_losers with negative
+        delta_hours of magnitude ~80."""
+        result = compute_float_consumption(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        loser_codes = {row["task_code"] for row in result["biggest_losers"]}
+        self.assertIn("B1000", loser_codes)
+        self.assertIn("B1010", loser_codes)
+
+    def test_a_chain_gained_float(self):
+        """A-chain went from 0hr float to >0hr float (still finishes but
+        no longer drives). A1000 and A1010 in biggest_gainers."""
+        result = compute_float_consumption(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        gainer_codes = {row["task_code"] for row in result["biggest_gainers"]}
+        self.assertIn("A1000", gainer_codes)
+        self.assertIn("A1010", gainer_codes)

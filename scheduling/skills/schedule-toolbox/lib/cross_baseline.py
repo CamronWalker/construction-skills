@@ -141,9 +141,13 @@ def _override_sc_milestone(
     return new_meta
 
 
-# ---------------------------------------------------------------------------
-# Stubs for C3-C5 -- the real implementations land in those tasks.
-# ---------------------------------------------------------------------------
+def _safe_float(value, default: float) -> float:
+    """Float-coerce ``value``, returning ``default`` on bad input."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 
 def compute_float_consumption(
     baseline_parsed: dict,
@@ -152,7 +156,75 @@ def compute_float_consumption(
     current_cpm: tuple,
     milestone_id: Optional[str] = None,
 ) -> dict:
-    raise NotImplementedError("compute_float_consumption ships in Plan 2 Task C3")
+    """Per-activity total_float delta between baseline and current.
+
+    Matches activities by ``task_code`` (task_id may renumber between
+    P6 exports). Returns one row per activity present on BOTH sides
+    plus the biggest_losers / biggest_gainers slices for quick triage.
+
+    Args:
+        baseline_parsed: parsed dict for the baseline XER.
+        current_parsed:  parsed dict for the current XER.
+        baseline_cpm:    ``(results, _metadata)`` tuple; CPM results have
+            ``total_float_hr_cnt`` written into each row.
+        current_cpm:     same for the current XER.
+        milestone_id:    Optional terminal milestone task_id. Forwarded to
+            the metadata copy but ``compute_float_consumption`` itself
+            doesn't filter by milestone -- the field is in the response
+            for cross-tool consistency.
+
+    Returns:
+        ``{milestone_id, by_activity: [{task_code, task_name,
+        baseline_hours, current_hours, delta_hours}, ...],
+        biggest_losers: [...rows with most-negative delta...],
+        biggest_gainers: [...rows with most-positive delta...]}``.
+        ``by_activity`` is sorted by ``abs(delta_hours)`` descending.
+        ``biggest_losers`` and ``biggest_gainers`` are the top-5 of each.
+    """
+    base_results, base_metadata = baseline_cpm
+    curr_results, _ = current_cpm
+
+    def _by_code(rows: list) -> dict:
+        return {r.get("task_code"): r for r in rows if r.get("task_code")}
+
+    base_by_code = _by_code(base_results)
+    curr_by_code = _by_code(curr_results)
+
+    common = set(base_by_code) & set(curr_by_code)
+
+    by_activity = []
+    for code in common:
+        b = base_by_code[code]
+        c = curr_by_code[code]
+        base_hr = _safe_float(b.get("total_float_hr_cnt"), 0.0)
+        curr_hr = _safe_float(c.get("total_float_hr_cnt"), 0.0)
+        delta = curr_hr - base_hr
+        if abs(delta) < 0.01:
+            continue
+        by_activity.append({
+            "task_code": code,
+            "task_name": c.get("task_name") or b.get("task_name", ""),
+            "baseline_hours": base_hr,
+            "current_hours": curr_hr,
+            "delta_hours": delta,
+        })
+
+    by_activity.sort(key=lambda r: abs(r["delta_hours"]), reverse=True)
+    biggest_losers = sorted(
+        (r for r in by_activity if r["delta_hours"] < 0),
+        key=lambda r: r["delta_hours"],
+    )[:5]
+    biggest_gainers = sorted(
+        (r for r in by_activity if r["delta_hours"] > 0),
+        key=lambda r: r["delta_hours"], reverse=True,
+    )[:5]
+
+    return {
+        "milestone_id": milestone_id or base_metadata.get("sc_milestone_id"),
+        "by_activity": by_activity,
+        "biggest_losers": biggest_losers,
+        "biggest_gainers": biggest_gainers,
+    }
 
 
 def compute_trade_slip_summary(
