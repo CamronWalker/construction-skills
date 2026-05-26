@@ -38,6 +38,8 @@ _LIB = Path(__file__).parent.parent.parent / "skills" / "schedule-toolbox" / "li
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
+from tools._common import data_date_str as _data_date  # noqa: E402
+
 from quality_checks import (  # noqa: E402
     ALL_CHECKS,
     check_constraints,
@@ -52,28 +54,6 @@ from quality_checks import (  # noqa: E402
     check_start_to_finish,
     check_start_to_start,
 )
-
-
-def _data_date(parsed: dict) -> Optional[str]:
-    """Pull the data_date string out of the parsed PROJECT table.
-
-    Returns ``None`` in two cases:
-      * the PROJECT table is missing or empty
-      * the PROJECT row's ``last_recalc_date`` and ``data_date`` are both
-        absent or empty strings (the ``or None`` tail at the bottom collapses
-        an empty string to ``None``).
-
-    The downstream library checks branch on ``if data_date is None`` to skip
-    date-aware comparisons, so emitting ``None`` for the empty-string case is
-    deliberate -- empty strings would otherwise compare unequal-to-anything
-    and produce spurious "after data date" hits.
-    """
-    project_rows = parsed.get("PROJECT") or [{}]
-    return (
-        project_rows[0].get("last_recalc_date")
-        or project_rows[0].get("data_date", "")
-        or None
-    )
 
 
 def get_quality_check_impl(xer_path: str, check_name: str, cache) -> dict:

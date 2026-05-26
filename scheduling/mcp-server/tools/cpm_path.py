@@ -54,6 +54,8 @@ if str(_TOOLS_DIR) not in sys.path:
 from _xer_io import parse_xer as _xer_io_parse  # noqa: E402
 from _xer_io import write_xer_with_updates  # noqa: E402
 
+from tools._common import resolve_metadata_for_milestone as _resolve_metadata_for_milestone  # noqa: E402
+
 # Fields ``schedule_forward_backward`` writes back into each task dict.
 # Only these need to be propagated to the output XER; everything else stays
 # byte-identical via write_xer_with_updates' pass-through.
@@ -66,35 +68,6 @@ _CPM_FIELDS = (
     "free_float_hr_cnt",
     "driving_path_flag",
 )
-
-
-def _resolve_metadata_for_milestone(
-    metadata: dict, milestone_id, tasks: list
-) -> dict:
-    """Return a metadata dict with ``sc_milestone_*`` fields set to the
-    explicit ``milestone_id``. When ``milestone_id`` is None the original
-    metadata is returned unchanged (no copy) so the common case is free.
-
-    The CPM math already ran with the cache's default milestone resolution;
-    only the post-processing path extraction needs to know which milestone
-    counts as "the end" for SC-anchored chains. Updating metadata in place
-    would corrupt the cache entry, hence the shallow copy.
-    """
-    if milestone_id is None:
-        return metadata
-    new_meta = dict(metadata)
-    new_meta["sc_milestone_id"] = milestone_id
-    # Best-effort lookup of name + code + date so the metadata dict matches
-    # what schedule_forward_backward would have produced if given milestone_id
-    # directly. Missing fields default to empty string (extract_paths only
-    # uses sc_milestone_id, but other future consumers may read the name).
-    for t in tasks:
-        if t.get("task_id") == milestone_id:
-            new_meta["sc_milestone_name"] = t.get("task_name", "")
-            new_meta["sc_milestone_code"] = t.get("task_code", "")
-            new_meta["sc_milestone_date"] = t.get("early_end_date", "")
-            break
-    return new_meta
 
 
 # Upper bound on tolerance_days for near-critical-chains. ``extract_paths``

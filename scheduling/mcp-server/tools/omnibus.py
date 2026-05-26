@@ -51,59 +51,18 @@ _LIB = Path(__file__).parent.parent.parent / "skills" / "schedule-toolbox" / "li
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
+from tools._common import (  # noqa: E402
+    FUTURE_DATE_SENTINEL as _FUTURE_DATE_SENTINEL,
+    data_date_dt as _data_date_dt,
+    data_date_str as _data_date_str,
+)
+
 from cpm_engine import check_anchor_dates  # noqa: E402
 from milestones import MilestoneAmbiguousError  # noqa: E402
 from quality_checks import check_high_float, check_missing_logic  # noqa: E402
 from score_schedule import compute_quality_score  # noqa: E402
 from update_review import expected_updates  # noqa: E402
 from xer_compare import compare_xer_pair  # noqa: E402
-
-
-# Sentinel future_date used internally by weekly_update_review when the
-# caller doesn't pass an explicit window. Mirrors the same constant in
-# tools/update_review.py -- the in_progress / activities-to-* slices are
-# scoped by future_date, but for a generic weekly review we want every
-# activity that *could* start or finish to surface, so we use a far-future
-# date that exceeds any realistic schedule horizon.
-_FUTURE_DATE_SENTINEL = "2099-12-31"
-
-
-def _data_date_str(parsed: dict) -> Optional[str]:
-    """Pull the data_date string out of the parsed PROJECT table.
-
-    Mirrors the helper in :mod:`tools.quality`. Returns ``None`` when the
-    PROJECT table is missing or its date fields are empty so downstream
-    library calls correctly skip date-aware comparisons (rather than
-    treating an empty string as a date).
-    """
-    project_rows = parsed.get("PROJECT") or [{}]
-    return (
-        project_rows[0].get("last_recalc_date")
-        or project_rows[0].get("data_date", "")
-        or None
-    )
-
-
-def _data_date_dt(parsed: dict) -> Optional[datetime]:
-    """Like :func:`_data_date_str` but returns a parsed ``datetime``.
-
-    ``score_schedule.compute_quality_score`` compares ``data_date``
-    directly against parsed ``datetime`` objects internally (see the
-    ``future_actual`` branch around line 395), so the wrapper must pre-
-    parse the string. The CLI in ``score_schedule.py.__main__`` does the
-    same thing -- accepting both ``%Y-%m-%d %H:%M`` and ``%Y-%m-%d``
-    formats. Returns ``None`` when no parse format matches; the library
-    then takes its no-date branch.
-    """
-    s = _data_date_str(parsed)
-    if s is None:
-        return None
-    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(s.strip(), fmt)
-        except ValueError:
-            continue
-    return None
 
 
 def score_schedule_impl(
