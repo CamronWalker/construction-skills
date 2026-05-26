@@ -14,13 +14,12 @@ A handful of reconciliations vs. the F2 plan are worth flagging up front:
   (``check_finish_to_start``, ``check_start_to_start``, ``check_finish_to_finish``,
   ``check_start_to_finish``) into one ``{FS, SS, FF, SF}`` summary; there is no
   pre-built breakdown in the library.
-* ``get_high_float_activities`` and ``get_high_duration_activities`` hard-code
-  a 44-working-day threshold inside the library helpers. The MCP layer accepts
-  a ``threshold_days`` argument; values < 44 filter the result list further at
-  the MCP layer, and values > 44 are silently clamped down to 44 because the
-  underlying check never collects tasks below the library's 44-day cap. This
-  mirrors the ``tolerance_days`` clamp pattern from
-  :mod:`tools.cpm_path` ``get_near_critical_chains_impl``.
+* ``get_high_float_activities`` and ``get_high_duration_activities`` are fixed
+  to "> 44 working days (= 352 hrs)". The underlying ``check_high_float`` and
+  ``check_high_duration`` helpers hard-code that cap and don't accept a
+  parameter; the MCP wrappers therefore don't expose a threshold knob -- doing
+  so previously was misleading because no value < 44 could filter (the base
+  list is already > 44) and values > 44 just clamped back to 44.
 * ``get_circular_relationships`` reads
   ``metadata['circular_dependencies']`` from the cached CPM result. Cycles are
   detected during the CPM topological sort, not by a dedicated quality check.
@@ -55,18 +54,19 @@ from quality_checks import (  # noqa: E402
 )
 
 
-# The library helpers for high_float / high_duration hard-code a 352-hour
-# (= 44 working-day) cap. Threshold requests above this cap are silently
-# clamped down because tasks below the cap were never collected.
-_HIGH_FLOAT_MAX_DAYS = 44
-_HIGH_DURATION_MAX_DAYS = 44
-
-
 def _data_date(parsed: dict) -> Optional[str]:
     """Pull the data_date string out of the parsed PROJECT table.
 
-    Returns ``None`` if PROJECT is missing or empty so the underlying check can
-    handle the no-data-date case (typically by returning an INFO row).
+    Returns ``None`` in two cases:
+      * the PROJECT table is missing or empty
+      * the PROJECT row's ``last_recalc_date`` and ``data_date`` are both
+        absent or empty strings (the ``or None`` tail at the bottom collapses
+        an empty string to ``None``).
+
+    The downstream library checks branch on ``if data_date is None`` to skip
+    date-aware comparisons, so emitting ``None`` for the empty-string case is
+    deliberate -- empty strings would otherwise compare unequal-to-anything
+    and produce spurious "after data date" hits.
     """
     project_rows = parsed.get("PROJECT") or [{}]
     return (
@@ -132,36 +132,18 @@ def get_missing_logic_impl(xer_path: str, cache) -> dict:
     return check_missing_logic(tasks, preds, data_date, all_preds=preds)
 
 
-def get_high_float_activities_impl(
-    xer_path: str, threshold_days: float, cache
-) -> dict:
-    """Activities with total float > ``threshold_days`` working days.
+def get_high_float_activities_impl(xer_path: str, cache) -> dict:
+    """Activities with total float > 44 working days (= 352 hrs).
 
-    The library helper hard-codes the threshold at 44 working days (352 hrs).
-    Values > 44 are silently clamped to 44. Values < 44 filter the result list
-    further at the MCP layer (a 44-day-threshold result list only contains
-    tasks already above 44 days).
+    The threshold is fixed by the underlying ``check_high_float`` helper and
+    is not user-configurable -- the helper's flagged list only contains tasks
+    whose ``total_float_hr_cnt`` is strictly greater than 352 hours.
     """
     parsed = cache.get_parsed(xer_path)
     tasks = parsed.get("TASK", [])
     preds = parsed.get("TASKPRED", [])
     data_date = _data_date(parsed)
-    base = check_high_float(tasks, preds, data_date)
-
-    effective = min(threshold_days, _HIGH_FLOAT_MAX_DAYS)
-    if effective == _HIGH_FLOAT_MAX_DAYS:
-        return base
-
-    # Filter the task list down to entries above the requested threshold.
-    # ``float_days`` is rounded to 1 dp in the library; compare in the same units.
-    filtered_tasks = [
-        t for t in base.get("tasks", [])
-        if t.get("float_days", 0) > effective
-    ]
-    out = dict(base)
-    out["tasks"] = filtered_tasks
-    out["count"] = len(filtered_tasks)
-    return out
+    return check_high_float(tasks, preds, data_date)
 
 
 def get_negative_float_activities_impl(xer_path: str, cache) -> dict:
@@ -185,33 +167,18 @@ def get_constraint_violations_impl(xer_path: str, cache) -> dict:
     return check_constraints(tasks, preds, data_date)
 
 
-def get_high_duration_activities_impl(
-    xer_path: str, threshold_days: float, cache
-) -> dict:
-    """Activities with planned duration > ``threshold_days`` working days.
+def get_high_duration_activities_impl(xer_path: str, cache) -> dict:
+    """Activities with planned duration > 44 working days (= 352 hrs).
 
-    Same clamp pattern as ``get_high_float_activities``: the library helper
-    fixes its cap at 44 working days; values > 44 are silently clamped down,
-    values < 44 filter further at the MCP layer.
+    Same fixed-threshold story as :func:`get_high_float_activities_impl`: the
+    underlying ``check_high_duration`` helper hard-codes the 352-hour cap and
+    only emits tasks above it, so the wrapper doesn't expose a knob.
     """
     parsed = cache.get_parsed(xer_path)
     tasks = parsed.get("TASK", [])
     preds = parsed.get("TASKPRED", [])
     data_date = _data_date(parsed)
-    base = check_high_duration(tasks, preds, data_date)
-
-    effective = min(threshold_days, _HIGH_DURATION_MAX_DAYS)
-    if effective == _HIGH_DURATION_MAX_DAYS:
-        return base
-
-    filtered_tasks = [
-        t for t in base.get("tasks", [])
-        if t.get("duration_days", 0) > effective
-    ]
-    out = dict(base)
-    out["tasks"] = filtered_tasks
-    out["count"] = len(filtered_tasks)
-    return out
+    return check_high_duration(tasks, preds, data_date)
 
 
 def get_duplicate_relationships_impl(xer_path: str, cache) -> dict:
@@ -254,6 +221,11 @@ def register(mcp, cache):
     @mcp.tool()
     def get_quality_check(xer_path: str, check_name: str) -> dict:
         """Run a single named quality check from the SmartPM-equivalent suite.
+
+        This is a generic router; prefer the individual ``get_<name>`` tools
+        (``get_high_float_activities``, ``get_missing_logic``, ...) when a
+        stable, documented response shape matters -- this router returns the
+        raw check output, whose shape varies by ``check_name``.
 
         Args:
             xer_path: Path to the .xer file.
@@ -299,24 +271,19 @@ def register(mcp, cache):
         return get_missing_logic_impl(xer_path, cache)
 
     @mcp.tool()
-    def get_high_float_activities(
-        xer_path: str, threshold_days: float = 44
-    ) -> dict:
-        """Activities with total float above ``threshold_days`` working days.
+    def get_high_float_activities(xer_path: str) -> dict:
+        """Activities with total float > 44 working days (the library's hard
+        cap; the threshold isn't user-configurable here because the underlying
+        check doesn't parameterize it).
 
         Args:
             xer_path: Path to the .xer file.
-            threshold_days: Working-day float threshold. Defaults to 44 (the
-                library cap). Values > 44 are silently clamped to 44 because
-                the underlying check never collects tasks below that cap.
 
         Returns:
             ``{ check, label, count, total, pct, status, tasks: [
             {task_id, task_code, task_name, float_days}, ...] }``.
         """
-        return get_high_float_activities_impl(
-            xer_path, threshold_days, cache
-        )
+        return get_high_float_activities_impl(xer_path, cache)
 
     @mcp.tool()
     def get_negative_float_activities(xer_path: str) -> dict:
@@ -342,31 +309,31 @@ def register(mcp, cache):
             xer_path: Path to the .xer file.
 
         Returns:
-            ``{ check, label, count, total, pct, status, tasks: [
-            {task_id, task_code, task_name, constraint_type,
-            constraint_date}, ...] }``.
+            The standard ``_result`` envelope from ``check_constraints``:
+            ``{check: "constraints", label, scored: True, deduction_pts,
+            count, total, pct, threshold, status, note, tasks: [...]}``.
+            Each entry in ``tasks`` is whatever the library's ``_task_rec``
+            emits (``task_id``, ``task_code``, ``task_name``) plus the
+            constraint-specific keys ``constraint_type`` and
+            ``constraint_date``. Field set is determined by the library, not
+            this wrapper.
         """
         return get_constraint_violations_impl(xer_path, cache)
 
     @mcp.tool()
-    def get_high_duration_activities(
-        xer_path: str, threshold_days: float = 44
-    ) -> dict:
-        """Activities with planned duration above ``threshold_days`` working
-        days.
+    def get_high_duration_activities(xer_path: str) -> dict:
+        """Activities with planned duration > 44 working days (the library's
+        hard cap; the threshold isn't user-configurable here because the
+        underlying check doesn't parameterize it).
 
         Args:
             xer_path: Path to the .xer file.
-            threshold_days: Working-day duration threshold. Defaults to 44
-                (the library cap). Values > 44 are silently clamped to 44.
 
         Returns:
             ``{ check, label, count, total, pct, status, tasks: [
             {task_id, task_code, task_name, duration_days}, ...] }``.
         """
-        return get_high_duration_activities_impl(
-            xer_path, threshold_days, cache
-        )
+        return get_high_duration_activities_impl(xer_path, cache)
 
     @mcp.tool()
     def get_duplicate_relationships(xer_path: str) -> dict:

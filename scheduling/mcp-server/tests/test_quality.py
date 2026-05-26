@@ -131,46 +131,27 @@ class TestGetHighFloatActivities(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
 
-    def test_returns_high_float_shape(self):
+    def test_returns_result_envelope_shape(self):
+        """The wrapper returns the library ``_result`` envelope verbatim.
+
+        On the minimal fixture (two zero-duration milestones with TF=0) the
+        check has no flagged tasks. The keys asserted here are the stable
+        envelope contract; ``tasks`` is empty and ``count`` is 0. The threshold
+        is fixed at 44 working days inside the library and isn't a knob the
+        wrapper exposes -- behavior on real (>44-day-TF) schedules is
+        exercised in the spec-review-against-real-XERs step.
+        """
         result = quality.get_high_float_activities_impl(
-            str(FIXTURE), threshold_days=44, cache=self.cache
+            str(FIXTURE), cache=self.cache
         )
         self.assertEqual(result.get("check"), "high_float")
+        for key in ("check", "label", "scored", "count", "total", "pct",
+                    "threshold", "status"):
+            self.assertIn(key, result)
         self.assertIn("tasks", result)
         self.assertIsInstance(result["tasks"], list)
-
-    def test_default_threshold_passes_through(self):
-        """At threshold=44 the MCP layer just returns the library result
-        unchanged."""
-        result = quality.get_high_float_activities_impl(
-            str(FIXTURE), threshold_days=44, cache=self.cache
-        )
-        # Minimal fixture has no high-float tasks (zero-duration milestones).
-        self.assertEqual(result["tasks"], [])
         self.assertEqual(result["count"], 0)
-
-    def test_threshold_above_cap_clamps(self):
-        """threshold_days > 44 is silently clamped to 44; result identical to
-        default."""
-        default = quality.get_high_float_activities_impl(
-            str(FIXTURE), threshold_days=44, cache=self.cache
-        )
-        clamped = quality.get_high_float_activities_impl(
-            str(FIXTURE), threshold_days=999, cache=self.cache
-        )
-        self.assertEqual(default["tasks"], clamped["tasks"])
-        self.assertEqual(default["count"], clamped["count"])
-
-    def test_threshold_below_cap_filters(self):
-        """threshold_days < 44 doesn't pull in new tasks (the library cap is
-        still 44) but the MCP layer can shrink the list further. On the
-        minimal fixture the result is still empty -- this test just verifies
-        the filter path doesn't crash and returns the right shape."""
-        result = quality.get_high_float_activities_impl(
-            str(FIXTURE), threshold_days=10, cache=self.cache
-        )
         self.assertEqual(result["tasks"], [])
-        self.assertEqual(result["count"], 0)
 
 
 class TestGetNegativeFloatActivities(unittest.TestCase):
@@ -220,35 +201,22 @@ class TestGetHighDurationActivities(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
 
-    def test_returns_high_duration_shape(self):
+    def test_returns_result_envelope_shape(self):
+        """Same story as ``TestGetHighFloatActivities``: fixed > 44 working-day
+        threshold inside the library; wrapper passes the ``_result`` envelope
+        through unchanged. Both milestones in the minimal fixture have a
+        target duration of 0 hrs, so the result is empty."""
         result = quality.get_high_duration_activities_impl(
-            str(FIXTURE), threshold_days=44, cache=self.cache
+            str(FIXTURE), cache=self.cache
         )
         self.assertEqual(result.get("check"), "high_duration")
+        for key in ("check", "label", "scored", "count", "total", "pct",
+                    "threshold", "status"):
+            self.assertIn(key, result)
         self.assertIn("tasks", result)
         self.assertIsInstance(result["tasks"], list)
-
-    def test_default_threshold_passes_through(self):
-        result = quality.get_high_duration_activities_impl(
-            str(FIXTURE), threshold_days=44, cache=self.cache
-        )
-        self.assertEqual(result["tasks"], [])
-
-    def test_threshold_above_cap_clamps(self):
-        default = quality.get_high_duration_activities_impl(
-            str(FIXTURE), threshold_days=44, cache=self.cache
-        )
-        clamped = quality.get_high_duration_activities_impl(
-            str(FIXTURE), threshold_days=200, cache=self.cache
-        )
-        self.assertEqual(default["count"], clamped["count"])
-
-    def test_threshold_below_cap_filters(self):
-        result = quality.get_high_duration_activities_impl(
-            str(FIXTURE), threshold_days=5, cache=self.cache
-        )
-        self.assertEqual(result["tasks"], [])
         self.assertEqual(result["count"], 0)
+        self.assertEqual(result["tasks"], [])
 
 
 class TestGetDuplicateRelationships(unittest.TestCase):
