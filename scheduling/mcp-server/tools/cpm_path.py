@@ -26,6 +26,8 @@ if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
 from cpm_engine import extract_paths  # noqa: E402
+from cpm_engine import _path_task_summary  # noqa: E402
+from path_analysis import trace_driving_path  # noqa: E402
 
 
 def _resolve_metadata_for_milestone(
@@ -83,6 +85,66 @@ def get_critical_path_impl(
     return {"critical_path": paths.get("critical_path", [])}
 
 
+def get_driving_paths_impl(
+    xer_path: str, activity_id: Optional[str], cache
+) -> dict:
+    """Driving paths through the schedule.
+
+    Without ``activity_id``: returns every driving path that
+    :func:`extract_paths` walks back from key end-states (SC milestone,
+    project_end, FNLT-constrained tasks). Useful for "what's driving the
+    finish?" discovery.
+
+    With ``activity_id``: traces forward from that activity along the least-
+    float successor at each step, stopping at the SC milestone or whenever
+    there are no successors. Returned in the same single-element list shape
+    so callers don't have to special-case the two modes.
+    """
+    parsed = cache.get_parsed(xer_path)
+    results, metadata = cache.get_cpm(xer_path)
+
+    if activity_id is None:
+        paths = extract_paths(results, metadata, parsed.get("TASKPRED", []))
+        return {"driving_paths": paths.get("driving_paths", [])}
+
+    # Forward trace from a specific activity. trace_driving_path returns a
+    # list of task_ids; wrap to match the extract_paths shape so consumers
+    # have a single result schema.
+    tasks_by_id = {t.get("task_id"): t for t in results}
+    if activity_id not in tasks_by_id:
+        return {"driving_paths": []}
+
+    # Build a minimal succ_map for trace_driving_path. The function rebuilds
+    # its own succ lookup from preds anyway, so an empty defaultdict works;
+    # we pass {} and let it own that detail.
+    chain_ids = trace_driving_path(
+        activity_id,
+        tasks_by_id,
+        {},
+        parsed.get("TASKPRED", []),
+        sc_task_id=metadata.get("sc_milestone_id"),
+    )
+    if not chain_ids:
+        return {"driving_paths": []}
+
+    end_id = chain_ids[-1]
+    end_task = tasks_by_id.get(end_id, {})
+    return {
+        "driving_paths": [
+            {
+                "to": "forward-from-activity",
+                "end_task_id": end_id,
+                "end_task_code": end_task.get("task_code", "") or end_id,
+                "end_task_name": end_task.get("task_name", ""),
+                "chain": [
+                    _path_task_summary(tasks_by_id[tid], tid)
+                    for tid in chain_ids if tid in tasks_by_id
+                ],
+            }
+        ]
+    }
+
+
 def get_near_critical_chains_impl(
     xer_path: str, tolerance_days: float, cache
 ) -> dict:
@@ -123,6 +185,26 @@ def register(mcp, cache):
             Empty list if no TF<=0 chain exists.
         """
         return get_critical_path_impl(xer_path, milestone_id, cache)
+
+    @mcp.tool()
+    def get_driving_paths(
+        xer_path: str, activity_id: Optional[str] = None
+    ) -> dict:
+        """Driving paths through the schedule.
+
+        Args:
+            xer_path: Path to the .xer file.
+            activity_id: Optional task_id. When omitted, returns every
+                driving path walked backward from key end-states (SC,
+                project_end, FNLT). When provided, returns a single chain
+                walked forward from that activity along the least-float
+                successor at each step.
+
+        Returns:
+            ``{ driving_paths: [{to, end_task_id, end_task_code,
+            end_task_name, chain: [task_summary, ...]}, ...] }``.
+        """
+        return get_driving_paths_impl(xer_path, activity_id, cache)
 
     @mcp.tool()
     def get_near_critical_chains(

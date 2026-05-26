@@ -79,6 +79,47 @@ class TestGetCriticalPath(unittest.TestCase):
             self.assertIn("total_float_days", step)
 
 
+class TestGetDrivingPaths(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_driving_paths_key(self):
+        result = cpm_path.get_driving_paths_impl(
+            str(FIXTURE), activity_id=None, cache=self.cache
+        )
+        self.assertIn("driving_paths", result)
+        self.assertIsInstance(result["driving_paths"], list)
+
+    def test_no_activity_returns_end_state_paths(self):
+        """Without activity_id, the tool exposes extract_paths['driving_paths']
+        -- paths walked back from end-states. The minimal fixture has at
+        least one (SC milestone is a terminal)."""
+        result = cpm_path.get_driving_paths_impl(
+            str(FIXTURE), activity_id=None, cache=self.cache
+        )
+        self.assertGreater(len(result["driving_paths"]), 0)
+
+    def test_with_activity_id_returns_single_forward_chain(self):
+        """activity_id='10001' (NTP) traces forward to SC; result is a single-
+        element list whose chain ends at the SC task_id."""
+        result = cpm_path.get_driving_paths_impl(
+            str(FIXTURE), activity_id="10001", cache=self.cache
+        )
+        self.assertEqual(len(result["driving_paths"]), 1)
+        chain = result["driving_paths"][0]["chain"]
+        self.assertEqual(chain[0]["task_id"], "10001")
+        self.assertEqual(chain[-1]["task_id"], "10002")
+
+    def test_each_path_has_chain_and_end_metadata(self):
+        result = cpm_path.get_driving_paths_impl(
+            str(FIXTURE), activity_id=None, cache=self.cache
+        )
+        for p in result["driving_paths"]:
+            self.assertIn("chain", p)
+            self.assertIn("end_task_id", p)
+            self.assertIsInstance(p["chain"], list)
+
+
 class TestGetNearCriticalChains(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
