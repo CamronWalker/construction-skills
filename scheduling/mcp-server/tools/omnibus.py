@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -51,18 +50,18 @@ _LIB = Path(__file__).parent.parent.parent / "skills" / "schedule-toolbox" / "li
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
-from tools._common import (  # noqa: E402
-    FUTURE_DATE_SENTINEL as _FUTURE_DATE_SENTINEL,
-    data_date_dt as _data_date_dt,
-    data_date_str as _data_date_str,
-)
-
 from cpm_engine import check_anchor_dates  # noqa: E402
 from milestones import MilestoneAmbiguousError  # noqa: E402
 from quality_checks import check_high_float, check_missing_logic  # noqa: E402
 from score_schedule import compute_quality_score  # noqa: E402
 from update_review import expected_updates  # noqa: E402
 from xer_compare import compare_xer_pair  # noqa: E402
+
+from tools._common import (  # noqa: E402
+    FUTURE_DATE_SENTINEL as _FUTURE_DATE_SENTINEL,
+    data_date_dt as _data_date_dt,
+    data_date_str as _data_date_str,
+)
 
 
 def score_schedule_impl(

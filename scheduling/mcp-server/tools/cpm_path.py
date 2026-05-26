@@ -54,7 +54,9 @@ if str(_TOOLS_DIR) not in sys.path:
 from _xer_io import parse_xer as _xer_io_parse  # noqa: E402
 from _xer_io import write_xer_with_updates  # noqa: E402
 
-from tools._common import resolve_metadata_for_milestone as _resolve_metadata_for_milestone  # noqa: E402
+from tools._common import (  # noqa: E402
+    resolve_metadata_for_milestone as _resolve_metadata_for_milestone,
+)
 
 # Fields ``schedule_forward_backward`` writes back into each task dict.
 # Only these need to be propagated to the output XER; everything else stays

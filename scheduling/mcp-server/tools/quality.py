@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Inject schedule-toolbox/lib so the quality_checks module imports as a
 # top-level name. Mirrors what cache.py and tools/cpm_path.py do.
