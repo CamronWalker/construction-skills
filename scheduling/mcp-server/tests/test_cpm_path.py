@@ -79,5 +79,32 @@ class TestGetCriticalPath(unittest.TestCase):
             self.assertIn("total_float_days", step)
 
 
+class TestGetNearCriticalChains(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_near_critical_key(self):
+        result = cpm_path.get_near_critical_chains_impl(
+            str(FIXTURE), tolerance_days=5, cache=self.cache
+        )
+        self.assertIn("near_critical", result)
+        self.assertIsInstance(result["near_critical"], list)
+
+    def test_empty_on_minimal_fixture(self):
+        """Both fixture activities have TF=0 -> no near-critical chains."""
+        result = cpm_path.get_near_critical_chains_impl(
+            str(FIXTURE), tolerance_days=5, cache=self.cache
+        )
+        self.assertEqual(result["near_critical"], [])
+
+    def test_tolerance_days_param_accepted(self):
+        """Passing a smaller tolerance must not error; result is still empty
+        on this fixture but the call shape is what's being verified."""
+        result = cpm_path.get_near_critical_chains_impl(
+            str(FIXTURE), tolerance_days=2, cache=self.cache
+        )
+        self.assertIn("near_critical", result)
+
+
 if __name__ == "__main__":
     unittest.main()

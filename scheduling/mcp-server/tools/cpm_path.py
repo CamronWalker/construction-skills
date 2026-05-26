@@ -57,6 +57,13 @@ def _resolve_metadata_for_milestone(
     return new_meta
 
 
+# Upper bound on tolerance_days for near-critical-chains. ``extract_paths``
+# itself uses a hard-coded 40-hour cap (= 5 working days at 8 hrs/day) when
+# collecting near-critical tasks; any tolerance request greater than this is
+# silently clamped because the underlying chains weren't computed.
+_NEAR_CRITICAL_MAX_DAYS = 5
+
+
 def get_critical_path_impl(
     xer_path: str, milestone_id: Optional[str], cache
 ) -> dict:
@@ -74,6 +81,25 @@ def get_critical_path_impl(
     )
     paths = extract_paths(results, metadata, parsed.get("TASKPRED", []))
     return {"critical_path": paths.get("critical_path", [])}
+
+
+def get_near_critical_chains_impl(
+    xer_path: str, tolerance_days: float, cache
+) -> dict:
+    """Return chains of tasks with 0 < TF <= ``tolerance_days``.
+
+    The underlying :func:`extract_paths` produces chains capped at 5 working
+    days of float; values greater than 5 are silently clamped. Values <= 5
+    filter the returned chains down to those whose minimum-float member is
+    within the requested tolerance.
+    """
+    parsed = cache.get_parsed(xer_path)
+    results, metadata = cache.get_cpm(xer_path)
+    paths = extract_paths(results, metadata, parsed.get("TASKPRED", []))
+    chains = paths.get("near_critical", [])
+    effective_tol = min(tolerance_days, _NEAR_CRITICAL_MAX_DAYS)
+    chains = [c for c in chains if c.get("float_days", 999) <= effective_tol]
+    return {"near_critical": chains}
 
 
 def register(mcp, cache):
@@ -97,3 +123,23 @@ def register(mcp, cache):
             Empty list if no TF<=0 chain exists.
         """
         return get_critical_path_impl(xer_path, milestone_id, cache)
+
+    @mcp.tool()
+    def get_near_critical_chains(
+        xer_path: str, tolerance_days: float = 5
+    ) -> dict:
+        """Return chains of activities whose total float is positive but
+        within ``tolerance_days`` of zero.
+
+        Args:
+            xer_path: Path to the .xer file.
+            tolerance_days: Max chain float in working days. Defaults to 5;
+                values greater than 5 are silently clamped to 5 because the
+                underlying engine doesn't collect tasks with TF >= 5 days as
+                near-critical.
+
+        Returns:
+            ``{ near_critical: [{float_days, length, chain: [task_summary,
+            ...]}, ...] }``. Chains sorted ascending by float_days.
+        """
+        return get_near_critical_chains_impl(xer_path, tolerance_days, cache)
