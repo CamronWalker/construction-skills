@@ -101,7 +101,7 @@ def _data_date_dt(parsed: dict) -> Optional[datetime]:
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
             return datetime.strptime(s.strip(), fmt)
-        except (ValueError, AttributeError):
+        except ValueError:
             continue
     return None
 
@@ -321,16 +321,24 @@ def proposal_schedule_health_impl(
     high_float = check_high_float(tasks, preds, data_date_str)
 
     # 4) Anchor conflicts (if anchors provided).
+    # Use a fresh local so the input parameter is never reassigned -- the
+    # subsequent ``is None`` test then reads unambiguously against the
+    # effective value, not against a parameter we mutated mid-function.
+    # On the file-load branch, ``doc.get("anchors")`` (no default) returns
+    # ``None`` for a missing key, which flows into ``anchor_conflicts: None``
+    # rather than silently masquerading as ``{"slips": []}`` -- malformed
+    # files now surface to the caller instead of looking like a clean run.
     anchor_conflicts: Optional[dict]
+    effective_anchors = anchors
     if anchors_path is not None:
         with open(anchors_path, encoding="utf-8") as f:
             doc = json.load(f)
-        anchors = doc.get("anchors", []) if isinstance(doc, dict) else doc
-    if anchors is None:
+        effective_anchors = doc.get("anchors") if isinstance(doc, dict) else doc
+    if effective_anchors is None:
         anchor_conflicts = None
     else:
         results, _metadata = cache.get_cpm(xer_path)
-        slips = check_anchor_dates(results, anchors, tolerance_days=0)
+        slips = check_anchor_dates(results, effective_anchors, tolerance_days=0)
         anchor_conflicts = {"slips": slips}
 
     return {

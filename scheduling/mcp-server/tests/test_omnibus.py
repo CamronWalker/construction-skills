@@ -334,8 +334,9 @@ class TestProposalScheduleHealth(unittest.TestCase):
 
     def test_anchor_conflicts_with_inline_anchors(self):
         """When ``anchors`` is provided inline, ``anchor_conflicts`` is a
-        dict with a ``slips`` key (list, possibly empty). Use an SC anchor
-        that should slip relative to the CPM-computed SC date."""
+        dict with a ``slips`` key. Use an SC anchor that should slip
+        relative to the CPM-computed SC date so the list is non-empty --
+        symmetric with the ``anchors_path`` variant below."""
         anchors = [
             {
                 "task_code": "M2000",
@@ -355,13 +356,14 @@ class TestProposalScheduleHealth(unittest.TestCase):
         self.assertIsNotNone(ac)
         self.assertIn("slips", ac)
         self.assertIsInstance(ac["slips"], list)
+        self.assertGreaterEqual(len(ac["slips"]), 1)
 
     def test_anchor_conflicts_with_anchors_path_file(self):
         """When ``anchors_path`` points at a JSON file with the canonical
-        ``{"anchors": [...]}`` shape, the file-loading branch at
-        ``tools/omnibus.py:325-328`` reads and unwraps it the same way as
-        an inline ``anchors=[...]`` call. Use an SC anchor that produces a
-        non-zero slip relative to the CPM-computed SC date."""
+        ``{"anchors": [...]}`` shape, the file-loading branch reads and
+        unwraps it the same way as an inline ``anchors=[...]`` call. Use
+        an SC anchor that produces a non-zero slip relative to the
+        CPM-computed SC date."""
         anchors_doc = {
             "anchors": [
                 {
@@ -395,9 +397,68 @@ class TestProposalScheduleHealth(unittest.TestCase):
         finally:
             os.unlink(anchors_path)
 
+    def test_anchors_path_with_missing_anchors_key_returns_none(self):
+        """A JSON file that parses but is missing the ``anchors`` key (or has
+        ``anchors: null``) must surface as ``anchor_conflicts: None`` -- the
+        impl drops the ``.get("anchors", [])`` default so a malformed file
+        no longer masquerades as a clean run with ``{"slips": []}``.
+
+        Regression guard against the silent-empty-fallback bug.
+        """
+        # JSON file with a typo'd key -- no "anchors" present at all.
+        bad_doc = {"not_anchors": []}
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        )
+        try:
+            json.dump(bad_doc, tmp)
+            tmp.close()
+            anchors_path = tmp.name
+            result = omnibus.proposal_schedule_health_impl(
+                str(FIXTURE_V1),
+                milestone_id=None,
+                anchors_path=anchors_path,
+                anchors=None,
+                cache=self.cache,
+            )
+            self.assertIsNone(result["anchor_conflicts"])
+        finally:
+            os.unlink(anchors_path)
+
+    def test_anchors_path_with_empty_anchors_list_runs_check(self):
+        """An explicit ``{"anchors": []}`` is a valid "I ran the check and
+        there were zero anchors to compare" signal -- the impl runs the
+        check and returns ``{"slips": []}``, distinguishable from the
+        missing-key case above which returns ``None``.
+
+        Codifies the "empty list is intentional" semantic.
+        """
+        empty_doc = {"anchors": []}
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        )
+        try:
+            json.dump(empty_doc, tmp)
+            tmp.close()
+            anchors_path = tmp.name
+            result = omnibus.proposal_schedule_health_impl(
+                str(FIXTURE_V1),
+                milestone_id=None,
+                anchors_path=anchors_path,
+                anchors=None,
+                cache=self.cache,
+            )
+            ac = result["anchor_conflicts"]
+            self.assertIsNotNone(ac)
+            self.assertIsInstance(ac, dict)
+            self.assertIn("slips", ac)
+            self.assertEqual(ac["slips"], [])
+        finally:
+            os.unlink(anchors_path)
+
     def test_anchor_conflicts_rejects_both_anchors_and_anchors_path(self):
         """Passing both ``anchors`` and ``anchors_path`` is a usage error --
-        the guard at ``tools/omnibus.py:285-288`` raises ``ValueError``."""
+        the impl raises ``ValueError``."""
         anchors = [
             {
                 "task_code": "M2000",
