@@ -32,6 +32,7 @@ from cpm_engine import (  # noqa: E402
     check_anchor_dates,
     extract_paths,
     render_schedule_html,
+    schedule_forward_backward,
     suggest_anchor_absorption,
 )
 from cpm_engine import _path_task_summary  # noqa: E402
@@ -39,6 +40,31 @@ from path_analysis import (  # noqa: E402
     analyze_sc_path_coverage,
     compute_delay_impacts,
     trace_driving_path,
+)
+
+# scheduling/tools/_xer_io.py owns the XER round-tripper that the
+# proposal-iterate CLI uses. Reusing it here keeps the write-back logic
+# (line endings, encoding, table preservation) in one place. A future
+# Plan 2 refactor should move _xer_io into lib/ alongside cpm_engine so
+# the MCP doesn't have to reach into tools/.
+_TOOLS_DIR = Path(__file__).parent.parent.parent / "tools"
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from _xer_io import parse_xer as _xer_io_parse  # noqa: E402
+from _xer_io import write_xer_with_updates  # noqa: E402
+
+# Fields ``schedule_forward_backward`` writes back into each task dict.
+# Only these need to be propagated to the output XER; everything else stays
+# byte-identical via write_xer_with_updates' pass-through.
+_CPM_FIELDS = (
+    "early_start_date",
+    "early_end_date",
+    "late_start_date",
+    "late_end_date",
+    "total_float_hr_cnt",
+    "free_float_hr_cnt",
+    "driving_path_flag",
 )
 
 
@@ -189,6 +215,81 @@ def get_anchor_conflicts_impl(
     results, _metadata = cache.get_cpm(xer_path)
     slips = check_anchor_dates(results, anchors or [], tolerance_days=tolerance_days)
     return {"slips": slips}
+
+
+def run_cpm_impl(
+    xer_path: str, output_path: Optional[str], cache
+) -> dict:
+    """Run CPM forward+backward and emit the result as a new XER file.
+
+    Westland rule: never overwrite the input. ``output_path`` defaults to
+    ``<input-stem>-cpm.xer`` next to the source. Refuses to overwrite an
+    existing file at the output path (caller must remove or rename first).
+
+    Uses ``_xer_io.parse_xer`` (not the cache) because the round-trip needs
+    the original decoded source text to preserve non-TASK tables byte-for-
+    byte. Caching wouldn't help here -- this is a one-shot write, not a
+    repeated-read workload.
+
+    The ``cache`` parameter is accepted for signature parity with the other
+    tools but isn't consulted; it's threaded through to keep the register
+    pattern uniform.
+    """
+    src = Path(xer_path)
+    if output_path is None:
+        out = src.with_name(f"{src.stem}-cpm{src.suffix}")
+        output_path = str(out)
+    else:
+        out = Path(output_path)
+
+    # Refuse to overwrite the source. Compare resolved paths so a relative
+    # vs. absolute input doesn't sneak through.
+    if src.resolve() == out.resolve():
+        raise ValueError(
+            f"output_path is the same as xer_path ({xer_path}); refusing "
+            "to overwrite the source XER. Pass a different output_path."
+        )
+    if out.exists():
+        raise FileExistsError(
+            f"Output XER already exists at {output_path}; refusing to "
+            "overwrite. Remove or rename it first."
+        )
+
+    tables, table_fields, original_text = _xer_io_parse(str(src))
+
+    project_rows = tables.get("PROJECT") or [{}]
+    data_date = (
+        project_rows[0].get("last_recalc_date")
+        or project_rows[0].get("data_date", "")
+    )
+    results, _metadata = schedule_forward_backward(
+        tables.get("TASK", []),
+        tables.get("TASKPRED", []),
+        tables.get("CALENDAR", []),
+        data_date,
+        schedoptions=tables.get("SCHEDOPTIONS"),
+        project=tables.get("PROJECT"),
+    )
+
+    # Build TASK row updates keyed by task_id. Only project _CPM_FIELDS so
+    # write_xer_with_updates leaves everything else byte-identical.
+    task_updates: dict = {}
+    for t in results:
+        tid = t.get("task_id", "")
+        if not tid:
+            continue
+        task_updates[tid] = {
+            f: (t.get(f) if t.get(f) is not None else "")
+            for f in _CPM_FIELDS
+        }
+
+    write_xer_with_updates(
+        original_text,
+        table_fields,
+        {"TASK": ("task_id", task_updates)},
+        str(out),
+    )
+    return {"output_path": str(out)}
 
 
 def get_gantt_json_impl(
@@ -428,6 +529,23 @@ def register(mcp, cache):
         return get_anchor_conflicts_impl(
             xer_path, anchors, anchors_path, tolerance_days, cache
         )
+
+    @mcp.tool()
+    def run_cpm(xer_path: str, output_path: Optional[str] = None) -> dict:
+        """Run a fresh CPM forward+backward pass on the XER and write the
+        result to a new file. The source XER is never overwritten.
+
+        Args:
+            xer_path: Path to the .xer file.
+            output_path: Optional output path. Defaults to
+                ``<input-stem>-cpm.xer`` next to the source. Refuses to
+                overwrite an existing file -- remove or rename the
+                existing target first.
+
+        Returns:
+            ``{ output_path: "<resolved path>" }``.
+        """
+        return run_cpm_impl(xer_path, output_path, cache)
 
     @mcp.tool()
     def get_gantt_json(

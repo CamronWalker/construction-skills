@@ -222,6 +222,84 @@ class TestGetAnchorConflicts(unittest.TestCase):
             os.unlink(anchors_path)
 
 
+class TestRunCpm(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_writes_default_output_path(self):
+        """With no explicit output_path, writes to <input>-cpm.xer alongside
+        the source. The default path is returned for the caller to use."""
+        import tempfile
+        import shutil
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "minimal.xer"
+            shutil.copy(FIXTURE, src)
+            expected_out = Path(tmpdir) / "minimal-cpm.xer"
+
+            result = cpm_path.run_cpm_impl(
+                str(src), output_path=None, cache=self.cache
+            )
+
+            self.assertEqual(result["output_path"], str(expected_out))
+            self.assertTrue(expected_out.exists())
+
+    def test_writes_explicit_output_path(self):
+        import tempfile
+        import shutil
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "minimal.xer"
+            shutil.copy(FIXTURE, src)
+            out = Path(tmpdir) / "custom-out.xer"
+
+            result = cpm_path.run_cpm_impl(
+                str(src), output_path=str(out), cache=self.cache
+            )
+
+            self.assertEqual(result["output_path"], str(out))
+            self.assertTrue(out.exists())
+
+    def test_refuses_to_overwrite_input(self):
+        import tempfile
+        import shutil
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "minimal.xer"
+            shutil.copy(FIXTURE, src)
+            with self.assertRaises(ValueError):
+                cpm_path.run_cpm_impl(
+                    str(src), output_path=str(src), cache=self.cache
+                )
+
+    def test_refuses_to_overwrite_existing_output(self):
+        import tempfile
+        import shutil
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "minimal.xer"
+            shutil.copy(FIXTURE, src)
+            blocker = Path(tmpdir) / "minimal-cpm.xer"
+            blocker.write_text("existing", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                cpm_path.run_cpm_impl(
+                    str(src), output_path=None, cache=self.cache
+                )
+
+    def test_output_parses_back_with_same_task_count(self):
+        """Round-trip sanity: output XER parses to the same TASK rows."""
+        import tempfile
+        import shutil
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "minimal.xer"
+            shutil.copy(FIXTURE, src)
+            cpm_path.run_cpm_impl(
+                str(src), output_path=None, cache=self.cache
+            )
+            # Parse the output via a fresh cache to avoid hitting the entry
+            # keyed to the source path.
+            from cache import CpmCache as _Cache
+            out_cache = _Cache()
+            parsed = out_cache.get_parsed(str(Path(tmpdir) / "minimal-cpm.xer"))
+            self.assertEqual(len(parsed.get("TASK", [])), 2)
+
+
 class TestGetGanttJson(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
