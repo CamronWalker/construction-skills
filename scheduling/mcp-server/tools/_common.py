@@ -66,7 +66,7 @@ def data_date_dt(parsed: dict) -> Optional[datetime]:
 
 
 def resolve_metadata_for_milestone(
-    metadata: dict, milestone_id, tasks: list
+    metadata: dict, milestone_id: Optional[str], tasks: list
 ) -> dict:
     """Return a metadata dict with ``sc_milestone_*`` fields set to the
     explicit ``milestone_id``.

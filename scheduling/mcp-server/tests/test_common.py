@@ -39,6 +39,10 @@ class TestDataDateStr(unittest.TestCase):
     def test_empty_project_returns_none(self):
         self.assertIsNone(data_date_str({"PROJECT": []}))
 
+    def test_last_recalc_date_wins_when_both_populated(self):
+        parsed = {"PROJECT": [{"last_recalc_date": "2026-05-25", "data_date": "2026-05-20"}]}
+        self.assertEqual(data_date_str(parsed), "2026-05-25")
+
 
 class TestDataDateDt(unittest.TestCase):
     def test_parses_datetime_format(self):
@@ -78,6 +82,14 @@ class TestResolveMetadataForMilestone(unittest.TestCase):
         self.assertEqual(result["sc_milestone_code"], "C9")
         self.assertEqual(result["sc_milestone_date"], "2026-12-31 17:00")
         self.assertIsNot(result, metadata)  # shallow copy — original untouched
+
+    def test_explicit_milestone_does_not_mutate_input(self):
+        metadata = {"sc_milestone_id": "A1000", "sc_milestone_name": "OldName"}
+        tasks = [{"task_id": "T999", "task_name": "Custom SC", "task_code": "C9",
+                  "early_end_date": "2026-12-31 17:00"}]
+        _ = resolve_metadata_for_milestone(metadata, "T999", tasks)
+        self.assertEqual(metadata["sc_milestone_id"], "A1000")
+        self.assertEqual(metadata["sc_milestone_name"], "OldName")
 
     def test_explicit_milestone_not_in_tasks_leaves_name_blank(self):
         metadata = {"sc_milestone_id": "A1000"}
