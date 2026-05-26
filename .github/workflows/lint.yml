@@ -1,0 +1,135 @@
+name: lint
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-bump:
+    name: plugin + marketplace version bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check each plugin's version bump
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+
+          # Mirrors .githooks/pre-commit, but operates on the PR diff
+          # (base..head) instead of the staged diff. For each plugin: if any
+          # tracked file inside the plugin changed (excluding plugin.json
+          # itself), require a +"version": line in both plugin.json AND
+          # marketplace.json in the PR diff. -dev versions are exempt.
+          check_plugin_bump() {
+            local plugin_dir="$1"
+            local plugin_json="${plugin_dir}/.claude-plugin/plugin.json"
+            local marketplace_json=".claude-plugin/marketplace.json"
+
+            local files_changed
+            files_changed=$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" \
+              | grep "^${plugin_dir}/" \
+              | grep -v "^${plugin_json}$" \
+              || true)
+            if [ -z "$files_changed" ]; then
+              return 0
+            fi
+
+            # -dev exemption: read version from head
+            local head_version
+            head_version=$(git show "${HEAD_SHA}:${plugin_json}" 2>/dev/null \
+              | grep -E '"version":\s*"' | head -1 \
+              | sed -E 's/.*"version":\s*"([^"]+)".*/\1/')
+            if [[ "$head_version" == *-dev* ]]; then
+              echo "[skip] ${plugin_dir}: head version ${head_version} is -dev"
+              return 0
+            fi
+
+            if ! git diff "${BASE_SHA}" "${HEAD_SHA}" -- "$plugin_json" \
+                 | grep -q '^+[[:space:]]*"version":'; then
+              echo "::error file=${plugin_json}::${plugin_dir}/ files changed in this PR but ${plugin_json} version was not bumped. Edit the version field and push another commit."
+              return 1
+            fi
+
+            if ! git diff "${BASE_SHA}" "${HEAD_SHA}" -- "$marketplace_json" \
+                 | grep -q '^+[[:space:]]*"version":'; then
+              echo "::error file=${marketplace_json}::${plugin_dir}/ files changed in this PR but ${marketplace_json} was not bumped for the ${plugin_dir} entry."
+              return 1
+            fi
+
+            echo "[ok] ${plugin_dir}: version bumped (${head_version})"
+            return 0
+          }
+
+          failed=0
+          for plugin in westland scheduling estimating project-management site-operations safety; do
+            check_plugin_bump "$plugin" || failed=1
+          done
+
+          if [ "$failed" = "1" ]; then
+            echo ""
+            echo "Version-bump check failed. See ::error annotations above and the release convention in CLAUDE.md."
+            exit 1
+          fi
+
+  forbid-personal-paths:
+    name: no C:/Users/<name>/ in added lines
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Grep PR-added lines for personal paths
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+
+          # Examine only NEW lines added in this PR — historical mentions in
+          # docs, test fixtures, and planning artifacts are not the target.
+          # Block if any added line contains any C:\Users\<name>\ path (any
+          # separator, case-insensitive). That covers C:/Users/camron and
+          # any other contributor's home dir — code is supposed to use env
+          # vars, ~ expansion, or repo-relative paths, never a per-user
+          # absolute. Documentation (any *.md, anything under docs/) and
+          # this workflow file are excluded — illustrative mentions in
+          # prose are fine; only code-side hardcodes are caught.
+          pattern='C:[/\\]+Users[/\\]+[^/\\<>:"|?*]+[/\\]'
+          failed=0
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              .github/workflows/lint.yml) continue ;;
+              *.md|docs/*) continue ;;
+            esac
+            # For this file, grab the added lines (lines starting with '+'
+            # but not '+++', and not the diff hunk markers) and grep them.
+            hit=$(git diff "${BASE_SHA}" "${HEAD_SHA}" -- "$file" \
+                  | grep -E '^\+[^+]' \
+                  | grep -iE "$pattern" \
+                  || true)
+            if [ -n "$hit" ]; then
+              echo "::error file=${file}::Added line hardcodes a per-user 'C:\\Users\\<name>\\' path. Replace with a portable path (env var, ~ expansion, repo-relative)."
+              echo "Offending added lines in ${file}:"
+              echo "$hit"
+              failed=1
+            fi
+          done < <(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}")
+
+          if [ "$failed" = "1" ]; then
+            exit 1
+          fi
+          echo "[ok] no personal paths added"
