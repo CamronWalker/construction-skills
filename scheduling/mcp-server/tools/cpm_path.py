@@ -28,8 +28,10 @@ if str(_LIB) not in sys.path:
 import json
 
 from cpm_engine import (  # noqa: E402
+    build_activities_json,
     check_anchor_dates,
     extract_paths,
+    render_schedule_html,
     suggest_anchor_absorption,
 )
 from cpm_engine import _path_task_summary  # noqa: E402
@@ -187,6 +189,52 @@ def get_anchor_conflicts_impl(
     results, _metadata = cache.get_cpm(xer_path)
     slips = check_anchor_dates(results, anchors or [], tolerance_days=tolerance_days)
     return {"slips": slips}
+
+
+def get_gantt_json_impl(
+    xer_path: str, project_name: Optional[str], cache
+) -> dict:
+    """Return the structured chart payload that ``build_gantt_html`` consumes:
+    project metadata + WBS+activity rows + the ``paths`` analytics block."""
+    parsed = cache.get_parsed(xer_path)
+    results, metadata = cache.get_cpm(xer_path)
+    project_rows = parsed.get("PROJECT") or [{}]
+    data_date = (
+        project_rows[0].get("last_recalc_date")
+        or project_rows[0].get("data_date", "")
+    )
+    return build_activities_json(
+        results,
+        metadata,
+        parsed.get("TASKPRED", []),
+        project_name=project_name,
+        data_date=data_date,
+        wbs_rows=parsed.get("PROJWBS", []),
+    )
+
+
+def render_gantt_html_impl(
+    xer_path: str, project_name: Optional[str], output_path: str, cache
+) -> dict:
+    """Write a standalone HTML Gantt report to ``output_path`` and return the
+    resolved path. Caller is responsible for choosing a writable location;
+    the tool doesn't overwrite-protect (rendering a chart isn't destructive
+    of XER source, which is what the file-immutability rule covers)."""
+    parsed = cache.get_parsed(xer_path)
+    results, metadata = cache.get_cpm(xer_path)
+    project_rows = parsed.get("PROJECT") or [{}]
+    data_date = (
+        project_rows[0].get("last_recalc_date")
+        or project_rows[0].get("data_date", "")
+    )
+    render_schedule_html(
+        results,
+        project_name or "",
+        data_date,
+        metadata,
+        output_path,
+    )
+    return {"output_path": output_path}
 
 
 def get_delay_impacts_impl(
@@ -379,6 +427,44 @@ def register(mcp, cache):
         """
         return get_anchor_conflicts_impl(
             xer_path, anchors, anchors_path, tolerance_days, cache
+        )
+
+    @mcp.tool()
+    def get_gantt_json(
+        xer_path: str, project_name: Optional[str] = None
+    ) -> dict:
+        """Return the structured chart payload (project metadata, WBS +
+        activity rows, paths analytics) that the standalone Gantt HTML
+        renderer consumes.
+
+        Args:
+            xer_path: Path to the .xer file.
+            project_name: Optional display name surfaced in the ``project``
+                block.
+
+        Returns:
+            ``{ project: {...}, activities: [...], paths: [...],
+            circular_dependencies: [...] }``.
+        """
+        return get_gantt_json_impl(xer_path, project_name, cache)
+
+    @mcp.tool()
+    def render_gantt_html(
+        xer_path: str, output_path: str, project_name: Optional[str] = None
+    ) -> dict:
+        """Render a standalone HTML schedule report and write it to
+        ``output_path``.
+
+        Args:
+            xer_path: Path to the .xer file.
+            output_path: Filesystem path where the HTML will be written.
+            project_name: Optional display name in the report header.
+
+        Returns:
+            ``{ output_path: "<resolved path>" }``.
+        """
+        return render_gantt_html_impl(
+            xer_path, project_name, output_path, cache
         )
 
     @mcp.tool()

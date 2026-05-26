@@ -222,6 +222,85 @@ class TestGetAnchorConflicts(unittest.TestCase):
             os.unlink(anchors_path)
 
 
+class TestGetGanttJson(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_project_block(self):
+        result = cpm_path.get_gantt_json_impl(
+            str(FIXTURE), project_name=None, cache=self.cache
+        )
+        self.assertIn("project", result)
+        self.assertIsInstance(result["project"], dict)
+
+    def test_returns_activities_list(self):
+        result = cpm_path.get_gantt_json_impl(
+            str(FIXTURE), project_name=None, cache=self.cache
+        )
+        self.assertIn("activities", result)
+        self.assertIsInstance(result["activities"], list)
+        # Minimal fixture has 1 WBS row + 2 milestones = 3 activity entries.
+        self.assertGreaterEqual(len(result["activities"]), 2)
+
+    def test_returns_paths_block(self):
+        result = cpm_path.get_gantt_json_impl(
+            str(FIXTURE), project_name=None, cache=self.cache
+        )
+        self.assertIn("paths", result)
+
+    def test_project_name_propagates(self):
+        result = cpm_path.get_gantt_json_impl(
+            str(FIXTURE), project_name="Hello World", cache=self.cache
+        )
+        self.assertEqual(result["project"].get("name"), "Hello World")
+
+
+class TestRenderGanttHtml(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_returns_output_path(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            output_path = f.name
+        try:
+            result = cpm_path.render_gantt_html_impl(
+                str(FIXTURE),
+                project_name="Minimal",
+                output_path=output_path,
+                cache=self.cache,
+            )
+            self.assertEqual(result["output_path"], output_path)
+        finally:
+            import os
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_writes_html_file(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            output_path = f.name
+        try:
+            cpm_path.render_gantt_html_impl(
+                str(FIXTURE),
+                project_name="Minimal",
+                output_path=output_path,
+                cache=self.cache,
+            )
+            with open(output_path, encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("<html", content.lower())
+            self.assertIn("Minimal", content)
+        finally:
+            import os
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+
 class TestGetDelayImpacts(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
