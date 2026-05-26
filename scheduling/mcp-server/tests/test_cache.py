@@ -124,6 +124,29 @@ class TestCpmCache(unittest.TestCase):
             # inserted between them.
             self.assertIs(r1a, r1b)
 
+    def test_cache_hit_does_not_sleep(self):
+        """A cache hit must skip the 100ms partial-read guard. The first
+        ``get_parsed`` call pays the full guard (it's a miss); the second
+        is a hit and should return in well under 50ms.
+
+        50ms is a generous ceiling: the guard sleeps 100ms unconditionally,
+        and the actual hit-path work (one stat + dict lookup + move_to_end)
+        is sub-millisecond on any modern filesystem. A regression that
+        re-introduces the sleep on hits would show up as ~100ms here.
+        """
+        cache = CpmCache()
+        cache.get_parsed(str(FIXTURE))  # warm
+
+        start = time.perf_counter()
+        cache.get_parsed(str(FIXTURE))
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        self.assertLess(
+            elapsed_ms, 50,
+            f"Cache hit took {elapsed_ms:.1f}ms; partial-read guard "
+            f"appears to be running on hits (expected <50ms)."
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

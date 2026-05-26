@@ -78,44 +78,60 @@ class CpmCache:
     # ---- public API -----------------------------------------------------
 
     def get_parsed(self, xer_path: str) -> dict[str, list[dict]]:
-        """Return parsed XER tables. Parses on miss."""
-        key = self._safe_key(xer_path)
+        """Return parsed XER tables. Parses on miss.
+
+        Cache hits skip the partial-read guard: we take a single quick stat,
+        compare against the stored key, and return the cached payload
+        directly. Only misses pay the 100ms stability check, since they're
+        about to read the whole file anyway.
+        """
+        tentative = self._tentative_key(xer_path)
         existing = self._entries.get(str(xer_path))
-        if existing is not None and existing[0] == key:
+        if existing is not None and existing[0] == tentative:
             # Cache hit. Bump to most-recently-used.
             self._entries.move_to_end(str(xer_path))
             payload = existing[1]
             if "parsed" in payload:
                 return payload["parsed"]
             # Same key but parsed slot got dropped somehow -- re-parse and
-            # update in place.
+            # update in place. This is a miss-for-parsed inside a hit-for-key,
+            # so verify stability before reading.
+            self._verify_stable(xer_path, tentative)
             payload["parsed"] = self._parse(xer_path)
             return payload["parsed"]
 
-        # Miss (no entry, or key mismatch -> file changed). Parse fresh.
+        # Miss (no entry, or key mismatch -> file changed). Verify stability
+        # before parsing.
+        key = self._safe_key(xer_path)
         parsed = self._parse(xer_path)
         self._put(xer_path, key, {"parsed": parsed})
         return parsed
 
     def get_cpm(self, xer_path: str) -> tuple[list[dict], dict]:
         """Return CPM ``(results, metadata)`` for this XER. Computes on miss,
-        which implicitly populates the parsed slot if it isn't already there."""
-        key = self._safe_key(xer_path)
+        which implicitly populates the parsed slot if it isn't already there.
+
+        Cache hits skip the partial-read guard (see ``get_parsed`` for why).
+        """
+        tentative = self._tentative_key(xer_path)
         existing = self._entries.get(str(xer_path))
 
-        if existing is not None and existing[0] == key:
+        if existing is not None and existing[0] == tentative:
             self._entries.move_to_end(str(xer_path))
             payload = existing[1]
             if "cpm" in payload:
                 return payload["cpm"]
-            # Have parsed but not CPM. Compute and cache.
-            parsed = payload.get("parsed") or self._parse(xer_path)
-            payload["parsed"] = parsed
-            cpm_result = self._run_cpm(parsed)
+            # Have parsed but not CPM (or neither). Verify stability before
+            # any fresh disk read, then compute.
+            if "parsed" not in payload:
+                self._verify_stable(xer_path, tentative)
+                payload["parsed"] = self._parse(xer_path)
+            cpm_result = self._run_cpm(payload["parsed"])
             payload["cpm"] = cpm_result
             return cpm_result
 
         # Miss.
+        key = self._safe_key(xer_path)
         parsed = self._parse(xer_path)
         cpm_result = self._run_cpm(parsed)
         self._put(xer_path, key, {"parsed": parsed, "cpm": cpm_result})
@@ -128,6 +144,28 @@ class CpmCache:
 
     # ---- internals ------------------------------------------------------
 
+    def _tentative_key(self, xer_path: str) -> CacheKey:
+        """Cheap single-stat key used to probe the cache before deciding
+        whether the partial-read guard is needed. No sleep, no second stat."""
+        st = Path(xer_path).stat()
+        return CacheKey(path=str(xer_path), size=st.st_size, mtime=st.st_mtime)
+
+    def _verify_stable(self, xer_path: str, tentative: CacheKey) -> None:
+        """Sleep + re-stat to confirm a tentatively-keyed file isn't still
+        being written. Raises XerLockedError if the size advanced across the
+        interval. Doesn't return a key -- the caller already has ``tentative``,
+        which is the post-stable key once this returns successfully.
+        """
+        time.sleep(_PARTIAL_READ_DELAY_S)
+        st = Path(xer_path).stat()
+        if st.st_size != tentative.size:
+            raise XerLockedError(
+                f"XER appears mid-write: size changed from {tentative.size} "
+                f"to {st.st_size} across a "
+                f"{int(_PARTIAL_READ_DELAY_S * 1000)}ms interval "
+                f"({xer_path}). Wait for the writer to finish and retry."
+            )
+
     def _safe_key(self, xer_path: str) -> CacheKey:
         """Build a CacheKey, raising XerLockedError if the file's size changes
         between two reads 100ms apart.
@@ -136,6 +174,11 @@ class CpmCache:
         to it. We don't try to detect every race -- a stable size across the
         interval is good enough in practice. mtime alone is unreliable because
         Windows FAT filesystems round to 2-second precision.
+
+        Two stat calls total: one before the sleep (to capture the
+        pre-stability size) and one after (to capture the verified size +
+        mtime). Three stats is what the original code did; the third was
+        redundant because the second already had both fields.
 
         Manual verification (no deterministic test for the sleep):
             1. Open a Python REPL, import cache and time.
@@ -147,16 +190,14 @@ class CpmCache:
         p = Path(xer_path)
         s1 = p.stat().st_size
         time.sleep(_PARTIAL_READ_DELAY_S)
-        s2 = p.stat().st_size
-        if s1 != s2:
+        st = p.stat()
+        if s1 != st.st_size:
             raise XerLockedError(
-                f"XER appears mid-write: size changed from {s1} to {s2} "
-                f"across a {int(_PARTIAL_READ_DELAY_S * 1000)}ms interval "
+                f"XER appears mid-write: size changed from {s1} to "
+                f"{st.st_size} across a "
+                f"{int(_PARTIAL_READ_DELAY_S * 1000)}ms interval "
                 f"({xer_path}). Wait for the writer to finish and retry."
             )
-        # Build the key after the file is confirmed stable. We read mtime
-        # here so the key reflects the post-stable state.
-        st = p.stat()
         return CacheKey(path=str(xer_path), size=st.st_size, mtime=st.st_mtime)
 
     def _put(self, path: str, key: CacheKey, entry: dict[str, Any]) -> None:
@@ -177,7 +218,10 @@ class CpmCache:
     def _run_cpm(self, parsed: dict[str, list[dict]]) -> tuple[list[dict], dict]:
         """Run CPM forward+backward against parsed tables. Returns whatever
         ``schedule_forward_backward`` returns -- the cache doesn't reshape it."""
-        proj = parsed.get("PROJECT", [{}])
+        # ``or [{}]`` handles both the missing-key case and the
+        # present-but-empty case (e.g. ``{"PROJECT": []}``). Without it,
+        # ``proj[0]`` would IndexError on the empty list.
+        proj = parsed.get("PROJECT") or [{}]
         data_date = (proj[0].get("last_recalc_date")
                      or proj[0].get("data_date", ""))
         return schedule_forward_backward(
