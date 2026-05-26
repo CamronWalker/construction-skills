@@ -235,7 +235,100 @@ def compute_trade_slip_summary(
     milestone_id: Optional[str] = None,
     trade_field: Optional[str] = None,
 ) -> dict:
-    raise NotImplementedError("compute_trade_slip_summary ships in Plan 2 Task C4")
+    """Group per-activity date slip by trade and return per-trade totals.
+
+    Uses ``compare_xer_pair`` to compute date_slippage rows, then maps each
+    activity to a trade via:
+
+    1. The named ``trade_field`` on the activity's TASK row (when
+       provided). Activities lacking that field fall to ``"UNKNOWN"``.
+    2. Otherwise: the first 1-2 alphabetic characters of ``task_code``
+       (e.g. ``"D26-1000" -> "D"``, ``"A1000" -> "A"``). Empty task_codes
+       fall to ``"UNKNOWN"``.
+
+    Returns one row per distinct trade with the count of affected
+    activities, total slip in calendar days (signed -- positive = trades
+    slipped later, negative = pulled in), and the activity with the
+    largest single-activity slip in that trade.
+
+    Args:
+        baseline_parsed: parsed dict for the baseline XER.
+        current_parsed:  parsed dict for the current XER.
+        baseline_cpm:    ``(results, metadata)`` for the baseline.
+        current_cpm:     same for the current.
+        milestone_id:    Optional; pass-through for cross-tool consistency.
+        trade_field:     Optional TASK field name to use as the trade key.
+            When None, falls back to the task_code prefix.
+
+    Returns:
+        ``{milestone_id, by_trade: [{trade, activity_count,
+        total_slip_days, worst_activity: {task_code, task_name,
+        slip_days}}, ...]}``. ``by_trade`` is sorted by
+        ``abs(total_slip_days)`` descending.
+    """
+    # One compare_xer_pair call -- match on task_code to handle renumber.
+    compare_result = compare_xer_pair(
+        baseline_parsed, current_parsed, match_by="task_code",
+    )
+    date_slippage = compare_result.get("date_slippage", [])
+
+    # Map task_code -> trade. Use the CURRENT side's TASK rows because
+    # that's the canonical "as-of-now" view; if a task only exists on
+    # the baseline side (removed), use that side's row.
+    task_by_code: dict = {}
+    for row in current_parsed.get("TASK", []):
+        code = row.get("task_code")
+        if code:
+            task_by_code[code] = row
+    for row in baseline_parsed.get("TASK", []):
+        code = row.get("task_code")
+        if code and code not in task_by_code:
+            task_by_code[code] = row
+
+    def _trade_for(code: str) -> str:
+        task = task_by_code.get(code, {})
+        if trade_field is not None:
+            val = task.get(trade_field)
+            return val if val else "UNKNOWN"
+        # Fallback: alphabetic prefix of task_code.
+        for i, ch in enumerate(code):
+            if not ch.isalpha():
+                return code[:i] if i > 0 else "UNKNOWN"
+        return code or "UNKNOWN"
+
+    # Aggregate slips by trade. Slip days are calendar days; the lib
+    # writes ef_slip_days as int (truncated). We sum those.
+    by_trade_acc: dict = {}
+    for slip_row in date_slippage:
+        code = slip_row.get("task_code", "")
+        trade = _trade_for(code)
+        slip_days = slip_row.get("ef_slip_days", 0)
+        bucket = by_trade_acc.setdefault(
+            trade,
+            {"trade": trade, "activity_count": 0, "total_slip_days": 0,
+             "worst_activity": None},
+        )
+        bucket["activity_count"] += 1
+        bucket["total_slip_days"] += slip_days
+        worst = bucket["worst_activity"]
+        if worst is None or abs(slip_days) > abs(worst["slip_days"]):
+            bucket["worst_activity"] = {
+                "task_code": code,
+                "task_name": slip_row.get("task_name", ""),
+                "slip_days": slip_days,
+            }
+
+    by_trade = sorted(
+        by_trade_acc.values(),
+        key=lambda r: abs(r["total_slip_days"]),
+        reverse=True,
+    )
+
+    _, base_metadata = baseline_cpm
+    return {
+        "milestone_id": milestone_id or base_metadata.get("sc_milestone_id"),
+        "by_trade": by_trade,
+    }
 
 
 def compute_gain_loss_attribution(

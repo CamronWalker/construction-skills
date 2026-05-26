@@ -180,3 +180,59 @@ class TestComputeFloatConsumption(unittest.TestCase):
         gainer_codes = {row["task_code"] for row in result["biggest_gainers"]}
         self.assertIn("A1000", gainer_codes)
         self.assertIn("A1010", gainer_codes)
+
+
+class TestComputeTradeSlipSummary(unittest.TestCase):
+    """compute_trade_slip_summary groups date_slippage rows by trade and
+    returns per-trade totals. The multi_driver_slip fixture pair has three
+    chains, each with a different task_code prefix (A, B, C), used as the
+    fallback trade key."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cache = CpmCache()
+        cls.base_path = str(FIXTURES / "multi_driver_slip_baseline.xer")
+        cls.curr_path = str(FIXTURES / "multi_driver_slip_current.xer")
+        cls.base_parsed = cls.cache.get_parsed(cls.base_path)
+        cls.curr_parsed = cls.cache.get_parsed(cls.curr_path)
+        cls.base_cpm = cls.cache.get_cpm(cls.base_path)
+        cls.curr_cpm = cls.cache.get_cpm(cls.curr_path)
+
+    def test_returns_required_keys(self):
+        result = compute_trade_slip_summary(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        for key in ("milestone_id", "by_trade"):
+            self.assertIn(key, result)
+
+    def test_by_trade_sorted_by_abs_total_slip(self):
+        result = compute_trade_slip_summary(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        slips = [abs(row["total_slip_days"]) for row in result["by_trade"]]
+        self.assertEqual(slips, sorted(slips, reverse=True))
+
+    def test_three_trades_surface(self):
+        """A, B, C task_code prefixes should each appear as a trade with
+        nonzero total_slip_days."""
+        result = compute_trade_slip_summary(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        trades = {row["trade"] for row in result["by_trade"]}
+        self.assertIn("A", trades)
+        self.assertIn("B", trades)
+        self.assertIn("C", trades)
+
+    def test_explicit_trade_field_used_when_provided(self):
+        """If trade_field is provided and the field doesn't exist on tasks,
+        every activity falls into UNKNOWN."""
+        result = compute_trade_slip_summary(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+            trade_field="nonexistent_field",
+        )
+        trades = {row["trade"] for row in result["by_trade"]}
+        self.assertEqual(trades, {"UNKNOWN"})
