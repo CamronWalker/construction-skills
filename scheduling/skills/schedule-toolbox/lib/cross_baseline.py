@@ -28,6 +28,15 @@ from milestones import MilestoneNotFoundError, get_milestones
 from xer_compare import compare_xer_pair
 
 
+# Status-code rank: higher = more advanced. Used to detect activities
+# whose status advanced between baseline and current snapshots.
+_STATUS_RANK = {
+    "TK_NotStart": 0,
+    "TK_Active": 1,
+    "TK_Complete": 2,
+}
+
+
 def compute_critical_path_changes(
     baseline_parsed: dict,
     current_parsed: dict,
@@ -399,7 +408,6 @@ def compute_gain_loss_attribution(
     # start anywhere in the schedule can still contribute to milestone
     # slip via float consumption and is a real driver the weekly review
     # should surface.
-    _STATUS_RANK = {"TK_NotStart": 0, "TK_Active": 1, "TK_Complete": 2}
     for code, base_t in base_tasks_by_code.items():
         curr_t = curr_tasks_by_code.get(code)
         if curr_t is None:
@@ -623,12 +631,8 @@ def _operational_slip_entry(base_t: dict, curr_t: dict,
     """Return an operational_slip entry when the activity's status
     advanced AND the actual dates differ from the target dates by >=
     1 calendar day. None otherwise."""
-    STATUS_RANK = {
-        "TK_NotStart": 0, "TK_Active": 1,
-        "TK_Complete": 2,
-    }
-    base_status = STATUS_RANK.get(base_t.get("status_code"), 0)
-    curr_status = STATUS_RANK.get(curr_t.get("status_code"), 0)
+    base_status = _STATUS_RANK.get(base_t.get("status_code"), 0)
+    curr_status = _STATUS_RANK.get(curr_t.get("status_code"), 0)
 
     # Only emit when status advanced (work began or completed).
     if curr_status <= base_status:
