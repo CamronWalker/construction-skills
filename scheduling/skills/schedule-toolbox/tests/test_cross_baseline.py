@@ -236,3 +236,119 @@ class TestComputeTradeSlipSummary(unittest.TestCase):
         )
         trades = {row["trade"] for row in result["by_trade"]}
         self.assertEqual(trades, {"UNKNOWN"})
+
+
+class TestComputeGainLossAttribution(unittest.TestCase):
+    """compute_gain_loss_attribution categorizes SC slip contributors by
+    cause. The multi_driver_slip fixture pair has three distinct causes
+    (one duration_change on A1000, one logic_change on B1010, one
+    operational_slip on C1000) plus operational propagation downstream."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cache = CpmCache()
+        cls.base_path = str(FIXTURES / "multi_driver_slip_baseline.xer")
+        cls.curr_path = str(FIXTURES / "multi_driver_slip_current.xer")
+        cls.base_parsed = cls.cache.get_parsed(cls.base_path)
+        cls.curr_parsed = cls.cache.get_parsed(cls.curr_path)
+        cls.base_cpm = cls.cache.get_cpm(cls.base_path)
+        cls.curr_cpm = cls.cache.get_cpm(cls.curr_path)
+
+    def test_returns_required_top_level_keys(self):
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        for key in (
+            "milestone_id", "baseline_completion", "current_completion",
+            "net_slip_days", "residual_days", "summary",
+            "contributors_by_category", "weekly_email_documentation",
+        ):
+            self.assertIn(key, result)
+
+    def test_category_buckets_all_present(self):
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        buckets = result["contributors_by_category"]
+        for category in (
+            "operational_slip", "logic_change", "duration_change",
+            "calendar_change", "scope_change",
+        ):
+            self.assertIn(category, buckets)
+            self.assertIsInstance(buckets[category], list)
+
+    def test_net_slip_days_positive(self):
+        """multi_driver_slip pair: SC moves from 2026-06-22 to
+        2026-06-29 (5 working days = 7 calendar days)."""
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        self.assertGreater(result["net_slip_days"], 0)
+        self.assertEqual(result["summary"], "changed")
+
+    def test_duration_change_bucket_has_a1000(self):
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        codes = {
+            row["task_code"]
+            for row in result["contributors_by_category"]["duration_change"]
+        }
+        self.assertIn("A1000", codes)
+
+    def test_logic_change_bucket_has_b1010(self):
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        codes = {
+            row["task_code"]
+            for row in result["contributors_by_category"]["logic_change"]
+        }
+        self.assertIn("B1010", codes)
+
+    def test_operational_slip_bucket_has_c1000(self):
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        codes = {
+            row["task_code"]
+            for row in result["contributors_by_category"]["operational_slip"]
+        }
+        self.assertIn("C1000", codes)
+
+    def test_no_change_short_circuit(self):
+        """When baseline and current are the same XER, summary is no_change."""
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.base_parsed,
+            self.base_cpm, self.base_cpm,
+        )
+        self.assertEqual(result["summary"], "no_change")
+        self.assertEqual(result["net_slip_days"], 0)
+
+    def test_needs_narrative_includes_scheduler_initiated(self):
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        narrative = result["weekly_email_documentation"]["needs_narrative"]
+        narrative_codes = {row["task_code"] for row in narrative}
+        # All three scheduler-initiated drivers should appear:
+        self.assertIn("A1000", narrative_codes)  # duration_change
+        self.assertIn("B1010", narrative_codes)  # logic_change
+        # C1000 is operational, should NOT be in needs_narrative.
+        self.assertNotIn("C1000", narrative_codes)
+
+    def test_summary_paragraph_seed_is_nonempty_string(self):
+        result = compute_gain_loss_attribution(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+        )
+        seed = result["weekly_email_documentation"]["summary_paragraph_seed"]
+        self.assertIsInstance(seed, str)
+        self.assertGreater(len(seed), 0)
