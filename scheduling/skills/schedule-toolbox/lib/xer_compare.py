@@ -13,6 +13,31 @@ Usage:
 from datetime import datetime, timedelta
 from collections import defaultdict
 import os
+import sys
+import importlib.util
+
+# Milestone resolver — same-directory import. Try the regular `import
+# milestones` first (when lib/ is already on sys.path, this gives the
+# same class identity that path_analysis / score_schedule use, so
+# `except MilestoneAmbiguousError` catches in user code keep working).
+# Fall back to a spec_from_file_location load when lib/ isn't on the
+# path (e.g. a tool that loads xer_compare via spec without first
+# adjusting sys.path) -- in that case we *register* the loaded module
+# under the name 'milestones' so any later `from milestones import ...`
+# resolves to the same module object.
+_dir = os.path.dirname(os.path.abspath(__file__))
+try:
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
+    from milestones import MilestoneAmbiguousError, resolve_default_milestone  # noqa: E402
+except ImportError:
+    _ms_spec = importlib.util.spec_from_file_location(
+        'milestones', os.path.join(_dir, 'milestones.py'))
+    _ms_mod = importlib.util.module_from_spec(_ms_spec)
+    sys.modules['milestones'] = _ms_mod
+    _ms_spec.loader.exec_module(_ms_mod)
+    MilestoneAmbiguousError = _ms_mod.MilestoneAmbiguousError
+    resolve_default_milestone = _ms_mod.resolve_default_milestone
 
 
 # ---------------------------------------------------------------------------
@@ -39,46 +64,74 @@ def _safe_float(val, default=0.0):
         return default
 
 
-def _find_sc_milestone(tasks):
-    """Find SC milestone, return task dict or None."""
-    exc = {'TT_WBS', 'TT_LOE'}
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        name = t.get('task_name', '')
-        if 'Substantial Completion' in name and 'Turnover to Owner' in name:
-            if t.get('status_code', '') != 'TK_Complete':
-                return t
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_name', '').strip() == 'Substantial Completion':
-            if t.get('task_type', '') in ('TT_FinMile', 'TT_Mile'):
-                if t.get('status_code', '') != 'TK_Complete':
-                    return t
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_type', '') not in ('TT_FinMile', 'TT_Mile'):
-            continue
-        if 'Substantial Completion' in t.get('task_name', ''):
-            if t.get('status_code', '') != 'TK_Complete':
-                return t
-    return None
+def _resolve_milestone(tables, milestone_id=None, match_by=None,
+                       other_lookup=None):
+    """Resolve the terminal milestone for one schedule under comparison.
 
+    ``milestone_id`` -- when provided directly, look it up by ``task_id`` first
+    and fall back to ``task_code`` so callers can pass either. When omitted,
+    delegate to :func:`milestones.resolve_default_milestone` to pick the
+    unique terminal non-WBS / non-LOE / non-complete milestone; if multiple
+    terminal milestones exist this raises :class:`MilestoneAmbiguousError`
+    with the candidate list so the MCP-tool layer can prompt the user.
 
-def _get_sc_date(tables):
-    """Get SC milestone info from parsed XER tables."""
+    ``match_by`` + ``other_lookup`` are an optional cross-schedule bridge: when
+    a milestone_id was resolved against one side of the pair (typically the
+    new/current schedule), this helper can find the matching task on the
+    other side by its match key (task_code by default) so SC-slip numbers
+    line up across schedules even when task_id renumbering happened between
+    exports.
+    """
     tasks = tables.get('TASK', [])
-    sc = _find_sc_milestone(tasks)
-    if sc:
-        return {
-            'task_id': sc.get('task_id', ''),
-            'task_code': sc.get('task_code', ''),
-            'task_name': sc.get('task_name', ''),
-            'date': sc.get('early_end_date', '') or sc.get('target_end_date', ''),
-        }
-    return None
+    if not tasks:
+        return None
+
+    resolved_task = None
+    if milestone_id is not None:
+        # Try task_id first (canonical), then task_code (so callers can pass
+        # either form). This matters because compare_schedules' match_by
+        # parameter is often task_code -- the F4 MCP tool may surface either.
+        for t in tasks:
+            if t.get('task_id', '') == milestone_id:
+                resolved_task = t
+                break
+        if resolved_task is None:
+            for t in tasks:
+                if t.get('task_code', '') == milestone_id:
+                    resolved_task = t
+                    break
+
+    # Cross-schedule bridge: if caller already resolved on the other side
+    # and passed a lookup, mirror that match across.
+    if resolved_task is None and other_lookup is not None and match_by:
+        for key, other_task in other_lookup.items():
+            if key:
+                for t in tasks:
+                    if t.get(match_by, '') == key:
+                        resolved_task = t
+                        break
+                if resolved_task is not None:
+                    break
+
+    if resolved_task is None and milestone_id is None:
+        preds = tables.get('TASKPRED', [])
+        auto_id = resolve_default_milestone(tasks, preds)
+        if auto_id is not None:
+            for t in tasks:
+                if t.get('task_id', '') == auto_id:
+                    resolved_task = t
+                    break
+
+    if resolved_task is None:
+        return None
+
+    return {
+        'task_id': resolved_task.get('task_id', ''),
+        'task_code': resolved_task.get('task_code', ''),
+        'task_name': resolved_task.get('task_name', ''),
+        'date': resolved_task.get('early_end_date', '')
+                or resolved_task.get('target_end_date', ''),
+    }
 
 
 def _get_data_date(tables):
@@ -108,14 +161,27 @@ def _build_wbs_lookup(wbs_rows):
 # Pairwise comparison
 # ---------------------------------------------------------------------------
 
-def compare_xer_pair(old_tables, new_tables, match_by='task_code'):
+def compare_xer_pair(old_tables, new_tables, match_by='task_code',
+                     milestone_id=None):
     """
     Core pairwise comparison between two parsed XER datasets.
+
+    ``milestone_id`` identifies the project's terminal milestone (e.g. the
+    Substantial Completion finish marker) for the SC-slip output. Resolution
+    happens against the *new* schedule (the comparison's anchor); the matching
+    task on the old schedule is found by the same ``match_by`` key, so SC-slip
+    numbers stay consistent across exports even if task_id renumbering
+    occurred. When ``milestone_id`` is omitted, the function auto-resolves to
+    the single terminal non-WBS / non-LOE / non-complete milestone in the new
+    schedule; if multiple terminal milestones exist it raises
+    :class:`MilestoneAmbiguousError` so the caller can prompt the user.
 
     Args:
         old_tables: Result of parse_xer() on the older XER
         new_tables: Result of parse_xer() on the newer XER
         match_by: 'task_code' or 'task_id'
+        milestone_id: Optional explicit terminal milestone task_id (or
+            match_by-key) to pin SC slip to. See above.
 
     Returns dict with comparison results.
     """
@@ -229,9 +295,15 @@ def compare_xer_pair(old_tables, new_tables, match_by='task_code'):
     # Relationship changes
     changed_rels = _match_relationships(old_preds, new_preds, old_lookup, new_lookup, match_by)
 
-    # SC dates
-    old_sc = _get_sc_date(old_tables)
-    new_sc = _get_sc_date(new_tables)
+    # SC dates -- resolve milestone against the new schedule (the anchor),
+    # then mirror to the old schedule by match_by key so a task_id renumber
+    # between exports doesn't break SC-slip alignment.
+    new_sc = _resolve_milestone(new_tables, milestone_id=milestone_id)
+    old_sc = _resolve_milestone(
+        old_tables,
+        milestone_id=(new_sc.get('task_code') if (match_by == 'task_code' and new_sc) else None)
+                     or (new_sc.get('task_id') if new_sc else None),
+    ) if new_sc else _resolve_milestone(old_tables, milestone_id=milestone_id)
     old_sc_date = old_sc['date'][:10] if old_sc and old_sc.get('date') else ''
     new_sc_date = new_sc['date'][:10] if new_sc and new_sc.get('date') else ''
     sc_slip = 0
@@ -383,15 +455,25 @@ def _match_relationships(old_preds, new_preds, old_task_lookup, new_task_lookup,
 # ---------------------------------------------------------------------------
 
 def compare_schedules(current_tables, baseline_tables=None, previous_tables=None,
-                      match_by='task_code'):
+                      match_by='task_code', milestone_id=None):
     """
     Flexible multi-schedule comparison.
+
+    ``milestone_id`` identifies the project's terminal milestone (Substantial
+    Completion finish marker, typically) for the cross-schedule SC-slip
+    summary. Resolution happens against ``current_tables``; the matching task
+    on each comparison schedule is found by ``match_by`` so SC dates align
+    even when task_id renumbering occurred between exports. When omitted, the
+    function auto-resolves to the single terminal non-WBS / non-LOE /
+    non-complete milestone in ``current_tables``; multiple terminal
+    milestones raise :class:`MilestoneAmbiguousError`.
 
     Args:
         current_tables: The current/updated schedule (required). Result of parse_xer().
         baseline_tables: Original baseline schedule (optional).
         previous_tables: Last week's/previous update (optional).
         match_by: 'task_code' or 'task_id'
+        milestone_id: Optional explicit terminal milestone for SC-slip pinning.
 
     Returns dict with comparison results including SC tracking across all schedules.
     """
@@ -413,21 +495,32 @@ def compare_schedules(current_tables, baseline_tables=None, previous_tables=None
     result['current_missed_starts'] = _find_missed_starts(current_filtered, data_date)
     result['current_missed_finishes'] = _find_missed_finishes(current_filtered, data_date)
 
-    # SC dates
-    current_sc = _get_sc_date(current_tables)
+    # Resolve milestone on the current schedule (the anchor). If the caller
+    # passed milestone_id, that pins the terminal; otherwise auto-resolve.
+    # Cross-schedule SC pinning uses match_by so renumbered task_ids don't
+    # break the comparison.
+    current_sc = _resolve_milestone(current_tables, milestone_id=milestone_id)
     current_sc_date = current_sc['date'][:10] if current_sc and current_sc.get('date') else ''
+
+    # The key we'll use to find the same milestone in baseline/previous --
+    # task_code when match_by is task_code, otherwise task_id.
+    cross_key = None
+    if current_sc:
+        cross_key = current_sc.get(match_by) or current_sc.get('task_id')
 
     baseline_sc_date = ''
     previous_sc_date = ''
 
     if baseline_tables:
-        result['vs_baseline'] = compare_xer_pair(baseline_tables, current_tables, match_by)
-        baseline_sc = _get_sc_date(baseline_tables)
+        result['vs_baseline'] = compare_xer_pair(
+            baseline_tables, current_tables, match_by, milestone_id=milestone_id)
+        baseline_sc = _resolve_milestone(baseline_tables, milestone_id=cross_key)
         baseline_sc_date = baseline_sc['date'][:10] if baseline_sc and baseline_sc.get('date') else ''
 
     if previous_tables:
-        result['vs_previous'] = compare_xer_pair(previous_tables, current_tables, match_by)
-        previous_sc = _get_sc_date(previous_tables)
+        result['vs_previous'] = compare_xer_pair(
+            previous_tables, current_tables, match_by, milestone_id=milestone_id)
+        previous_sc = _resolve_milestone(previous_tables, milestone_id=cross_key)
         previous_sc_date = previous_sc['date'][:10] if previous_sc and previous_sc.get('date') else ''
 
     # Summary

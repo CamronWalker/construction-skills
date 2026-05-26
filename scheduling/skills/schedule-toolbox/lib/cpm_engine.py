@@ -32,6 +32,27 @@ next_work_start = _cal_mod.next_work_start
 snap_to_work_time = _cal_mod.snap_to_work_time
 _default_calendar = _cal_mod._default_calendar
 
+# Milestone resolver — try regular import first (when lib/ is on sys.path
+# this matches the class identity path_analysis / score_schedule see, so
+# `except MilestoneAmbiguousError` keeps catching across modules), with a
+# spec_from_file_location fallback for the case where a tool loaded
+# cpm_engine without adjusting sys.path. In the fallback we register the
+# module under 'milestones' so any later `from milestones import ...` in
+# the same process resolves to the same module object.
+import sys as _sys  # local alias to avoid shadowing existing `sys` usage
+try:
+    if _dir not in _sys.path:
+        _sys.path.insert(0, _dir)
+    from milestones import MilestoneAmbiguousError, resolve_default_milestone  # noqa: E402
+except ImportError:
+    _ms_spec = importlib.util.spec_from_file_location(
+        'milestones', os.path.join(_dir, 'milestones.py'))
+    _ms_mod = importlib.util.module_from_spec(_ms_spec)
+    _sys.modules['milestones'] = _ms_mod
+    _ms_spec.loader.exec_module(_ms_mod)
+    MilestoneAmbiguousError = _ms_mod.MilestoneAmbiguousError
+    resolve_default_milestone = _ms_mod.resolve_default_milestone
+
 
 # ---------------------------------------------------------------------------
 # Date helpers
@@ -65,42 +86,16 @@ def _safe_float(val, default=0.0):
 
 
 # ---------------------------------------------------------------------------
-# SC milestone finder (copied from score_schedule.py)
+# SC milestone resolution
+#
+# D4 removed the name-matching `_find_sc_milestone` heuristic that lived here
+# (and in score_schedule.py / path_analysis.py / xer_compare.py). The
+# `schedule_forward_backward` function now resolves the terminal milestone
+# structurally via `milestones.resolve_default_milestone` -- the same helper
+# that score_schedule and path_analysis use after D2/D3. Callers that need
+# to override the auto-resolution (e.g. multi-terminal-milestone schedules)
+# pass `milestone_id` explicitly; see the function docstring below.
 # ---------------------------------------------------------------------------
-
-def _find_sc_milestone(tasks):
-    """Find the Substantial Completion milestone (incomplete, non-WBS/LOE)."""
-    exc = {'TT_WBS', 'TT_LOE'}
-
-    # Priority 1: "Substantial Completion & Turnover to Owner"
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        name = t.get('task_name', '')
-        if 'Substantial Completion' in name and 'Turnover to Owner' in name:
-            if t.get('status_code', '') != 'TK_Complete':
-                return t
-
-    # Priority 2: Exact "Substantial Completion" milestone
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_name', '').strip() == 'Substantial Completion':
-            if t.get('task_type', '') in ('TT_FinMile', 'TT_Mile'):
-                if t.get('status_code', '') != 'TK_Complete':
-                    return t
-
-    # Priority 3: Any milestone containing "Substantial Completion"
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_type', '') not in ('TT_FinMile', 'TT_Mile'):
-            continue
-        if 'Substantial Completion' in t.get('task_name', ''):
-            if t.get('status_code', '') != 'TK_Complete':
-                return t
-
-    return None
 
 
 def check_anchor_dates(results, anchors, tolerance_days=0):
@@ -1018,7 +1013,8 @@ def _compute_float(tasks_by_id, succ_map, cal_lookup):
 # ---------------------------------------------------------------------------
 
 def schedule_forward_backward(tasks, preds, calendars, data_date,
-                               schedoptions=None, project=None):
+                               schedoptions=None, project=None,
+                               milestone_id=None):
     """
     Run CPM forward and backward passes on parsed XER data.
 
@@ -1029,6 +1025,17 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
         data_date: "YYYY-MM-DD HH:MM" string or datetime
         schedoptions: Optional list of SCHEDOPTIONS row dicts (for lag calendar option)
         project: Optional list of PROJECT row dicts (for default calendar ID)
+        milestone_id: Optional task_id of the project's terminal milestone (e.g.
+            the Substantial Completion finish marker). Used only to populate the
+            ``sc_milestone_*`` fields in the returned metadata -- CPM
+            correctness does not depend on it (project_end is computed from the
+            latest EF across all tasks). When omitted, the function calls
+            :func:`milestones.resolve_default_milestone` to pick the unique
+            terminal non-WBS / non-LOE / non-complete milestone. If the
+            schedule has more than one terminal milestone the metadata fields
+            quietly fall through to ``None`` rather than raising -- CPM is a
+            foundational utility and many transitive callers don't care about
+            SC. Pass ``milestone_id`` explicitly when you do.
 
     Returns:
         (results, metadata) where:
@@ -1071,7 +1078,29 @@ def schedule_forward_backward(tasks, preds, calendars, data_date,
     # P6 uses the latest EF across all tasks (= scd_end_date in PROJECT),
     # NOT the SC milestone EF. This matters when there are activities after
     # SC (e.g., Final Completion, close-out, punch lists).
-    sc_task = _find_sc_milestone(tasks)
+    # Resolve the terminal milestone for the metadata (informational only --
+    # CPM correctness doesn't depend on it). If the caller passed
+    # milestone_id, use it directly; otherwise auto-resolve via
+    # resolve_default_milestone. Swallow MilestoneAmbiguousError -- a
+    # multi-terminal schedule shouldn't break CPM for callers that don't
+    # care about SC; consumers that need disambiguation pass milestone_id.
+    sc_task = None
+    if milestone_id is not None:
+        for t in tasks:
+            if t.get('task_id', '') == milestone_id:
+                if t.get('status_code', '') != 'TK_Complete':
+                    sc_task = t
+                break
+    else:
+        try:
+            resolved = resolve_default_milestone(tasks, preds)
+        except MilestoneAmbiguousError:
+            resolved = None
+        if resolved is not None:
+            for t in tasks:
+                if t.get('task_id', '') == resolved:
+                    sc_task = t
+                    break
 
     # Project end = max EF across all computed tasks
     max_ef = dd
