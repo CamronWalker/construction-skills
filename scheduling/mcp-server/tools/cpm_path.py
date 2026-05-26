@@ -25,7 +25,9 @@ _LIB = Path(__file__).parent.parent.parent / "skills" / "schedule-toolbox" / "li
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
-from cpm_engine import extract_paths  # noqa: E402
+import json
+
+from cpm_engine import check_anchor_dates, extract_paths  # noqa: E402
 from cpm_engine import _path_task_summary  # noqa: E402
 from path_analysis import trace_driving_path  # noqa: E402
 
@@ -145,6 +147,40 @@ def get_driving_paths_impl(
     }
 
 
+def get_anchor_conflicts_impl(
+    xer_path: str,
+    anchors: Optional[list],
+    anchors_path: Optional[str],
+    tolerance_days: int,
+    cache,
+) -> dict:
+    """Compare CPM-computed dates against bid-given anchors.
+
+    Exactly one of ``anchors`` or ``anchors_path`` must be provided.
+    ``anchors_path`` points at a JSON file with the canonical
+    ``{"anchors": [...]}`` top-level shape (matches
+    ``proposal-anchors.json``).
+    """
+    if anchors is None and anchors_path is None:
+        raise ValueError(
+            "get_anchor_conflicts requires either `anchors` (inline list) "
+            "or `anchors_path` (JSON file path)."
+        )
+    if anchors is not None and anchors_path is not None:
+        raise ValueError(
+            "Pass exactly one of `anchors` or `anchors_path`, not both."
+        )
+
+    if anchors_path is not None:
+        with open(anchors_path, encoding="utf-8") as f:
+            doc = json.load(f)
+        anchors = doc.get("anchors", []) if isinstance(doc, dict) else doc
+
+    results, _metadata = cache.get_cpm(xer_path)
+    slips = check_anchor_dates(results, anchors or [], tolerance_days=tolerance_days)
+    return {"slips": slips}
+
+
 def get_parallel_branches_impl(
     xer_path: str,
     start_date: Optional[str],
@@ -239,6 +275,34 @@ def register(mcp, cache):
             end_task_name, chain: [task_summary, ...]}, ...] }``.
         """
         return get_driving_paths_impl(xer_path, activity_id, cache)
+
+    @mcp.tool()
+    def get_anchor_conflicts(
+        xer_path: str,
+        anchors: Optional[list] = None,
+        anchors_path: Optional[str] = None,
+        tolerance_days: int = 0,
+    ) -> dict:
+        """Report any CPM-computed dates that drift past the project's
+        bid-given anchor dates beyond ``tolerance_days``.
+
+        Args:
+            xer_path: Path to the .xer file.
+            anchors: Optional inline list of anchor dicts (``task_code``,
+                ``anchor_date``, ``anchor_kind``, ``kind_label``).
+            anchors_path: Optional path to a JSON file with
+                ``{"anchors": [...]}`` top-level.
+            tolerance_days: Allowed absolute slip in calendar days without
+                being reported. Defaults to 0 (strict).
+
+        Returns:
+            ``{ slips: [{task_id, task_code, task_name, kind_label,
+            anchor_date, computed_date, anchor_kind, slip_days}, ...] }``.
+            Empty list means every anchor holds.
+        """
+        return get_anchor_conflicts_impl(
+            xer_path, anchors, anchors_path, tolerance_days, cache
+        )
 
     @mcp.tool()
     def get_parallel_branches(

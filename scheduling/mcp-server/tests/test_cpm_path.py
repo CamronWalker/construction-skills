@@ -120,6 +120,108 @@ class TestGetDrivingPaths(unittest.TestCase):
             self.assertIsInstance(p["chain"], list)
 
 
+class TestGetAnchorConflicts(unittest.TestCase):
+    def setUp(self):
+        self.cache = CpmCache()
+
+    def test_no_slip_when_anchor_matches(self):
+        """SC computes to 2026-05-25 in this fixture (two zero-duration
+        milestones with FS link -> SC's EF inherits NTP's EF). Anchoring
+        SC there gives zero slips."""
+        anchors = [
+            {
+                "task_code": "M2000",
+                "anchor_date": "2026-05-25",
+                "anchor_kind": "finish",
+                "kind_label": "SC",
+            }
+        ]
+        result = cpm_path.get_anchor_conflicts_impl(
+            str(FIXTURE),
+            anchors=anchors,
+            anchors_path=None,
+            tolerance_days=0,
+            cache=self.cache,
+        )
+        self.assertEqual(result["slips"], [])
+
+    def test_slip_detected_when_anchor_earlier(self):
+        """Anchoring SC at 2026-05-01 yields a positive slip_days."""
+        anchors = [
+            {
+                "task_code": "M2000",
+                "anchor_date": "2026-05-01",
+                "anchor_kind": "finish",
+                "kind_label": "SC",
+            }
+        ]
+        result = cpm_path.get_anchor_conflicts_impl(
+            str(FIXTURE),
+            anchors=anchors,
+            anchors_path=None,
+            tolerance_days=0,
+            cache=self.cache,
+        )
+        self.assertEqual(len(result["slips"]), 1)
+        self.assertGreater(result["slips"][0]["slip_days"], 0)
+        self.assertEqual(result["slips"][0]["task_code"], "M2000")
+
+    def test_tolerance_days_absorbs_small_slip(self):
+        """A 1-day anchor delta is absorbed by tolerance_days=60."""
+        anchors = [
+            {
+                "task_code": "M2000",
+                "anchor_date": "2026-06-26",
+                "anchor_kind": "finish",
+                "kind_label": "SC",
+            }
+        ]
+        result = cpm_path.get_anchor_conflicts_impl(
+            str(FIXTURE),
+            anchors=anchors,
+            anchors_path=None,
+            tolerance_days=60,
+            cache=self.cache,
+        )
+        self.assertEqual(result["slips"], [])
+
+    def test_anchors_path_mode(self):
+        """Loading anchors from a JSON file with the canonical {anchors: [...]}
+        top-level produces the same slips list."""
+        import json
+        import tempfile
+
+        anchors_doc = {
+            "anchors": [
+                {
+                    "task_code": "M2000",
+                    "anchor_date": "2026-05-01",
+                    "anchor_kind": "finish",
+                    "kind_label": "SC",
+                }
+            ]
+        }
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as f:
+            json.dump(anchors_doc, f)
+            anchors_path = f.name
+
+        try:
+            result = cpm_path.get_anchor_conflicts_impl(
+                str(FIXTURE),
+                anchors=None,
+                anchors_path=anchors_path,
+                tolerance_days=0,
+                cache=self.cache,
+            )
+            self.assertEqual(len(result["slips"]), 1)
+            self.assertEqual(result["slips"][0]["task_code"], "M2000")
+        finally:
+            import os
+            os.unlink(anchors_path)
+
+
 class TestGetParallelBranches(unittest.TestCase):
     def setUp(self):
         self.cache = CpmCache()
