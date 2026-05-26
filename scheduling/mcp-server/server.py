@@ -14,6 +14,7 @@ from tools import (  # noqa: E402
     omnibus,
     quality,
     structure,
+    update_analytics,
     update_review,
 )
 
@@ -30,6 +31,7 @@ def ping() -> dict:
 # Register all tool modules.
 structure.register(mcp, _cache)
 cpm_path.register(mcp, _cache)
+update_analytics.register(mcp, _cache)
 quality.register(mcp, _cache)
 update_review.register(mcp, _cache)
 compare.register(mcp, _cache)
