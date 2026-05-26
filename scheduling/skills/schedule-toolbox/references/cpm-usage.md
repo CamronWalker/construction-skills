@@ -11,7 +11,7 @@ Do NOT rewrite the CPM engine. Load and call directly.
 
 ```python
 import importlib.util, os
-ref_dir = 'scheduling/skills/schedule-toolbox/references'
+ref_dir = 'scheduling/skills/schedule-toolbox/lib'
 
 def load(name):
     spec = importlib.util.spec_from_file_location(name, os.path.join(ref_dir, f'{name}.py'))

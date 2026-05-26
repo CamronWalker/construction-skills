@@ -20,7 +20,7 @@ import importlib.util
 import subprocess
 
 # Update these to match your environment
-REF = r'<plugin>/scheduling/skills/schedule-toolbox/references'
+REF = r'<plugin>/scheduling/skills/schedule-toolbox/lib'
 PROJECT_FOLDER = r'<project-folder>'
 LATEST_XER = r'<project-folder>/Proposal Schedule/Project -vN.xer'
 NEXT_V_PATH = r'<project-folder>/Proposal Schedule/Project -v(N+1).xer'

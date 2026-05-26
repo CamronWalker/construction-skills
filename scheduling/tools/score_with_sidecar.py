@@ -2,7 +2,7 @@
 and write a small JSON sidecar to Old Iterations/scores/ so the diff and
 walk CLIs can show score deltas across iterations.
 
-Wraps the score_schedule helper from schedule-toolbox/references/. Sidecar
+Wraps the score_schedule helper from schedule-toolbox/lib/. Sidecar
 is intentionally small -- top-level letter grade + numeric score + per-check
 booleans -- so the JSON is cheap to read repeatedly during a walk.
 

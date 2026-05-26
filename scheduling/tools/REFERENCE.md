@@ -494,6 +494,6 @@ These live in `scheduling/tools/` and back the CLIs above. You should not
 need to import or read them; the CLIs already cover their surface.
 
 - `_xer_io.py` -- XER parse + write helpers
-- `_cpm_loader.py` -- locates `cpm_engine.py` (in `schedule-toolbox/references/`)
+- `_cpm_loader.py` -- locates `cpm_engine.py` (in `schedule-toolbox/lib/`)
 - `_cpm_cache.py` -- CPM result cache keyed by content hash
 - `_layout.py` -- detects new vs legacy folder layout, resolves paths

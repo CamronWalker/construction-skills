@@ -44,7 +44,7 @@ Branch based on response:
 
 #### Resolve the script paths (path-portable)
 
-Use the Glob tool with pattern `**/scheduling/skills/schedule-toolbox/references/xer_compare.py` to find the absolute path. Save the result as `xer_compare_path`. Repeat for `update_review.py` → `update_review_path`.
+Use the Glob tool with pattern `**/scheduling/skills/schedule-toolbox/lib/xer_compare.py` to find the absolute path. Save the result as `xer_compare_path`. Repeat for `update_review.py` → `update_review_path`.
 
 If Glob returns zero results for either, stop and tell the colleague:
 > "Schedule-toolbox not found. Install or update the `scheduling` plugin via the marketplace, then re-run."

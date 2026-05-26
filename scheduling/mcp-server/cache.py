@@ -7,8 +7,7 @@ stored together under one entry; CPM is computed lazily on the first
 ``get_cpm`` call and reused thereafter.
 
 The cache imports the existing parser and CPM engine from the schedule-toolbox
-skill's ``references/`` directory via ``sys.path`` injection. The rename to
-``lib/`` lands in task C1; this path will be updated then.
+skill's ``lib/`` directory via ``sys.path`` injection.
 """
 from __future__ import annotations
 
@@ -21,9 +20,9 @@ from typing import Any
 
 from errors import XerLockedError
 
-# sys.path injection -- C1 will rename "references" to "lib" and this path
-# will be updated. Keep the variable name LIB so the rename is a one-line edit.
-LIB = Path(__file__).parent.parent / "skills" / "schedule-toolbox" / "references"
+# sys.path injection into schedule-toolbox/lib so the parser + CPM engine
+# can be imported as top-level modules without packaging them.
+LIB = Path(__file__).parent.parent / "skills" / "schedule-toolbox" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
