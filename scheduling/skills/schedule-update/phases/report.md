@@ -40,50 +40,50 @@ Branch based on response:
 
 ### 3b. **No transcript** — XER-driven Q&A
 
-**Don't write ad-hoc XER-parsing Python.** The schedule-toolbox plugin already ships `xer_compare.compare_schedules` and `update_review.expected_updates` — use them.
+**Don't write ad-hoc XER-parsing Python.** The Westland Scheduler Local MCP exposes everything needed here. Call MCP tools by name — `compare_activity_changes`, `compare_milestone_slip`, `compare_date_slips`, `get_activities_to_start`, `get_activities_to_finish`, `get_milestones`. If `ToolSearch select:<tool_name>` returns nothing, invoke the `westland-scheduler-mcp-troubleshoot` skill — do not fall back to reading `schedule-toolbox/lib/*.py` (the PreToolUse hook blocks that read).
 
-#### Resolve the script paths (path-portable)
+#### Locate the two XERs
 
-Use the Glob tool with pattern `**/scheduling/skills/schedule-toolbox/lib/xer_compare.py` to find the absolute path. Save the result as `xer_compare_path`. Repeat for `update_review.py` → `update_review_path`.
+Current-week XER: the most recent `{dated_folder}/*.xer`. Previous-week XER: the most recent `*.xer` in the prior dated folder. Use absolute paths in MCP calls.
 
-If Glob returns zero results for either, stop and tell the colleague:
-> "Schedule-toolbox not found. Install or update the `scheduling` plugin via the marketplace, then re-run."
+#### Resolve the terminal milestone (only if ambiguous)
+
+```text
+ToolSearch select:get_milestones,compare_activity_changes,compare_milestone_slip,compare_date_slips
+```
+
+`compare_milestone_slip` auto-resolves the terminal milestone on single-terminal schedules; on phased schedules with multiple terminal milestones it raises `MilestoneAmbiguousError`. If you hit that, call `get_milestones(xer_path=<current_xer>)` to list candidates, then re-call `compare_milestone_slip(milestone_id=<resolved_task_id_or_code>)`.
 
 #### Compare this week's XER to last week's
 
-Find the two most recent XER files: current-week XER in `{dated_folder}/*.xer`, previous-week XER in the most recent prior dated folder.
+Run the three compare tools against the same baseline/current pair. Defaults are correct for the weekly cadence (`match_by="task_code"` — robust to P6 task_id renumbering between exports).
 
-```bash
-python -c "
-import sys, json, os
-sys.path.insert(0, os.path.dirname(r'<xer_compare_path>'))
-from xer_compare import compare_schedules, _parse_xer_file
-current  = _parse_xer_file(r'<dated_folder>/<current_xer_filename>')
-previous = _parse_xer_file(r'<prev_dated_folder>/<prev_xer_filename>')
-result = compare_schedules(current, previous)
-print(json.dumps(result, indent=2, default=str))
-"
+```text
+compare_milestone_slip(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>, milestone_id=<resolved>?)
+compare_activity_changes(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)
+compare_date_slips(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)
 ```
 
-Substitute `<xer_compare_path>` with the Glob result and the two XER paths with absolute paths.
+Use the returned dicts to drive the colleague Q&A:
 
-Use the JSON output to populate the colleague-facing Q&A:
-- `result['sc_date_change']` → "Substantial Completion moved from `{prev}` to `{current}` (`{delta}` days). What's the story?"
-- `result['completed_this_week']` → "These finished since the last update: `{list}`. Which should I call out as successes?"
-- `result['slipped']` → "These moved later: `{name}` (`{days_slipped}` days). Red flag, slipping task, or expected?"
-- `result['unstarted']` → "These were planned to start but haven't: `{list}`. Still blocked, or will they start soon?"
-- `result['logic_changes']` → activity adds/deletes/relationship changes (count summary, then "Any scope changes worth mentioning?")
-- `result['critical_path_movement']` → "Critical path changed in these areas: `{list}`. Anything to highlight?"
+- `compare_milestone_slip` → `sc_date_old` / `sc_date_new` / `sc_slip_days` → "Substantial Completion moved from `{sc_date_old}` to `{sc_date_new}` (`{sc_slip_days}` days). What's the story?"
+- `compare_activity_changes.status_changes` → filter rows where the new status is `TK_Complete` → "These finished since the last update: `{list}`. Which should I call out as successes?"
+- `compare_date_slips.date_slippage` → rows with positive `es_slip_days` or `ef_slip_days` → "These moved later: `{task_name}` (`{ef_slip_days}` days). Red flag, slipping task, or expected?"
+- `compare_activity_changes.status_changes` → filter rows where new status is still `TK_NotStart` past the baseline early start → "These were planned to start but haven't: `{list}`. Still blocked, or will they start soon?"
+- `compare_activity_changes.added_tasks` + `removed_tasks` + `changed_durations` → count summary → "Any scope or duration changes worth mentioning?"
+
+Critical-path movement isn't surfaced in Plan 1 (Tier 1 `get_critical_path_changes` ships in Plan 2). If the colleague raises critical-path questions, fall back to comparing `get_critical_path(xer_path=<current_xer>)` vs the same against the prior XER and diff the activity lists by hand.
 
 #### Trade-specific upcoming work
 
-If the colleague asks "what does {trade} need to update by next week?", drive `update_review.py` directly:
+If the colleague asks "what does {trade} need to update by next week?", call the activity-window tools directly. No script invocation, no path resolution.
 
-```bash
-python "<update_review_path>" expected_updates "<current_xer_path>" "<future_date_YYYY-MM-DD>" --resource <trade_code>
+```text
+get_activities_to_start(xer_path=<current_xer>, future_date=<YYYY-MM-DD>, resource_filter="<trade_code>")
+get_activities_to_finish(xer_path=<current_xer>, future_date=<YYYY-MM-DD>, resource_filter="<trade_code>")
 ```
 
-The script returns JSON to stdout — `to_start`, `to_finish`, `in_progress` lists with task names + dates.
+`resource_filter` is a case-insensitive substring against resource short names (e.g. `"ELEC"`). Each tool returns the data date, the future date, and the matching task list with name + early dates.
 
 #### Open-ended round
 
