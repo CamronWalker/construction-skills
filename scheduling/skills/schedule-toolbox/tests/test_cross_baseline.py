@@ -31,12 +31,13 @@ class TestComputeCriticalPathChanges(unittest.TestCase):
     /stable sets. The cp_baseline -> cp_shifted fixture pair was engineered
     so the entire CP shifts from A-chain to B-chain."""
 
-    def setUp(self):
-        self.cache = CpmCache()
-        self.base_parsed = self.cache.get_parsed(str(FIXTURES / "cp_baseline.xer"))
-        self.curr_parsed = self.cache.get_parsed(str(FIXTURES / "cp_shifted.xer"))
-        self.base_cpm = self.cache.get_cpm(str(FIXTURES / "cp_baseline.xer"))
-        self.curr_cpm = self.cache.get_cpm(str(FIXTURES / "cp_shifted.xer"))
+    @classmethod
+    def setUpClass(cls):
+        cls.cache = CpmCache()
+        cls.base_parsed = cls.cache.get_parsed(str(FIXTURES / "cp_baseline.xer"))
+        cls.curr_parsed = cls.cache.get_parsed(str(FIXTURES / "cp_shifted.xer"))
+        cls.base_cpm = cls.cache.get_cpm(str(FIXTURES / "cp_baseline.xer"))
+        cls.curr_cpm = cls.cache.get_cpm(str(FIXTURES / "cp_shifted.xer"))
 
     def test_returns_required_keys(self):
         result = compute_critical_path_changes(
@@ -97,10 +98,28 @@ class TestComputeCriticalPathChanges(unittest.TestCase):
         self.assertGreater(result["stable_count"], 0)
 
     def test_milestone_id_passthrough(self):
-        """Explicit milestone_id overrides the auto-resolved terminal."""
+        """Explicit milestone_id overrides the auto-resolved terminal and
+        flows through to extract_paths."""
         result = compute_critical_path_changes(
             self.base_parsed, self.curr_parsed,
             self.base_cpm, self.curr_cpm,
             milestone_id="30006",
         )
         self.assertEqual(result["milestone_id"], "30006")
+        # Confirm the explicit override produces a non-empty critical path
+        # (proves the override actually flowed through to extract_paths,
+        # not just stamped onto the return dict).
+        self.assertGreater(len(result["current_cp"]), 0)
+
+    def test_milestone_id_not_found_raises(self):
+        """Explicit milestone_id that doesn't exist in the schedule raises
+        MilestoneNotFoundError carrying the candidate list."""
+        from milestones import MilestoneNotFoundError
+        with self.assertRaises(MilestoneNotFoundError) as ctx:
+            compute_critical_path_changes(
+                self.base_parsed, self.curr_parsed,
+                self.base_cpm, self.curr_cpm,
+                milestone_id="not_a_real_id",
+            )
+        self.assertTrue(hasattr(ctx.exception, "candidates"))
+        self.assertGreater(len(ctx.exception.candidates), 0)

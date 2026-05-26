@@ -1245,6 +1245,7 @@ def _path_task_summary(t, task_id):
     tf_hr = _safe_float(t.get('total_float_hr_cnt', 0))
     return {
         'id': t.get('task_code', '') or task_id,
+        'task_code': t.get('task_code', ''),
         'task_id': task_id,
         'name': t.get('task_name', ''),
         'early_start': (t.get('early_start_date', '') or '')[:10],

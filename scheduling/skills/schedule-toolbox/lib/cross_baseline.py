@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import Optional
 
 from cpm_engine import extract_paths
-from milestones import MilestoneAmbiguousError, get_milestones
+from milestones import MilestoneNotFoundError, get_milestones
 from xer_compare import compare_xer_pair
 
 
@@ -53,7 +53,7 @@ def compute_critical_path_changes(
             ``extract_paths`` uses the metadata's auto-resolved
             ``sc_milestone_id`` on each side independently. When provided,
             both sides resolve to this milestone via a shallow-copied
-            metadata; raises :class:`MilestoneAmbiguousError` if the
+            metadata; raises :class:`MilestoneNotFoundError` if the
             milestone is missing from one side.
 
     Returns:
@@ -85,8 +85,8 @@ def compute_critical_path_changes(
         curr_results, curr_metadata, current_parsed.get("TASKPRED", []),
     )
 
-    base_cp = [_with_task_code(t) for t in base_paths.get("critical_path", [])]
-    curr_cp = [_with_task_code(t) for t in curr_paths.get("critical_path", [])]
+    base_cp = base_paths.get("critical_path", [])
+    curr_cp = curr_paths.get("critical_path", [])
 
     base_codes = {t.get("task_code") for t in base_cp}
     curr_codes = {t.get("task_code") for t in curr_cp}
@@ -105,30 +105,17 @@ def compute_critical_path_changes(
     }
 
 
-def _with_task_code(summary: dict) -> dict:
-    """Normalize an ``extract_paths`` task-summary dict to carry a
-    ``task_code`` key. ``_path_task_summary`` in ``cpm_engine`` writes the
-    activity code into ``id``; this module's diffing logic matches by the
-    conceptual ``task_code`` field, so we copy it through here without
-    mutating the original dict.
-    """
-    if "task_code" in summary:
-        return summary
-    out = dict(summary)
-    out["task_code"] = summary.get("id", "")
-    return out
-
-
-def _override_sc_milestone(metadata: dict, milestone_id, tasks: list) -> dict:
+def _override_sc_milestone(
+    metadata: dict, milestone_id: Optional[str], tasks: list
+) -> dict:
     """Shallow-copy ``metadata`` with ``sc_milestone_*`` keys overridden
     to point at ``milestone_id``. Helper used by every function in this
     module that accepts an optional ``milestone_id`` parameter.
 
-    Raises :class:`MilestoneAmbiguousError` carrying the candidate
-    milestone list if ``milestone_id`` doesn't exist in ``tasks`` AND the
-    schedule has multiple terminal milestones -- a missing-milestone error
-    in a multi-terminal schedule is symptomatic of the caller not knowing
-    which to pick.
+    Raises :class:`MilestoneNotFoundError` carrying the candidate
+    milestone list if ``milestone_id`` doesn't exist in ``tasks`` -- the
+    MCP layer can surface the candidates to the caller so they can repair
+    the request.
     """
     if milestone_id is None:
         return metadata
@@ -143,10 +130,10 @@ def _override_sc_milestone(metadata: dict, milestone_id, tasks: list) -> dict:
             found = True
             break
     if not found:
-        # Raise ambiguous-error carrying the candidates so the caller can
-        # repair the request.
+        # Surface the not-found case with the candidate list so the
+        # caller can repair the request.
         candidates = get_milestones(tasks, include_complete=False)
-        raise MilestoneAmbiguousError(
+        raise MilestoneNotFoundError(
             f"milestone_id '{milestone_id}' not found; "
             f"{len(candidates)} candidate(s) available",
             candidates=candidates,
@@ -155,21 +142,35 @@ def _override_sc_milestone(metadata: dict, milestone_id, tasks: list) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Stubs for C3-C5 -- these keep the test-module import resolving while the
-# real implementations land in subsequent tasks. Remove when the real
-# functions are implemented.
+# Stubs for C3-C5 -- the real implementations land in those tasks.
 # ---------------------------------------------------------------------------
 
-def compute_float_consumption(*args, **kwargs):
-    """Stub -- real implementation lands in C3."""
-    raise NotImplementedError("compute_float_consumption: pending C3")
+def compute_float_consumption(
+    baseline_parsed: dict,
+    current_parsed: dict,
+    baseline_cpm: tuple,
+    current_cpm: tuple,
+    milestone_id: Optional[str] = None,
+) -> dict:
+    raise NotImplementedError("compute_float_consumption ships in Plan 2 Task C3")
 
 
-def compute_trade_slip_summary(*args, **kwargs):
-    """Stub -- real implementation lands in C4."""
-    raise NotImplementedError("compute_trade_slip_summary: pending C4")
+def compute_trade_slip_summary(
+    baseline_parsed: dict,
+    current_parsed: dict,
+    baseline_cpm: tuple,
+    current_cpm: tuple,
+    milestone_id: Optional[str] = None,
+    trade_field: Optional[str] = None,
+) -> dict:
+    raise NotImplementedError("compute_trade_slip_summary ships in Plan 2 Task C4")
 
 
-def compute_gain_loss_attribution(*args, **kwargs):
-    """Stub -- real implementation lands in C5."""
-    raise NotImplementedError("compute_gain_loss_attribution: pending C5")
+def compute_gain_loss_attribution(
+    baseline_parsed: dict,
+    current_parsed: dict,
+    baseline_cpm: tuple,
+    current_cpm: tuple,
+    milestone_id: Optional[str] = None,
+) -> dict:
+    raise NotImplementedError("compute_gain_loss_attribution ships in Plan 2 Task C5")

@@ -23,6 +23,17 @@ class MilestoneAmbiguousError(Exception):
         self.candidates = candidates
 
 
+class MilestoneNotFoundError(Exception):
+    """Raised when a specific milestone_id was requested but doesn't exist
+    in the schedule. The ``candidates`` attribute carries the list of all
+    available milestones so the MCP layer can prompt the user with the
+    valid options.
+    """
+    def __init__(self, message: str, candidates: list):
+        super().__init__(message)
+        self.candidates = candidates
+
+
 def get_milestones(tasks: list, include_complete: bool = False) -> list:
     """Return all non-WBS, non-LOE milestone tasks.
 
