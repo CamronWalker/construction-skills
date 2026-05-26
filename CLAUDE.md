@@ -31,7 +31,7 @@ The `src/` folder is gitignored — zips are rebuilt locally after each merge an
 
 [`.github/workflows/lint.yml`](.github/workflows/lint.yml) runs on every pull request to `main` and gates merge with two jobs:
 
-- **version-bump** — for each plugin with any file changed in the PR, requires a matching `+"version":` line in both that plugin's `plugin.json` and the corresponding `marketplace.json` entry. `-dev`-suffixed versions are exempt so in-branch iteration doesn't trip the gate. Mirrors the rule the local pre-commit hook used to enforce, but operates on the full PR diff (base..head) and runs on every contributor without setup.
+- **version-bump** — for each plugin with any file changed in the PR, requires (1) a `+"version":` line in both that plugin's `plugin.json` and the corresponding `marketplace.json` entry; (2) the head version is *strictly greater* than the base version in both files — downgrades and no-op re-statements fail the check; (3) `plugin.json` version equals the `marketplace.json` entry version at head (lockstep). `-dev`-suffixed versions are exempt so in-branch iteration doesn't trip the gate. Mirrors the rule the local pre-commit hook used to enforce, but operates on the full PR diff (base..head) and runs on every contributor without setup.
 - **forbid-personal-paths** — fails the PR if any *newly added* line contains a `C:\Users\<name>\` path (any user, any separator, case-insensitive). Catches per-user hardcodes from any contributor — code should use env vars, `~` expansion, or repo-relative paths. Documentation files (`*.md`, `docs/**`) and this workflow itself are excluded — illustrative mentions in prose are fine; only code-side hardcodes are caught.
 
 ## Structure

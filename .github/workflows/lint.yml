@@ -28,8 +28,42 @@ jobs:
           # Mirrors .githooks/pre-commit, but operates on the PR diff
           # (base..head) instead of the staged diff. For each plugin: if any
           # tracked file inside the plugin changed (excluding plugin.json
-          # itself), require a +"version": line in both plugin.json AND
-          # marketplace.json in the PR diff. -dev versions are exempt.
+          # itself), require BOTH:
+          #   (1) a +"version": line in both plugin.json AND marketplace.json
+          #       in the PR diff (proves a bump happened);
+          #   (2) the head version is strictly greater than the base version
+          #       in both plugin.json and the marketplace entry (proves the
+          #       bump went forward, not backward or stayed put).
+          # plugin.json and marketplace entry must match each other at head
+          # — the lockstep rule from CLAUDE.md. -dev versions are exempt.
+
+          # Strict-greater semver compare via sort -V. Pre-release tags
+          # (-dev, -alpha.N, etc.) are exempted upstream so we don't need to
+          # handle SemVer pre-release ordering precisely here.
+          version_gt() {
+            # Returns 0 (success) if $1 > $2, 1 otherwise.
+            if [ "$1" = "$2" ]; then return 1; fi
+            local lower
+            lower=$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)
+            [ "$lower" = "$2" ]
+          }
+
+          marketplace_version_for() {
+            # Read the version for plugin $1 from marketplace.json at ref $2.
+            # Returns empty if missing.
+            local plugin_name="$1" ref="$2"
+            git show "${ref}:.claude-plugin/marketplace.json" 2>/dev/null \
+              | jq -r --arg n "$plugin_name" \
+                   '.plugins[]? | select(.name == $n) | .version // empty'
+          }
+
+          plugin_version_for() {
+            # Read the version field from plugin.json at ref $2 for plugin $1.
+            local plugin_dir="$1" ref="$2"
+            git show "${ref}:${plugin_dir}/.claude-plugin/plugin.json" 2>/dev/null \
+              | jq -r '.version // empty'
+          }
+
           check_plugin_bump() {
             local plugin_dir="$1"
             local plugin_json="${plugin_dir}/.claude-plugin/plugin.json"
@@ -45,10 +79,9 @@ jobs:
             fi
 
             # -dev exemption: read version from head
-            local head_version
-            head_version=$(git show "${HEAD_SHA}:${plugin_json}" 2>/dev/null \
-              | grep -E '"version":\s*"' | head -1 \
-              | sed -E 's/.*"version":\s*"([^"]+)".*/\1/')
+            local head_version base_version
+            head_version=$(plugin_version_for "$plugin_dir" "$HEAD_SHA")
+            base_version=$(plugin_version_for "$plugin_dir" "$BASE_SHA")
             if [[ "$head_version" == *-dev* ]]; then
               echo "[skip] ${plugin_dir}: head version ${head_version} is -dev"
               return 0
@@ -66,7 +99,32 @@ jobs:
               return 1
             fi
 
-            echo "[ok] ${plugin_dir}: version bumped (${head_version})"
+            # Monotonicity: head's plugin.json version must be > base's.
+            if [ -n "$base_version" ] && ! version_gt "$head_version" "$base_version"; then
+              echo "::error file=${plugin_json}::${plugin_dir}/.claude-plugin/plugin.json version went from ${base_version} to ${head_version} — head must be strictly greater. Bump forward (semver: patch for fixes, minor for new skills, major for breaking changes)."
+              return 1
+            fi
+
+            # Monotonicity: head's marketplace entry version must be > base's.
+            local head_mkt base_mkt
+            head_mkt=$(marketplace_version_for "$plugin_dir" "$HEAD_SHA")
+            base_mkt=$(marketplace_version_for "$plugin_dir" "$BASE_SHA")
+            if [ -z "$head_mkt" ]; then
+              echo "::error file=${marketplace_json}::${plugin_dir} has no entry in marketplace.json at head. Add one matching plugin.json version."
+              return 1
+            fi
+            if [ -n "$base_mkt" ] && ! version_gt "$head_mkt" "$base_mkt"; then
+              echo "::error file=${marketplace_json}::${plugin_dir} entry in marketplace.json went from ${base_mkt} to ${head_mkt} — head must be strictly greater."
+              return 1
+            fi
+
+            # Lockstep: head plugin.json version must equal head marketplace entry version.
+            if [ "$head_version" != "$head_mkt" ]; then
+              echo "::error file=${marketplace_json}::${plugin_dir} plugin.json version (${head_version}) does not match marketplace.json entry version (${head_mkt}). They must stay in lockstep — see CLAUDE.md release convention."
+              return 1
+            fi
+
+            echo "[ok] ${plugin_dir}: ${base_version:-<new>} -> ${head_version}"
             return 0
           }
 
