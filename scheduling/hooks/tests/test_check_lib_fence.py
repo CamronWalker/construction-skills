@@ -48,11 +48,13 @@ class TestLibFenceRecommends(unittest.TestCase):
         self.assertIn('get_quality_check', reason)
 
     def test_read_lib_py_recommend_windows_path(self):
-        # Use a non-personal Windows root (D:\projects\...) so the hook's
-        # backslash-normalization path is exercised without tripping the
-        # personal-path CI lint (which rejects added lines containing
-        # C:\Users\<name>\ -- per .github/workflows/lint.yml).
-        path = r'D:\projects\construction-skills\scheduling\skills\schedule-toolbox\lib\cpm_engine.py'
+        # Use %USERPROFILE% (the standard Windows home-directory env var)
+        # so the hook's backslash-normalization path is exercised without
+        # baking in any contributor's home dir. The hook does pure string
+        # matching -- it never expands env vars -- so %USERPROFILE% stays
+        # literal in the regex input and the test still passes. Also keeps
+        # us under the personal-path CI lint (.github/workflows/lint.yml).
+        path = r'%USERPROFILE%\code\construction-skills\scheduling\skills\schedule-toolbox\lib\cpm_engine.py'
         proc = run_hook({
             'tool_name': 'Read',
             'tool_input': {'file_path': path},
