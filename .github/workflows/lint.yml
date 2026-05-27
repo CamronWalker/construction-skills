@@ -1,0 +1,193 @@
+name: lint
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-bump:
+    name: plugin + marketplace version bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check each plugin's version bump
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+
+          # Mirrors .githooks/pre-commit, but operates on the PR diff
+          # (base..head) instead of the staged diff. For each plugin: if any
+          # tracked file inside the plugin changed (excluding plugin.json
+          # itself), require BOTH:
+          #   (1) a +"version": line in both plugin.json AND marketplace.json
+          #       in the PR diff (proves a bump happened);
+          #   (2) the head version is strictly greater than the base version
+          #       in both plugin.json and the marketplace entry (proves the
+          #       bump went forward, not backward or stayed put).
+          # plugin.json and marketplace entry must match each other at head
+          # — the lockstep rule from CLAUDE.md. -dev versions are exempt.
+
+          # Strict-greater semver compare via sort -V. Pre-release tags
+          # (-dev, -alpha.N, etc.) are exempted upstream so we don't need to
+          # handle SemVer pre-release ordering precisely here.
+          version_gt() {
+            # Returns 0 (success) if $1 > $2, 1 otherwise.
+            if [ "$1" = "$2" ]; then return 1; fi
+            local lower
+            lower=$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)
+            [ "$lower" = "$2" ]
+          }
+
+          marketplace_version_for() {
+            # Read the version for plugin $1 from marketplace.json at ref $2.
+            # Returns empty if missing.
+            local plugin_name="$1" ref="$2"
+            git show "${ref}:.claude-plugin/marketplace.json" 2>/dev/null \
+              | jq -r --arg n "$plugin_name" \
+                   '.plugins[]? | select(.name == $n) | .version // empty'
+          }
+
+          plugin_version_for() {
+            # Read the version field from plugin.json at ref $2 for plugin $1.
+            local plugin_dir="$1" ref="$2"
+            git show "${ref}:${plugin_dir}/.claude-plugin/plugin.json" 2>/dev/null \
+              | jq -r '.version // empty'
+          }
+
+          check_plugin_bump() {
+            local plugin_dir="$1"
+            local plugin_json="${plugin_dir}/.claude-plugin/plugin.json"
+            local marketplace_json=".claude-plugin/marketplace.json"
+
+            local files_changed
+            files_changed=$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" \
+              | grep "^${plugin_dir}/" \
+              | grep -v "^${plugin_json}$" \
+              || true)
+            if [ -z "$files_changed" ]; then
+              return 0
+            fi
+
+            # -dev exemption: read version from head
+            local head_version base_version
+            head_version=$(plugin_version_for "$plugin_dir" "$HEAD_SHA")
+            base_version=$(plugin_version_for "$plugin_dir" "$BASE_SHA")
+            if [[ "$head_version" == *-dev* ]]; then
+              echo "[skip] ${plugin_dir}: head version ${head_version} is -dev"
+              return 0
+            fi
+
+            if ! git diff "${BASE_SHA}" "${HEAD_SHA}" -- "$plugin_json" \
+                 | grep -q '^+[[:space:]]*"version":'; then
+              echo "::error file=${plugin_json}::${plugin_dir}/ files changed in this PR but ${plugin_json} version was not bumped. Edit the version field and push another commit."
+              return 1
+            fi
+
+            if ! git diff "${BASE_SHA}" "${HEAD_SHA}" -- "$marketplace_json" \
+                 | grep -q '^+[[:space:]]*"version":'; then
+              echo "::error file=${marketplace_json}::${plugin_dir}/ files changed in this PR but ${marketplace_json} was not bumped for the ${plugin_dir} entry."
+              return 1
+            fi
+
+            # Monotonicity: head's plugin.json version must be > base's.
+            if [ -n "$base_version" ] && ! version_gt "$head_version" "$base_version"; then
+              echo "::error file=${plugin_json}::${plugin_dir}/.claude-plugin/plugin.json version went from ${base_version} to ${head_version} — head must be strictly greater. Bump forward (semver: patch for fixes, minor for new skills, major for breaking changes)."
+              return 1
+            fi
+
+            # Monotonicity: head's marketplace entry version must be > base's.
+            local head_mkt base_mkt
+            head_mkt=$(marketplace_version_for "$plugin_dir" "$HEAD_SHA")
+            base_mkt=$(marketplace_version_for "$plugin_dir" "$BASE_SHA")
+            if [ -z "$head_mkt" ]; then
+              echo "::error file=${marketplace_json}::${plugin_dir} has no entry in marketplace.json at head. Add one matching plugin.json version."
+              return 1
+            fi
+            if [ -n "$base_mkt" ] && ! version_gt "$head_mkt" "$base_mkt"; then
+              echo "::error file=${marketplace_json}::${plugin_dir} entry in marketplace.json went from ${base_mkt} to ${head_mkt} — head must be strictly greater."
+              return 1
+            fi
+
+            # Lockstep: head plugin.json version must equal head marketplace entry version.
+            if [ "$head_version" != "$head_mkt" ]; then
+              echo "::error file=${marketplace_json}::${plugin_dir} plugin.json version (${head_version}) does not match marketplace.json entry version (${head_mkt}). They must stay in lockstep — see CLAUDE.md release convention."
+              return 1
+            fi
+
+            echo "[ok] ${plugin_dir}: ${base_version:-<new>} -> ${head_version}"
+            return 0
+          }
+
+          failed=0
+          for plugin in westland scheduling estimating project-management site-operations safety; do
+            check_plugin_bump "$plugin" || failed=1
+          done
+
+          if [ "$failed" = "1" ]; then
+            echo ""
+            echo "Version-bump check failed. See ::error annotations above and the release convention in CLAUDE.md."
+            exit 1
+          fi
+
+  forbid-personal-paths:
+    name: no C:/Users/<name>/ in added lines
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Grep PR-added lines for personal paths
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+
+          # Examine only NEW lines added in this PR — historical mentions in
+          # docs, test fixtures, and planning artifacts are not the target.
+          # Block if any added line contains any C:\Users\<name>\ path (any
+          # separator, case-insensitive). That covers C:/Users/camron and
+          # any other contributor's home dir — code is supposed to use env
+          # vars, ~ expansion, or repo-relative paths, never a per-user
+          # absolute. Documentation (any *.md, anything under docs/) and
+          # this workflow file are excluded — illustrative mentions in
+          # prose are fine; only code-side hardcodes are caught.
+          pattern='C:[/\\]+Users[/\\]+[^/\\<>:"|?*]+[/\\]'
+          failed=0
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              .github/workflows/lint.yml) continue ;;
+              *.md|docs/*) continue ;;
+            esac
+            # For this file, grab the added lines (lines starting with '+'
+            # but not '+++', and not the diff hunk markers) and grep them.
+            hit=$(git diff "${BASE_SHA}" "${HEAD_SHA}" -- "$file" \
+                  | grep -E '^\+[^+]' \
+                  | grep -iE "$pattern" \
+                  || true)
+            if [ -n "$hit" ]; then
+              echo "::error file=${file}::Added line hardcodes a per-user 'C:\\Users\\<name>\\' path. Replace with a portable path (env var, ~ expansion, repo-relative)."
+              echo "Offending added lines in ${file}:"
+              echo "$hit"
+              failed=1
+            fi
+          done < <(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}")
+
+          if [ "$failed" = "1" ]; then
+            exit 1
+          fi
+          echo "[ok] no personal paths added"

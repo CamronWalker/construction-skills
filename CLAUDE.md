@@ -27,17 +27,12 @@ After merging to `main`:
 
 The `src/` folder is gitignored — zips are rebuilt locally after each merge and never committed. Both distribution paths are supported: the marketplace (`marketplace.json`) serves direct-from-repo installs; the zip serves enterprise-managed installs.
 
-### Pre-commit version-bump hook
+### CI enforcement (PR checks)
 
-`.githooks/pre-commit` enforces the steps 1–2 rule mechanically: any commit that touches files under a plugin directory must also bump both that plugin's `plugin.json` and the matching `marketplace.json` entry. Commits with a `-dev` suffix in the plugin's `plugin.json` version are exempt (so you can work in-branch without a real bump). Bypass with `--no-verify` only if you know what you're doing.
+[`.github/workflows/lint.yml`](.github/workflows/lint.yml) runs on every pull request to `main` and gates merge with two jobs:
 
-Activate once per clone (and once in the main repo for any worktrees to inherit it):
-
-```
-git config core.hooksPath .githooks
-```
-
-Smoke-test the hook locally with `bash .githooks/test_pre_commit.sh`.
+- **version-bump** — for each plugin with any file changed in the PR, requires (1) a `+"version":` line in both that plugin's `plugin.json` and the corresponding `marketplace.json` entry; (2) the head version is *strictly greater* than the base version in both files — downgrades and no-op re-statements fail the check; (3) `plugin.json` version equals the `marketplace.json` entry version at head (lockstep). `-dev`-suffixed versions are exempt so in-branch iteration doesn't trip the gate. Mirrors the rule the local pre-commit hook used to enforce, but operates on the full PR diff (base..head) and runs on every contributor without setup.
+- **forbid-personal-paths** — fails the PR if any *newly added* line contains a `C:\Users\<name>\` path (any user, any separator, case-insensitive). Catches per-user hardcodes from any contributor — code should use env vars, `~` expansion, or repo-relative paths. Documentation files (`*.md`, `docs/**`) and this workflow itself are excluded — illustrative mentions in prose are fine; only code-side hardcodes are caught.
 
 ## Structure
 

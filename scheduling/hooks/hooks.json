@@ -1,5 +1,5 @@
 {
-  "description": "Scheduling — two PreToolUse hooks: (1) advisory steer toward the parse/generate scripts for managed HTML artifacts (project-context.html); (2) source-hiding fence that BLOCKS Read/Edit/Write/MultiEdit/NotebookEdit/Glob/Grep against schedule-toolbox/lib/*.py so routine work goes through the Westland Scheduler Local MCP tools instead. The wrapper (run-hook.ps1) blocks (exit 2) if no real Python is on PATH so silent failure modes are surfaced.",
+  "description": "Scheduling — two PreToolUse hooks: (1) advisory steer toward the parse/generate scripts for managed HTML artifacts (project-context.html); (2) lib-fence advisory recommending the Westland Scheduler Local MCP tools instead of reading schedule-toolbox/lib/*.py directly — emits permissionDecision:allow with a tool-mapped reason so Claude sees the recommendation but is not blocked from debugging an MCP failure. Both run through the Python wrapper (run-hook.ps1) that skips the Microsoft Store python.exe stub.",
   "hooks": {
     "PreToolUse": [
       {

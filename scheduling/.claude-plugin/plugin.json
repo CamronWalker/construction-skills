@@ -13,8 +13,14 @@
   ],
   "mcpServers": {
     "westland-scheduler-mcp": {
-      "command": "python",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/server.py"]
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${CLAUDE_PLUGIN_ROOT}/mcp-server/run-mcp.ps1"
+      ]
     }
   }
 }
