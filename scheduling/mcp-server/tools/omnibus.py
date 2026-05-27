@@ -67,6 +67,17 @@ from tools._common import (  # noqa: E402
     data_date_str as _data_date_str,
 )
 
+from error_help import wrap_tool_errors  # noqa: E402
+
+# Lib script paths surfaced in friendly error messages. The omnibus
+# composes multiple lib modules; pick the primary one per tool:
+# score_schedule wraps score_schedule.py; weekly_update_review composes
+# xer_compare + cross_baseline + update_review (point at score_schedule
+# since DCMA-delta is the load-bearing piece); proposal_schedule_health
+# centers on score_schedule.py.
+_LIB_SCORE = "scheduling/skills/schedule-toolbox/lib/score_schedule.py"
+_LIB_CROSS = "scheduling/skills/schedule-toolbox/lib/cross_baseline.py"
+
 
 def score_schedule_impl(
     xer_path: str, milestone_id: Optional[str], cache
@@ -352,6 +363,7 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="score_schedule", lib_script=_LIB_SCORE)
     def score_schedule(
         xer_path: str, milestone_id: Optional[str] = None
     ) -> dict:
@@ -381,6 +393,7 @@ def register(mcp, cache):
         return score_schedule_impl(xer_path, milestone_id, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="weekly_update_review", lib_script=_LIB_CROSS)
     def weekly_update_review(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -438,6 +451,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="proposal_schedule_health", lib_script=_LIB_SCORE)
     def proposal_schedule_health(
         xer_path: str,
         milestone_id: Optional[str] = None,

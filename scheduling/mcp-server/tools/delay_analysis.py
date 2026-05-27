@@ -33,6 +33,12 @@ from delay_analysis import (  # noqa: E402
     find_concurrent_delay_pairs,
 )
 
+from error_help import wrap_tool_errors  # noqa: E402
+
+# Lib script path surfaced in friendly error messages. All four Tier 2
+# tools wrap the lib's delay_analysis.py.
+_LIB_SCRIPT = "scheduling/skills/schedule-toolbox/lib/delay_analysis.py"
+
 
 def compute_tia_impl(
     baseline_xer_path: str,
@@ -128,6 +134,7 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="compute_tia", lib_script=_LIB_SCRIPT)
     def compute_tia(
         baseline_xer_path: str,
         delay_fragment: dict,
@@ -156,6 +163,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="compute_window_analysis", lib_script=_LIB_SCRIPT)
     def compute_window_analysis(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -188,6 +196,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="compute_change_order_delay", lib_script=_LIB_SCRIPT)
     def compute_change_order_delay(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -226,6 +235,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_concurrent_delay_pairs", lib_script=_LIB_SCRIPT)
     def get_concurrent_delay_pairs(
         baseline_xer_path: str,
         current_xer_path: str,

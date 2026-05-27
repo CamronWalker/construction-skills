@@ -45,6 +45,12 @@ if str(_LIB) not in sys.path:
 
 from xer_compare import compare_xer_pair  # noqa: E402
 
+from error_help import wrap_tool_errors  # noqa: E402
+
+# Lib script path surfaced in friendly error messages. All four tools
+# wrap xer_compare.compare_xer_pair and project different sub-keys.
+_LIB_SCRIPT = "scheduling/skills/schedule-toolbox/lib/xer_compare.py"
+
 
 def compare_activity_changes_impl(
     baseline_xer_path: str,
@@ -161,6 +167,9 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="compare_activity_changes", lib_script=_LIB_SCRIPT
+    )
     def compare_activity_changes(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -193,6 +202,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="compare_date_slips", lib_script=_LIB_SCRIPT)
     def compare_date_slips(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -221,6 +231,9 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="compare_milestone_slip", lib_script=_LIB_SCRIPT
+    )
     def compare_milestone_slip(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -257,6 +270,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="compare_missed_dates", lib_script=_LIB_SCRIPT)
     def compare_missed_dates(
         baseline_xer_path: str,
         current_xer_path: str,

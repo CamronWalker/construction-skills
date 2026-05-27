@@ -39,6 +39,12 @@ from update_review import (  # noqa: E402
     riding_data_date,
 )
 
+from error_help import wrap_tool_errors  # noqa: E402
+
+# Lib script path surfaced in friendly error messages. All four tools
+# wrap update_review.py helpers (expected_updates + riding_data_date).
+_LIB_SCRIPT = "scheduling/skills/schedule-toolbox/lib/update_review.py"
+
 # Sentinel future_date used internally by get_in_progress_activities. The
 # library's in_progress filter is "any TK_Active task" -- the future_date
 # parameter only affects to_start / to_finish thresholds, so any date past
@@ -128,6 +134,9 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_activities_to_start", lib_script=_LIB_SCRIPT
+    )
     def get_activities_to_start(
         xer_path: str,
         future_date: str,
@@ -156,6 +165,9 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_activities_to_finish", lib_script=_LIB_SCRIPT
+    )
     def get_activities_to_finish(
         xer_path: str,
         future_date: str,
@@ -183,6 +195,9 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_in_progress_activities", lib_script=_LIB_SCRIPT
+    )
     def get_in_progress_activities(
         xer_path: str,
         resource_filter: Optional[str] = None,
@@ -211,6 +226,9 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_ride_data_date_violations", lib_script=_LIB_SCRIPT
+    )
     def get_ride_data_date_violations(xer_path: str) -> dict:
         """Not-started activities whose predecessors are all complete --
         these are "riding the data date" (only the data date is holding

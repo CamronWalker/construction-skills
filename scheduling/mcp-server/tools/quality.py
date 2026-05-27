@@ -54,6 +54,14 @@ from quality_checks import (  # noqa: E402
     check_start_to_start,
 )
 
+from error_help import wrap_tool_errors  # noqa: E402
+
+# Lib script path surfaced in friendly error messages. All ten quality
+# tools wrap quality_checks.py helpers; get_circular_relationships reads
+# from cpm_engine's metadata but the user-facing analysis still lives in
+# quality_checks, so all ten point at the same file.
+_LIB_SCRIPT = "scheduling/skills/schedule-toolbox/lib/quality_checks.py"
+
 
 def get_quality_check_impl(xer_path: str, check_name: str, cache) -> dict:
     """Dispatch to one of the 28+ ``check_<name>`` functions in
@@ -198,6 +206,7 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_quality_check", lib_script=_LIB_SCRIPT)
     def get_quality_check(xer_path: str, check_name: str) -> dict:
         """Run a single named quality check from the SmartPM-equivalent suite.
 
@@ -223,6 +232,9 @@ def register(mcp, cache):
         return get_quality_check_impl(xer_path, check_name, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_relationship_type_breakdown", lib_script=_LIB_SCRIPT
+    )
     def get_relationship_type_breakdown(xer_path: str) -> dict:
         """Per-type relationship summary (FS / SS / FF / SF).
 
@@ -237,6 +249,7 @@ def register(mcp, cache):
         return get_relationship_type_breakdown_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_missing_logic", lib_script=_LIB_SCRIPT)
     def get_missing_logic(xer_path: str) -> dict:
         """Activities missing a predecessor or successor.
 
@@ -250,6 +263,9 @@ def register(mcp, cache):
         return get_missing_logic_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_high_float_activities", lib_script=_LIB_SCRIPT
+    )
     def get_high_float_activities(xer_path: str) -> dict:
         """Activities with total float > 44 working days (the library's hard
         cap; the threshold isn't user-configurable here because the underlying
@@ -265,6 +281,9 @@ def register(mcp, cache):
         return get_high_float_activities_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_negative_float_activities", lib_script=_LIB_SCRIPT
+    )
     def get_negative_float_activities(xer_path: str) -> dict:
         """Activities with negative total float (schedule cannot meet deadline
         without acceleration).
@@ -279,6 +298,9 @@ def register(mcp, cache):
         return get_negative_float_activities_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_constraint_violations", lib_script=_LIB_SCRIPT
+    )
     def get_constraint_violations(xer_path: str) -> dict:
         """Activities with hard date constraints (CS_MSO / CS_MFO / CS_MEO).
         Soft constraints (CS_SNET / CS_FNLT etc.) are excluded by design --
@@ -300,6 +322,9 @@ def register(mcp, cache):
         return get_constraint_violations_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_high_duration_activities", lib_script=_LIB_SCRIPT
+    )
     def get_high_duration_activities(xer_path: str) -> dict:
         """Activities with planned duration > 44 working days (the library's
         hard cap; the threshold isn't user-configurable here because the
@@ -315,6 +340,9 @@ def register(mcp, cache):
         return get_high_duration_activities_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_duplicate_relationships", lib_script=_LIB_SCRIPT
+    )
     def get_duplicate_relationships(xer_path: str) -> dict:
         """Activity pairs connected by more than one TASKPRED row (redundant
         logic that obscures the critical path).
@@ -330,6 +358,9 @@ def register(mcp, cache):
         return get_duplicate_relationships_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_circular_relationships", lib_script=_LIB_SCRIPT
+    )
     def get_circular_relationships(xer_path: str) -> dict:
         """Logic cycles detected during the CPM topological sort.
 
@@ -344,6 +375,7 @@ def register(mcp, cache):
         return get_circular_relationships_impl(xer_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_invalid_dates", lib_script=_LIB_SCRIPT)
     def get_invalid_dates(xer_path: str) -> dict:
         """Activities whose actual start or finish dates are after the
         project data date (i.e. fake actuals).

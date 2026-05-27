@@ -37,6 +37,12 @@ from cross_baseline import (  # noqa: E402
     compute_trade_slip_summary,
 )
 
+from error_help import wrap_tool_errors  # noqa: E402
+
+# Lib script path surfaced in friendly error messages. All four Tier 1
+# tools wrap cross_baseline.py, so one constant suffices.
+_LIB_SCRIPT = "scheduling/skills/schedule-toolbox/lib/cross_baseline.py"
+
 
 def get_critical_path_changes_impl(
     baseline_xer_path: str,
@@ -130,6 +136,7 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_critical_path_changes", lib_script=_LIB_SCRIPT)
     def get_critical_path_changes(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -162,6 +169,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_float_consumption", lib_script=_LIB_SCRIPT)
     def get_float_consumption(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -194,6 +202,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_trade_slip_summary", lib_script=_LIB_SCRIPT)
     def get_trade_slip_summary(
         baseline_xer_path: str,
         current_xer_path: str,
@@ -232,6 +241,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_gain_loss_attribution", lib_script=_LIB_SCRIPT)
     def get_gain_loss_attribution(
         baseline_xer_path: str,
         current_xer_path: str,

@@ -26,6 +26,13 @@ if str(_LIB) not in sys.path:
 
 from milestones import get_milestones as _get_milestones_helper  # noqa: E402
 
+from error_help import wrap_tool_errors  # noqa: E402
+
+# Lib script path surfaced in friendly error messages. The decorator
+# attaches this string to every error raised through a tool wrapper so
+# Claude can find the source file when debugging.
+_LIB_SCRIPT = "scheduling/skills/schedule-toolbox/lib/milestones.py"
+
 
 # Task types that should not count as real successors when determining whether
 # a milestone is terminal. WBS rollups and LOE activities aren't real logic.
@@ -75,6 +82,7 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_milestones", lib_script=_LIB_SCRIPT)
     def get_milestones(xer_path: str, include_complete: bool = False) -> dict:
         """List all non-WBS, non-LOE milestones in the XER.
 

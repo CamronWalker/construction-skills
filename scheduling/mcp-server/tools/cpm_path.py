@@ -54,9 +54,16 @@ if str(_TOOLS_DIR) not in sys.path:
 from _xer_io import parse_xer as _xer_io_parse  # noqa: E402
 from _xer_io import write_xer_with_updates  # noqa: E402
 
+from error_help import wrap_tool_errors  # noqa: E402
+
 from tools._common import (  # noqa: E402
     resolve_metadata_for_milestone as _resolve_metadata_for_milestone,
 )
+
+# Lib script paths surfaced in friendly error messages. Most tools here
+# wrap cpm_engine; the two path-analysis tools point at path_analysis.py.
+_LIB_CPM = "scheduling/skills/schedule-toolbox/lib/cpm_engine.py"
+_LIB_PATH = "scheduling/skills/schedule-toolbox/lib/path_analysis.py"
 
 # Fields ``schedule_forward_backward`` writes back into each task dict.
 # Only these need to be propagated to the output XER; everything else stays
@@ -439,6 +446,7 @@ def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_critical_path", lib_script=_LIB_CPM)
     def get_critical_path(
         xer_path: str, milestone_id: Optional[str] = None
     ) -> dict:
@@ -458,6 +466,7 @@ def register(mcp, cache):
         return get_critical_path_impl(xer_path, milestone_id, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_driving_paths", lib_script=_LIB_CPM)
     def get_driving_paths(
         xer_path: str, activity_id: Optional[str] = None
     ) -> dict:
@@ -478,6 +487,7 @@ def register(mcp, cache):
         return get_driving_paths_impl(xer_path, activity_id, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_anchor_conflicts", lib_script=_LIB_CPM)
     def get_anchor_conflicts(
         xer_path: str,
         anchors: Optional[list] = None,
@@ -506,6 +516,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="run_cpm", lib_script=_LIB_CPM)
     def run_cpm(xer_path: str, output_path: Optional[str] = None) -> dict:
         """Run a fresh CPM forward+backward pass on the XER and write the
         result to a new file. The source XER is never overwritten.
@@ -523,6 +534,7 @@ def register(mcp, cache):
         return run_cpm_impl(xer_path, output_path, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_gantt_json", lib_script=_LIB_CPM)
     def get_gantt_json(
         xer_path: str, project_name: Optional[str] = None
     ) -> dict:
@@ -542,6 +554,7 @@ def register(mcp, cache):
         return get_gantt_json_impl(xer_path, project_name, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="render_gantt_html", lib_script=_LIB_CPM)
     def render_gantt_html(
         xer_path: str, output_path: str, project_name: Optional[str] = None
     ) -> dict:
@@ -561,6 +574,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_delay_impacts", lib_script=_LIB_PATH)
     def get_delay_impacts(
         xer_path: str,
         impact_activities: Optional[list] = None,
@@ -590,6 +604,9 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_milestone_path_coverage", lib_script=_LIB_PATH
+    )
     def get_milestone_path_coverage(
         xer_path: str, milestone_id: Optional[str] = None
     ) -> dict:
@@ -613,6 +630,9 @@ def register(mcp, cache):
         return get_milestone_path_coverage_impl(xer_path, milestone_id, cache)
 
     @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="get_anchor_absorption_suggestions", lib_script=_LIB_CPM
+    )
     def get_anchor_absorption_suggestions(
         xer_path: str, slip: dict, max_suggestions: int = 8
     ) -> dict:
@@ -638,6 +658,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_parallel_branches", lib_script=_LIB_CPM)
     def get_parallel_branches(
         xer_path: str,
         start_date: Optional[str] = None,
@@ -662,6 +683,7 @@ def register(mcp, cache):
         )
 
     @mcp.tool()
+    @wrap_tool_errors(tool_name="get_near_critical_chains", lib_script=_LIB_CPM)
     def get_near_critical_chains(
         xer_path: str, tolerance_days: float = 5
     ) -> dict:
