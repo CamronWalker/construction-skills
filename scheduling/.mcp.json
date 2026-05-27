@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "westland-scheduler-mcp": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${CLAUDE_PLUGIN_ROOT}/mcp-server/run-mcp.ps1"
+      ]
+    }
+  }
+}
