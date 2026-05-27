@@ -34,37 +34,10 @@ _parse_date = _cpm_mod._parse_date
 _format_date = _cpm_mod._format_date
 _safe_float = _cpm_mod._safe_float
 
-
-# ---------------------------------------------------------------------------
-# SC milestone finder (same logic as cpm_engine / score_schedule)
-# ---------------------------------------------------------------------------
-
-def _find_sc_milestone(tasks):
-    """Find the Substantial Completion milestone."""
-    exc = {'TT_WBS', 'TT_LOE'}
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        name = t.get('task_name', '')
-        if 'Substantial Completion' in name and 'Turnover to Owner' in name:
-            if t.get('status_code', '') != 'TK_Complete':
-                return t
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_name', '').strip() == 'Substantial Completion':
-            if t.get('task_type', '') in ('TT_FinMile', 'TT_Mile'):
-                if t.get('status_code', '') != 'TK_Complete':
-                    return t
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_type', '') not in ('TT_FinMile', 'TT_Mile'):
-            continue
-        if 'Substantial Completion' in t.get('task_name', ''):
-            if t.get('status_code', '') != 'TK_Complete':
-                return t
-    return None
+from milestones import (  # noqa: E402
+    MilestoneAmbiguousError,
+    resolve_default_milestone,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -104,14 +77,23 @@ def _group_by_wbs(disconnected_tasks, wbs_lookup):
     return dict(groups)
 
 
-def analyze_sc_path_coverage(tasks, preds, wbs_rows=None):
+def analyze_sc_path_coverage(tasks, preds, wbs_rows=None, milestone_id=None):
     """
-    Identify which activities trace to Substantial Completion and which don't.
+    Identify which activities trace to the terminal milestone and which don't.
+
+    ``milestone_id`` identifies the project's terminal milestone (e.g. the
+    Substantial Completion finish marker). When omitted, the function
+    auto-resolves to the single terminal non-WBS / non-LOE / non-complete
+    milestone in the network; if multiple terminal milestones exist it
+    raises :class:`MilestoneAmbiguousError` so the caller can prompt the
+    user to pick one explicitly. Pass ``milestone_id`` directly to skip the
+    auto-resolution entirely.
 
     Args:
         tasks: List of task dicts from parsed XER
         preds: List of relationship dicts from parsed XER
         wbs_rows: Optional list of WBS row dicts for grouping
+        milestone_id: Optional explicit terminal milestone task_id
 
     Returns:
         {
@@ -133,7 +115,16 @@ def analyze_sc_path_coverage(tasks, preds, wbs_rows=None):
                   if t.get('status_code', '') != 'TK_Complete'
                   and t.get('task_type', '') not in exc_types]
 
-    sc_task = _find_sc_milestone(tasks)
+    if milestone_id is None:
+        milestone_id = resolve_default_milestone(tasks, preds)
+
+    sc_task = None
+    if milestone_id is not None:
+        for t in tasks:
+            if t.get('task_id', '') == milestone_id:
+                sc_task = t
+                break
+
     if not sc_task:
         return {
             'sc_task_id': None, 'sc_task_name': None, 'sc_task_code': None,
@@ -143,7 +134,7 @@ def analyze_sc_path_coverage(tasks, preds, wbs_rows=None):
             'disconnected_by_wbs': {},
             'coverage_pct': 0.0,
             'total_incomplete': len(incomplete),
-            'recommendations': ['No Substantial Completion milestone found. Add one and connect all work paths to it.'],
+            'recommendations': ['No terminal milestone found. Add a Substantial Completion milestone and connect all work paths to it.'],
         }
 
     sc_id = sc_task.get('task_id', '')
@@ -288,9 +279,19 @@ def _calendar_days_between(d1, d2):
     return (d2.date() - d1.date()).days if hasattr(d1, 'date') else (d2 - d1).days
 
 
-def compute_delay_impacts(tasks, preds, calendars, data_date, impact_activities=None):
+def compute_delay_impacts(tasks, preds, calendars, data_date,
+                          impact_activities=None, milestone_id=None):
     """
-    Float Path Delay Analysis — compute how delayed activities push SC.
+    Float Path Delay Analysis — compute how delayed activities push the
+    terminal milestone.
+
+    ``milestone_id`` identifies the project's terminal milestone (e.g. the
+    Substantial Completion finish marker). When omitted, the function
+    auto-resolves to the single terminal non-WBS / non-LOE / non-complete
+    milestone in the network; if multiple terminal milestones exist it
+    raises :class:`MilestoneAmbiguousError` so the caller can prompt the
+    user to pick one explicitly. Pass ``milestone_id`` directly to skip the
+    auto-resolution entirely.
 
     Args:
         tasks: List of task dicts from parsed XER
@@ -299,6 +300,7 @@ def compute_delay_impacts(tasks, preds, calendars, data_date, impact_activities=
         data_date: Data date string or datetime
         impact_activities: Optional list of task_ids to analyze.
                           If None, auto-detects IMPACT tasks.
+        milestone_id: Optional explicit terminal milestone task_id
 
     Returns:
         {
@@ -322,8 +324,20 @@ def compute_delay_impacts(tasks, preds, calendars, data_date, impact_activities=
     results, meta = schedule_forward_backward(tasks, preds, calendars, data_date)
     tasks_by_id = {t.get('task_id', ''): t for t in results}
 
-    sc_id = meta.get('sc_milestone_id')
-    sc_date = meta.get('sc_milestone_date', '')
+    if milestone_id is None:
+        milestone_id = resolve_default_milestone(tasks, preds)
+
+    if milestone_id is not None:
+        sc_id = milestone_id
+        sc_task = tasks_by_id.get(sc_id, {})
+        sc_name = sc_task.get('task_name', meta.get('sc_milestone_name', ''))
+        sc_code = sc_task.get('task_code', meta.get('sc_milestone_code', ''))
+        sc_date = _format_date(sc_task.get('_ef')) if sc_task.get('_ef') else meta.get('sc_milestone_date', '')
+    else:
+        sc_id = meta.get('sc_milestone_id')
+        sc_name = meta.get('sc_milestone_name', '')
+        sc_code = meta.get('sc_milestone_code', '')
+        sc_date = meta.get('sc_milestone_date', '')
 
     # Build succ map for path tracing
     succ_map = defaultdict(list)
@@ -371,8 +385,8 @@ def compute_delay_impacts(tasks, preds, calendars, data_date, impact_activities=
 
     return {
         'sc_task_id': sc_id,
-        'sc_task_name': meta.get('sc_milestone_name', ''),
-        'sc_task_code': meta.get('sc_milestone_code', ''),
+        'sc_task_name': sc_name,
+        'sc_task_code': sc_code,
         'baseline_sc_date': sc_date,
         'data_date': _format_date(data_date) if isinstance(data_date, datetime) else str(data_date),
         'impacts': impacts,
@@ -383,9 +397,18 @@ def compute_delay_impacts(tasks, preds, calendars, data_date, impact_activities=
 # Per-Activity Path Insight
 # ---------------------------------------------------------------------------
 
-def analyze_activity_paths(tasks, preds, calendars, data_date):
+def analyze_activity_paths(tasks, preds, calendars, data_date, milestone_id=None):
     """
-    For every activity, compute driving path to SC and path metrics.
+    For every activity, compute driving path to the terminal milestone and
+    path metrics.
+
+    ``milestone_id`` identifies the project's terminal milestone (e.g. the
+    Substantial Completion finish marker). When omitted, the function
+    auto-resolves to the single terminal non-WBS / non-LOE / non-complete
+    milestone in the network; if multiple terminal milestones exist it
+    raises :class:`MilestoneAmbiguousError` so the caller can prompt the
+    user to pick one explicitly. Pass ``milestone_id`` directly to skip the
+    auto-resolution entirely.
 
     Returns:
         {
@@ -408,7 +431,19 @@ def analyze_activity_paths(tasks, preds, calendars, data_date):
     results, meta = schedule_forward_backward(tasks, preds, calendars, data_date)
     tasks_by_id = {t.get('task_id', ''): t for t in results}
 
-    sc_id = meta.get('sc_milestone_id')
+    if milestone_id is None:
+        milestone_id = resolve_default_milestone(tasks, preds)
+
+    if milestone_id is not None:
+        sc_id = milestone_id
+        sc_task = tasks_by_id.get(sc_id, {})
+        sc_name = sc_task.get('task_name', meta.get('sc_milestone_name', ''))
+        sc_date_str = _format_date(sc_task.get('_ef')) if sc_task.get('_ef') else meta.get('sc_milestone_date', '')
+    else:
+        sc_id = meta.get('sc_milestone_id')
+        sc_name = meta.get('sc_milestone_name', '')
+        sc_date_str = meta.get('sc_milestone_date', '')
+
     connected_ids = _walk_predecessors(sc_id, preds) if sc_id else set()
 
     succ_map = defaultdict(list)
@@ -458,8 +493,8 @@ def analyze_activity_paths(tasks, preds, calendars, data_date):
 
     return {
         'sc_task_id': sc_id,
-        'sc_task_name': meta.get('sc_milestone_name', ''),
-        'sc_date': meta.get('sc_milestone_date', ''),
+        'sc_task_name': sc_name,
+        'sc_date': sc_date_str,
         'activities': activities,
         'critical_count': critical_count,
         'near_critical_count': near_critical_count,

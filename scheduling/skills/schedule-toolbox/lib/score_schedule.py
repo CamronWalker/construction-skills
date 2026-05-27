@@ -20,6 +20,12 @@ CLI:
 
 from collections import defaultdict, Counter
 
+from milestones import (
+    get_milestones,
+    MilestoneAmbiguousError,
+    resolve_default_milestone,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,39 +38,11 @@ def safe_float(val, default=0):
         return default
 
 
-def find_sc_milestone(tasks):
-    """Find the Substantial Completion milestone (incomplete, non-WBS/LOE)."""
-    exc = {'TT_WBS', 'TT_LOE'}
-
-    # Priority 1: "Substantial Completion & Turnover to Owner"
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        name = t.get('task_name', '')
-        if 'Substantial Completion' in name and 'Turnover to Owner' in name:
-            if t.get('status_code', '') != 'TK_Complete':
-                return t['task_id']
-
-    # Priority 2: Exact "Substantial Completion" milestone
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_name', '').strip() == 'Substantial Completion':
-            if t.get('task_type', '') in ('TT_FinMile', 'TT_Mile'):
-                if t.get('status_code', '') != 'TK_Complete':
-                    return t['task_id']
-
-    # Priority 3: Any milestone containing "Substantial Completion"
-    for t in tasks:
-        if t.get('task_type', '') in exc:
-            continue
-        if t.get('task_type', '') not in ('TT_FinMile', 'TT_Mile'):
-            continue
-        if 'Substantial Completion' in t.get('task_name', ''):
-            if t.get('status_code', '') != 'TK_Complete':
-                return t['task_id']
-
-    return None  # No SC milestone found — use full incomplete scope
+# ``_resolve_default_milestone`` was a thin wrapper around what is now
+# :func:`milestones.resolve_default_milestone`. We keep the old underscored
+# name as a private re-export so existing tests / call sites that imported
+# the private helper from this module keep working.
+_resolve_default_milestone = resolve_default_milestone
 
 
 def get_predecessor_scope(sc_task_id, preds):
@@ -110,12 +88,24 @@ def _task_label(t):
 # Main scoring function
 # ---------------------------------------------------------------------------
 
-def compute_quality_score(tasks, preds, data_date=None):
+def compute_quality_score(tasks, preds, data_date=None, milestone_id=None):
     """
     Compute schedule quality score and all metrics.
     Pass ALL tasks and ALL predecessors — filtering is handled internally.
+
+    ``milestone_id`` identifies the project's terminal milestone (e.g. the
+    Substantial Completion finish marker). When omitted, the function
+    auto-resolves to the single terminal non-WBS / non-LOE / non-complete
+    milestone in the network; if multiple terminal milestones exist it
+    raises :class:`MilestoneAmbiguousError` so the caller can prompt the
+    user to pick one explicitly. Pass ``milestone_id`` directly to skip the
+    auto-resolution entirely.
+
     Returns: (score, grade, scored_metrics, info_metrics, deductions, scope, details)
     """
+    if milestone_id is None:
+        milestone_id = resolve_default_milestone(tasks, preds)
+
     # --- SCOPE FILTERING ---
     # SmartPM checks all incomplete activities, NOT just SC-path predecessors.
     # SC scope filtering causes false-positive missing_logic hits and score mismatches.
@@ -413,8 +403,6 @@ def compute_quality_score(tasks, preds, data_date=None):
     score = round(max(0, score), 1)
     grade = get_grade(score)
 
-    sc_id = find_sc_milestone(tasks)
-
     scope_info = {
         'total_tasks': len(tasks),
         'complete': len([t for t in tasks if t.get('status_code') == 'TK_Complete']),
@@ -424,6 +412,7 @@ def compute_quality_score(tasks, preds, data_date=None):
         'total_relationships': n_rels,
         'sc_filtered': False,
         'neg_float_schedule': neg_float_schedule,
+        'milestone_id': milestone_id,
     }
 
     return score, grade, scored, info, deductions, scope_info, details
@@ -495,7 +484,12 @@ def end_finding(key, scored, info):
 
 
 def generate_quality_report(project_name, data_date, score, grade, scored, info, deductions, scope, details=None):
-    """Generate a Markdown schedule quality report."""
+    """Generate a Markdown schedule quality report.
+
+    The scored milestone is carried inside ``scope['milestone_id']`` from
+    :func:`compute_quality_score` — pass that scope dict through directly,
+    no separate argument needed.
+    """
     lines = []
     lines.append(f"# Schedule Quality Report — {project_name}")
     lines.append("")

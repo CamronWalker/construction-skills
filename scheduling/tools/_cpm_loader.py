@@ -3,7 +3,7 @@
 The CLI tools live alongside cpm_engine.py in the scheduling plugin tree, so
 the import path is deterministic. We avoid making cpm_engine a real package
 (it isn't structured as one) and use importlib to load it from its
-canonical references/ folder.
+canonical lib/ folder.
 """
 
 from pathlib import Path
@@ -12,7 +12,7 @@ import importlib.util
 
 _THIS = Path(__file__).resolve()
 _PLUGIN_ROOT = _THIS.parent.parent  # construction-skills/scheduling/
-_REF_DIR = _PLUGIN_ROOT / 'skills' / 'schedule-toolbox' / 'references'
+_REF_DIR = _PLUGIN_ROOT / 'skills' / 'schedule-toolbox' / 'lib'
 
 
 def load_cpm():

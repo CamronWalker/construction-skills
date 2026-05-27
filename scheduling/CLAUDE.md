@@ -103,7 +103,7 @@ If you genuinely need an orchestration file (e.g. a new shipping CLI that some f
 
 ### Cross-skill scripts: same rule, with Glob for path resolution
 
-The "drive existing scripts, don't wrap them" rule extends to scripts in **sibling skills** of the scheduling plugin. The week-over-week XER comparison helpers in `schedule-toolbox/references/` (`xer_compare.py`, `update_review.py`) are used by `schedule-update`'s `phases/report.md` and `phases/draft.md`.
+The "drive existing scripts, don't wrap them" rule extends to scripts in **sibling skills** of the scheduling plugin. The week-over-week XER comparison helpers in `schedule-toolbox/lib/` (`xer_compare.py`, `update_review.py`) are used by `schedule-update`'s `phases/report.md` and `phases/draft.md`.
 
 **Resolve the path with Glob, then drive the script as-is.** Never:
 - Hardcode `~/.claude/plugins/cache/...` (the version segment changes).

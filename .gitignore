@@ -6,6 +6,9 @@ src/
 *.xer
 *.XER
 
+# Test fixtures are committed -- they ARE the parser's regression contract.
+!scheduling/mcp-server/tests/fixtures/*.xer
+
 # Playwright test artifacts
 **/test-results/
 **/tests/results.json

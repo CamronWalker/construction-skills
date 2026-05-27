@@ -58,7 +58,7 @@ _score_module = None
 
 
 def _load_score_module():
-    """Lazy-load score_schedule from schedule-toolbox/references/."""
+    """Lazy-load score_schedule from schedule-toolbox/lib/."""
     global _score_module
     if _score_module is not None:
         return _score_module
