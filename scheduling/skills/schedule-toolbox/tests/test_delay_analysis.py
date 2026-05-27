@@ -163,6 +163,18 @@ class TestComputeChangeOrderDelay(unittest.TestCase):
         self.assertIsNotNone(c1000_row)
         self.assertEqual(c1000_row["attribution"], "change_event")
 
+    def test_breakdown_has_no_duplicate_task_codes(self):
+        """Each activity should appear at most once in breakdown -- multi-cause
+        activities are deduped via the priority order."""
+        result = compute_change_order_delay(
+            self.base_parsed, self.curr_parsed,
+            self.base_cpm, self.curr_cpm,
+            change_event_date="2026-06-01",
+        )
+        codes = [row["task_code"] for row in result["breakdown"]]
+        self.assertEqual(len(codes), len(set(codes)),
+                         f"Duplicate task_codes in breakdown: {codes}")
+
 
 class TestFindConcurrentDelayPairs(unittest.TestCase):
     """find_concurrent_delay_pairs surfaces simultaneously slipping

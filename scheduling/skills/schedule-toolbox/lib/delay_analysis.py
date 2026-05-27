@@ -375,12 +375,24 @@ def compute_change_order_delay(
         for r in baseline_parsed.get("TASK", []) if r.get("task_code")
     }
 
+    # Dedupe multi-cause activities via the same priority order used by
+    # compute_window_analysis (F3). Without this, an activity that lands
+    # in both e.g. duration_change and logic_change buckets in
+    # contributors_by_category would be double-counted in the breakdown.
+    priority = (
+        "scope_change", "calendar_change", "duration_change",
+        "logic_change", "operational_slip",
+    )
+    seen_codes: set = set()
     breakdown = []
     sum_change = 0
     sum_other = 0
-    for category, rows in attribution["contributors_by_category"].items():
-        for row in rows:
+    for category in priority:
+        for row in attribution["contributors_by_category"].get(category, []):
             code = row.get("task_code")
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
             base_row = base_by_code.get(code, {})
             baseline_finish = (base_row.get("early_end_date") or "")[:10]
             task_id = base_row.get("task_id")
