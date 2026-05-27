@@ -259,7 +259,72 @@ def compute_window_analysis(
         activities_responsible: [{task_id, task_code, task_name,
         slip_days, cause_category}, ...]}, ...]}``.
     """
-    raise NotImplementedError("compute_window_analysis is implemented in Task F3")
+    from cross_baseline import compute_gain_loss_attribution
+
+    attribution = compute_gain_loss_attribution(
+        baseline_parsed, current_parsed,
+        baseline_cpm, current_cpm,
+        milestone_id=milestone_id,
+    )
+
+    # Flatten the categorized contributors into a single lookup keyed by
+    # task_code -> cause_category. For multi-cause activities, pick the
+    # first category found in the priority order (a deliberate choice for
+    # window-analysis output; the per-category view lives in
+    # compute_gain_loss_attribution).
+    priority = (
+        "scope_change", "calendar_change", "duration_change",
+        "logic_change", "operational_slip",
+    )
+    cause_by_code: dict = {}
+    contribution_by_code: dict = {}
+    for category in priority:
+        for row in attribution["contributors_by_category"].get(category, []):
+            code = row.get("task_code")
+            if code and code not in cause_by_code:
+                cause_by_code[code] = category
+                contribution_by_code[code] = row.get("contribution_days", 0)
+
+    # Baseline-finish lookup for window membership.
+    base_by_code = {
+        r.get("task_code"): r
+        for r in baseline_parsed.get("TASK", []) if r.get("task_code")
+    }
+
+    out_windows = []
+    for w in windows:
+        start = w.get("start", "")
+        end = w.get("end", "")
+        activities = []
+        total_slip = 0
+        for code, cause in cause_by_code.items():
+            base_row = base_by_code.get(code, {})
+            baseline_finish = (base_row.get("early_end_date") or "")[:10]
+            if not baseline_finish:
+                continue
+            if start <= baseline_finish <= end:
+                slip = contribution_by_code.get(code, 0)
+                activities.append({
+                    "task_id": base_row.get("task_id", ""),
+                    "task_code": code,
+                    "task_name": base_row.get("task_name", ""),
+                    "slip_days": slip,
+                    "cause_category": cause,
+                })
+                total_slip += slip
+        activities.sort(key=lambda r: abs(r["slip_days"]), reverse=True)
+        out_windows.append({
+            "label": w.get("label", ""),
+            "start": start,
+            "end": end,
+            "slip_days": total_slip,
+            "activities_responsible": activities,
+        })
+
+    return {
+        "milestone_id": attribution["milestone_id"],
+        "windows": out_windows,
+    }
 
 
 def compute_change_order_delay(
@@ -273,6 +338,13 @@ def compute_change_order_delay(
 ) -> dict:
     """Owner-vs-contractor attribution from a change-directive date.
 
+    The change_event_date partitions the schedule: activities whose
+    baseline_finish was on or after the change_event_date AND that
+    appear in owner_activities (or that have a scope_change /
+    duration_change / logic_change reason post-event) are bucketed as
+    attributable to the change event. Everything else is bucketed as
+    other causes (or contractor-attributable).
+
     Args:
         baseline_parsed: parsed dict for the baseline XER.
         current_parsed:  parsed dict for the current XER.
@@ -280,7 +352,8 @@ def compute_change_order_delay(
         current_cpm:     same for the current.
         change_event_date: ISO ``YYYY-MM-DD`` partition date.
         owner_activities: Optional explicit list of task_ids the owner is
-            responsible for.
+            responsible for. When provided, these are treated as
+            change-event-attributable regardless of cause category.
         milestone_id:    Optional terminal milestone task_id.
 
     Returns:
@@ -288,7 +361,60 @@ def compute_change_order_delay(
         attributable_to_change_event, attributable_to_other_causes,
         breakdown: [{task_code, attribution, days, cause_category}, ...]}``.
     """
-    raise NotImplementedError("compute_change_order_delay is implemented in Task F4")
+    from cross_baseline import compute_gain_loss_attribution
+
+    owner_set = set(owner_activities or [])
+    attribution = compute_gain_loss_attribution(
+        baseline_parsed, current_parsed,
+        baseline_cpm, current_cpm,
+        milestone_id=milestone_id,
+    )
+
+    base_by_code = {
+        r.get("task_code"): r
+        for r in baseline_parsed.get("TASK", []) if r.get("task_code")
+    }
+
+    breakdown = []
+    sum_change = 0
+    sum_other = 0
+    for category, rows in attribution["contributors_by_category"].items():
+        for row in rows:
+            code = row.get("task_code")
+            base_row = base_by_code.get(code, {})
+            baseline_finish = (base_row.get("early_end_date") or "")[:10]
+            task_id = base_row.get("task_id")
+            days = row.get("contribution_days", 0)
+
+            # Attribution rules:
+            #  1. If task_id is in owner_activities -> change_event.
+            #  2. Else if scope_change AND baseline_finish >= event_date -> change_event.
+            #  3. Else -> other.
+            if task_id in owner_set:
+                attribution_kind = "change_event"
+            elif category == "scope_change" and baseline_finish >= change_event_date:
+                attribution_kind = "change_event"
+            else:
+                attribution_kind = "other"
+            breakdown.append({
+                "task_code": code,
+                "attribution": attribution_kind,
+                "days": days,
+                "cause_category": category,
+            })
+            if attribution_kind == "change_event":
+                sum_change += days
+            else:
+                sum_other += days
+
+    return {
+        "milestone_id": attribution["milestone_id"],
+        "change_event_date": change_event_date,
+        "total_slip_days": attribution["net_slip_days"],
+        "attributable_to_change_event": sum_change,
+        "attributable_to_other_causes": sum_other,
+        "breakdown": breakdown,
+    }
 
 
 def find_concurrent_delay_pairs(
@@ -313,8 +439,99 @@ def find_concurrent_delay_pairs(
         current_cpm:     same for the current.
         milestone_id:    Optional terminal milestone task_id.
 
+    Concurrent delays are a classic contractor defense in delay claims
+    -- if owner-attributable delay X happened simultaneously with
+    contractor-attributable delay Y, the contractor argues X doesn't
+    extend the project beyond what Y was already doing.
+
     Returns:
         ``{milestone_id, concurrent_pairs: [{activity_a, activity_b,
         shared_window: {start, end}, owner_a, owner_b}, ...]}``.
+        ``owner_a`` / ``owner_b`` default to ``"unknown"`` -- the caller
+        is responsible for layering owner attribution from
+        :func:`compute_change_order_delay` if needed.
     """
-    raise NotImplementedError("find_concurrent_delay_pairs is implemented in Task F5")
+    # Build the slip set (task_codes with nonzero ef_slip_days).
+    cmp_result = compare_xer_pair(
+        baseline_parsed, current_parsed, match_by="task_code",
+    )
+    slipping = [
+        row for row in cmp_result.get("date_slippage", [])
+        if row.get("ef_slip_days", 0) != 0
+    ]
+    if len(slipping) < 2:
+        return {
+            "milestone_id": milestone_id or baseline_cpm[1].get("sc_milestone_id"),
+            "concurrent_pairs": [],
+        }
+
+    # Build the transitive-predecessor closure on the BASELINE side.
+    closure = _transitive_pred_closure(baseline_parsed.get("TASKPRED", []))
+
+    base_by_code = {
+        r.get("task_code"): r
+        for r in baseline_parsed.get("TASK", []) if r.get("task_code")
+    }
+    pairs = []
+    n = len(slipping)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a_row = slipping[i]
+            b_row = slipping[j]
+            a_code = a_row.get("task_code")
+            b_code = b_row.get("task_code")
+            a_id = base_by_code.get(a_code, {}).get("task_id")
+            b_id = base_by_code.get(b_code, {}).get("task_id")
+            if a_id in closure.get(b_id, set()) or b_id in closure.get(a_id, set()):
+                continue  # one is a (transitive) pred of the other
+            if a_code not in base_by_code or b_code not in base_by_code:
+                continue
+            a_start = (base_by_code[a_code].get("early_start_date") or "")[:10]
+            a_end = (base_by_code[a_code].get("early_end_date") or "")[:10]
+            b_start = (base_by_code[b_code].get("early_start_date") or "")[:10]
+            b_end = (base_by_code[b_code].get("early_end_date") or "")[:10]
+            if not all((a_start, a_end, b_start, b_end)):
+                continue
+            shared_start = max(a_start, b_start)
+            shared_end = min(a_end, b_end)
+            if shared_start > shared_end:
+                continue  # windows don't overlap
+            pairs.append({
+                "activity_a": {
+                    "task_code": a_code,
+                    "task_name": a_row.get("task_name", ""),
+                    "slip_days": a_row.get("ef_slip_days", 0),
+                },
+                "activity_b": {
+                    "task_code": b_code,
+                    "task_name": b_row.get("task_name", ""),
+                    "slip_days": b_row.get("ef_slip_days", 0),
+                },
+                "shared_window": {"start": shared_start, "end": shared_end},
+                "owner_a": "unknown",
+                "owner_b": "unknown",
+            })
+
+    return {
+        "milestone_id": milestone_id or baseline_cpm[1].get("sc_milestone_id"),
+        "concurrent_pairs": pairs,
+    }
+
+
+def _transitive_pred_closure(preds: list) -> dict:
+    """Build ``{task_id: set(transitive_predecessor_task_ids)}``."""
+    direct: dict = {}
+    for r in preds:
+        direct.setdefault(r.get("task_id"), set()).add(r.get("pred_task_id"))
+    closure: dict = {}
+    for tid in direct:
+        stack = list(direct[tid])
+        seen = set()
+        while stack:
+            p = stack.pop()
+            if p in seen:
+                continue
+            seen.add(p)
+            stack.extend(direct.get(p, set()))
+        closure[tid] = seen
+    return closure
