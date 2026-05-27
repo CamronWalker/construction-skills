@@ -16,10 +16,11 @@ directly.
 * :func:`weekly_update_review` -- composes one ``compare_xer_pair`` call
   (reused for both activity_changes and milestone_slip slices), one
   ``expected_updates`` call (reused for both activities_to_start and
-  activities_to_finish slices), and a ``compute_quality_score`` call on
-  each side for a DCMA-delta. Plan-2 fields (``critical_path_changes``,
-  ``gain_loss_attribution``) are stubbed to ``None`` with a
-  ``pending_plan_2: True`` flag.
+  activities_to_finish slices), a ``compute_quality_score`` call on
+  each side for a DCMA-delta, and the two Tier 1 cross-baseline
+  analytics (``compute_critical_path_changes`` /
+  ``compute_gain_loss_attribution``). The ``match_by`` strategy is
+  exposed as a pass-through parameter.
 * :func:`proposal_schedule_health` -- composes ``compute_quality_score``
   (as ``score_summary``), ``check_missing_logic``, ``check_high_float``,
   and ``check_anchor_dates``. Anchor conflicts return ``None`` when no
@@ -112,18 +113,21 @@ class TestScoreSchedule(unittest.TestCase):
 
 class TestWeeklyUpdateReview(unittest.TestCase):
     """Composes ``compare_xer_pair`` + ``expected_updates`` +
-    ``compute_quality_score`` (both sides) and stubs the two Plan-2 fields."""
+    ``compute_quality_score`` (both sides) + the two Tier 1 cross-baseline
+    analytics. Exposes ``match_by`` as a pass-through to
+    ``compare_xer_pair``."""
 
     def setUp(self):
         self.cache = CpmCache()
 
     def test_returns_all_top_level_keys(self):
-        """All composition subkeys plus Plan-2 stubs are present."""
+        """All composition subkeys are present; ``pending_plan_2`` is gone."""
         result = omnibus.weekly_update_review_impl(
             baseline_xer_path=str(FIXTURE_V1),
             current_xer_path=str(FIXTURE_V2),
             milestone_id=None,
             future_date=None,
+            match_by="task_code",
             cache=self.cache,
         )
         for key in (
@@ -136,7 +140,6 @@ class TestWeeklyUpdateReview(unittest.TestCase):
             "dcma_delta",
             "critical_path_changes",
             "gain_loss_attribution",
-            "pending_plan_2",
         ):
             self.assertIn(key, result)
 
@@ -148,6 +151,7 @@ class TestWeeklyUpdateReview(unittest.TestCase):
             current_xer_path=str(FIXTURE_V2),
             milestone_id=None,
             future_date=None,
+            match_by="task_code",
             cache=self.cache,
         )
         slip = result["milestone_slip"]
@@ -164,6 +168,7 @@ class TestWeeklyUpdateReview(unittest.TestCase):
             current_xer_path=str(FIXTURE_V2),
             milestone_id=None,
             future_date=None,
+            match_by="task_code",
             cache=self.cache,
         )
         changes = result["activity_changes"]
@@ -176,19 +181,67 @@ class TestWeeklyUpdateReview(unittest.TestCase):
             self.assertIn(key, changes)
             self.assertEqual(changes[key], [])
 
-    def test_plan_2_stubs_present(self):
-        """Plan-2 fields are explicitly stubbed: critical_path_changes and
-        gain_loss_attribution are None, pending_plan_2 is True."""
+    def test_critical_path_changes_populated(self):
+        """Plan 2 wires ``compute_critical_path_changes``; previously a
+        ``None`` stub gated by ``pending_plan_2: True``."""
         result = omnibus.weekly_update_review_impl(
             baseline_xer_path=str(FIXTURE_V1),
             current_xer_path=str(FIXTURE_V2),
             milestone_id=None,
             future_date=None,
+            match_by="task_code",
             cache=self.cache,
         )
-        self.assertIsNone(result["critical_path_changes"])
-        self.assertIsNone(result["gain_loss_attribution"])
-        self.assertTrue(result["pending_plan_2"])
+        self.assertIsNotNone(result["critical_path_changes"])
+        self.assertIn("baseline_cp", result["critical_path_changes"])
+        self.assertIn("current_cp", result["critical_path_changes"])
+
+    def test_gain_loss_attribution_populated(self):
+        """Plan 2 wires ``compute_gain_loss_attribution``; previously a
+        ``None`` stub gated by ``pending_plan_2: True``."""
+        result = omnibus.weekly_update_review_impl(
+            baseline_xer_path=str(FIXTURE_V1),
+            current_xer_path=str(FIXTURE_V2),
+            milestone_id=None,
+            future_date=None,
+            match_by="task_code",
+            cache=self.cache,
+        )
+        self.assertIsNotNone(result["gain_loss_attribution"])
+        self.assertIn(
+            "contributors_by_category", result["gain_loss_attribution"]
+        )
+
+    def test_pending_plan_2_flag_removed(self):
+        """The ``pending_plan_2`` gate flag is gone from the return dict
+        now that the two Tier 1 subkeys are wired."""
+        result = omnibus.weekly_update_review_impl(
+            baseline_xer_path=str(FIXTURE_V1),
+            current_xer_path=str(FIXTURE_V2),
+            milestone_id=None,
+            future_date=None,
+            match_by="task_code",
+            cache=self.cache,
+        )
+        self.assertNotIn("pending_plan_2", result)
+
+    def test_match_by_parameter_plumbs_through(self):
+        """``match_by`` was hard-coded to ``"task_code"`` in Plan 1; Plan 2
+        exposes it. Pass ``match_by="task_id"`` and verify the call still
+        succeeds and produces sensible output -- the minimal fixtures share
+        task_ids across versions so activity-set diffs stay empty while
+        the milestone slip is still detected."""
+        result = omnibus.weekly_update_review_impl(
+            baseline_xer_path=str(FIXTURE_V1),
+            current_xer_path=str(FIXTURE_V2),
+            milestone_id=None,
+            future_date=None,
+            match_by="task_id",
+            cache=self.cache,
+        )
+        self.assertEqual(result["activity_changes"]["added_tasks"], [])
+        self.assertEqual(result["activity_changes"]["removed_tasks"], [])
+        self.assertGreater(abs(result["milestone_slip"]["sc_slip_days"]), 0)
 
     def test_dcma_delta_shape(self):
         """``dcma_delta`` is either a dict with the 5 expected keys OR None
@@ -199,6 +252,7 @@ class TestWeeklyUpdateReview(unittest.TestCase):
             current_xer_path=str(FIXTURE_V2),
             milestone_id=None,
             future_date=None,
+            match_by="task_code",
             cache=self.cache,
         )
         dd = result["dcma_delta"]
@@ -224,6 +278,7 @@ class TestWeeklyUpdateReview(unittest.TestCase):
             current_xer_path=str(FIXTURE_V2),
             milestone_id=None,
             future_date=None,
+            match_by="task_code",
             cache=self.cache,
         )
         self.assertIsInstance(result["activities_to_start"], list)
@@ -236,6 +291,7 @@ class TestWeeklyUpdateReview(unittest.TestCase):
             current_xer_path=str(FIXTURE_V2),
             milestone_id=None,
             future_date=None,
+            match_by="task_code",
             cache=self.cache,
         )
         self.assertEqual(result["baseline_xer_path"], str(FIXTURE_V1))

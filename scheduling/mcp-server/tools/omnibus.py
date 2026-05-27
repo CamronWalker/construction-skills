@@ -11,11 +11,11 @@ independent:
 * :func:`weekly_update_review` -- composes one ``compare_xer_pair`` call
   (reused for both activity_changes and milestone_slip slices), one
   ``expected_updates`` call (reused for both activities_to_start and
-  activities_to_finish slices), and a ``compute_quality_score`` on each side
-  for a DCMA-style score delta. Plan-2 tools
-  (``get_critical_path_changes`` / ``get_gain_loss_attribution``) ship in
-  Plan 2; this output stubs those subkeys with ``None`` and sets
-  ``pending_plan_2: True`` so callers can branch on it.
+  activities_to_finish slices), a ``compute_quality_score`` on each side
+  for a DCMA-style score delta, and the two Tier 1 cross-baseline
+  analytics (``compute_critical_path_changes`` and
+  ``compute_gain_loss_attribution``). The Plan-2 tools ship as of 8.0.0;
+  this omnibus wires them through.
 * :func:`proposal_schedule_health` -- composes ``compute_quality_score``,
   ``check_missing_logic``, ``check_high_float``, and ``check_anchor_dates``
   into one health snapshot focused on proposal-schedule fitness.
@@ -51,6 +51,10 @@ if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
 from cpm_engine import check_anchor_dates  # noqa: E402
+from cross_baseline import (  # noqa: E402
+    compute_critical_path_changes,
+    compute_gain_loss_attribution,
+)
 from milestones import MilestoneAmbiguousError  # noqa: E402
 from quality_checks import check_high_float, check_missing_logic  # noqa: E402
 from score_schedule import compute_quality_score  # noqa: E402
@@ -138,6 +142,7 @@ def weekly_update_review_impl(
     current_xer_path: str,
     milestone_id: Optional[str],
     future_date: Optional[str],
+    match_by: str,
     cache,
 ) -> dict:
     """Bundle every "what changed week over week?" question into one call.
@@ -151,29 +156,41 @@ def weekly_update_review_impl(
     ``MilestoneAmbiguousError``, the delta is dropped (set to ``None``)
     rather than failing the whole review.
 
-    Plan-2 tools (critical-path-changes, gain/loss attribution) ship later;
-    those subkeys are stubbed with ``None`` and a ``pending_plan_2: True``
-    flag so callers can branch on availability without checking individual
-    fields.
+    Calls the Tier 1 cross-baseline analytics
+    (``compute_critical_path_changes`` and
+    ``compute_gain_loss_attribution``) and surfaces them as
+    ``critical_path_changes`` and ``gain_loss_attribution``. Both calls
+    are wrapped in ``try/except MilestoneAmbiguousError`` so that a
+    multi-terminal schedule without an explicit ``milestone_id`` degrades
+    each field to ``None`` rather than failing the whole review (matches
+    the DCMA-delta degrade pattern).
 
     Args:
         baseline_xer_path: Path to the older / baseline .xer file.
         current_xer_path: Path to the newer / current .xer file.
         milestone_id: Optional terminal-milestone task_id; passed through
-            to both ``compare_xer_pair`` and the two
-            ``compute_quality_score`` calls.
+            to ``compare_xer_pair``, the two ``compute_quality_score``
+            calls, and both Tier 1 analytics calls.
         future_date: Optional ISO ``YYYY-MM-DD`` upper bound for the
             ``activities_to_start`` / ``activities_to_finish`` windows.
             When ``None`` a far-future sentinel (2099-12-31) is used so
             every candidate activity surfaces.
+        match_by: Activity-match strategy passed through to
+            ``compare_xer_pair`` -- either ``"task_code"`` (default) or
+            ``"task_id"``. Same semantics as the underlying lib.
     """
     baseline_parsed = cache.get_parsed(baseline_xer_path)
     current_parsed = cache.get_parsed(current_xer_path)
 
+    # Run compare_xer_pair and expected_updates BEFORE get_cpm. The CPM pass
+    # mutates the parsed TASK dicts in place (overwrites early_start_date /
+    # early_end_date with computed values), so anything that needs the
+    # as-imported dates -- which includes the sc_date_old / sc_date_new
+    # milestone-slip projection -- must observe the parsed dict pre-CPM.
     # One compare_xer_pair call, two projections.
     compare_result = compare_xer_pair(
         baseline_parsed, current_parsed,
-        match_by="task_code", milestone_id=milestone_id,
+        match_by=match_by, milestone_id=milestone_id,
     )
     activity_changes = {
         "added_tasks": compare_result["added_tasks"],
@@ -195,10 +212,35 @@ def weekly_update_review_impl(
     activities_to_start = updates["to_start"]
     activities_to_finish = updates["to_finish"]
 
+    # CPM runs after the as-imported reads above. Both Tier 1 calls and the
+    # DCMA delta consume the CPM-computed state.
+    baseline_cpm = cache.get_cpm(baseline_xer_path)
+    current_cpm = cache.get_cpm(current_xer_path)
+
     # DCMA-style score delta across both schedules.
     dcma_delta = _compute_dcma_delta(
         baseline_parsed, current_parsed, milestone_id
     )
+
+    # Tier 1 lib calls -- catch MilestoneAmbiguousError so the omnibus
+    # degrades gracefully on multi-terminal schedules without an explicit
+    # milestone_id (matches the DCMA-delta degrade pattern).
+    try:
+        critical_path_changes = compute_critical_path_changes(
+            baseline_parsed, current_parsed,
+            baseline_cpm, current_cpm,
+            milestone_id=milestone_id,
+        )
+    except MilestoneAmbiguousError:
+        critical_path_changes = None
+    try:
+        gain_loss_attribution = compute_gain_loss_attribution(
+            baseline_parsed, current_parsed,
+            baseline_cpm, current_cpm,
+            milestone_id=milestone_id,
+        )
+    except MilestoneAmbiguousError:
+        gain_loss_attribution = None
 
     return {
         "baseline_xer_path": baseline_xer_path,
@@ -208,10 +250,8 @@ def weekly_update_review_impl(
         "activities_to_start": activities_to_start,
         "activities_to_finish": activities_to_finish,
         "dcma_delta": dcma_delta,
-        # Plan-2 stubs -- filled in by a later batch.
-        "critical_path_changes": None,
-        "gain_loss_attribution": None,
-        "pending_plan_2": True,
+        "critical_path_changes": critical_path_changes,
+        "gain_loss_attribution": gain_loss_attribution,
     }
 
 
@@ -346,6 +386,7 @@ def register(mcp, cache):
         current_xer_path: str,
         milestone_id: Optional[str] = None,
         future_date: Optional[str] = None,
+        match_by: str = "task_code",
     ) -> dict:
         """Bundled "what changed week over week?" snapshot.
 
@@ -361,29 +402,39 @@ def register(mcp, cache):
         * ``dcma_delta`` -- ``compute_quality_score`` score + grade on
           each side with the delta, or ``None`` when a side raises
           ``MilestoneAmbiguousError``.
-        * ``critical_path_changes`` / ``gain_loss_attribution`` --
-          stubbed ``None`` with ``pending_plan_2: True``; these arrive in
-          a later batch.
+        * ``critical_path_changes`` -- diff of activities on the critical
+          path baseline -> current (from ``compute_critical_path_changes``).
+          ``None`` when a multi-terminal schedule raises
+          ``MilestoneAmbiguousError`` and no ``milestone_id`` was given.
+        * ``gain_loss_attribution`` -- SC-slip contributors categorized by
+          cause (from ``compute_gain_loss_attribution``). Same
+          ``MilestoneAmbiguousError`` degrade-to-``None`` behavior.
 
         Args:
             baseline_xer_path: Path to the older / baseline .xer file.
             current_xer_path: Path to the newer / current .xer file.
             milestone_id: Optional terminal-milestone task_id. Passed
-                through to both ``compare_xer_pair`` and the two DCMA
-                ``compute_quality_score`` calls.
+                through to ``compare_xer_pair``, the two DCMA
+                ``compute_quality_score`` calls, and both Tier 1
+                analytics calls.
             future_date: Optional ISO ``YYYY-MM-DD`` upper bound for the
                 activities-to-start / activities-to-finish windows.
                 Defaults to a far-future sentinel so every candidate
                 activity surfaces.
+            match_by: Activity-match strategy passed through to
+                ``compare_xer_pair`` -- either ``"task_code"`` (default,
+                survives task_id renumbering between exports) or
+                ``"task_id"``.
 
         Returns:
             ``{ baseline_xer_path, current_xer_path, activity_changes,
             milestone_slip, activities_to_start, activities_to_finish,
-            dcma_delta, critical_path_changes, gain_loss_attribution,
-            pending_plan_2 }``. See module docstring for sub-dict shapes.
+            dcma_delta, critical_path_changes, gain_loss_attribution }``.
+            See module docstring for sub-dict shapes.
         """
         return weekly_update_review_impl(
-            baseline_xer_path, current_xer_path, milestone_id, future_date, cache
+            baseline_xer_path, current_xer_path,
+            milestone_id, future_date, match_by, cache,
         )
 
     @mcp.tool()
