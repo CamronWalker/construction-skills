@@ -689,9 +689,15 @@ def _operational_slip_entry(base_t: dict, curr_t: dict,
 
 
 def _date_delta_days(base_date_str: str, curr_date_str: str) -> int:
-    """Return signed calendar-day delta between two date strings.
-    Accepts ``%Y-%m-%d %H:%M`` or ``%Y-%m-%d``. Returns 0 when either
-    side is empty or unparseable."""
+    """Return signed calendar-day delta between two date strings, rounded
+    to the nearest whole day. Accepts ``%Y-%m-%d %H:%M`` or ``%Y-%m-%d``.
+    Returns 0 when either side is empty or unparseable.
+
+    Rounding (not truncation) because CPM-computed timestamps embed
+    working-hour-of-day (e.g. baseline SC 15:00, projected SC 10:00 on
+    a 7-day gap would truncate to 6 days). The "calendar days" a delay
+    consultant means is the rounded value.
+    """
     from datetime import datetime
     def _parse(s: str):
         if not s:
@@ -706,7 +712,7 @@ def _date_delta_days(base_date_str: str, curr_date_str: str) -> int:
     b = _parse(curr_date_str)
     if a is None or b is None:
         return 0
-    return (b - a).days
+    return int(round((b - a).total_seconds() / 86400))
 
 
 def _seed_paragraph(net_slip_days: int, buckets: dict,

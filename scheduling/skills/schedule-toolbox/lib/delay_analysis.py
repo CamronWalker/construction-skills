@@ -166,15 +166,7 @@ def compute_tia(
 
     baseline_sc = base_metadata.get("sc_milestone_date", "")
     projected_sc = new_metadata.get("sc_milestone_date", "")
-    # Use rounded calendar-day delta. CPM produces timestamps with
-    # times-of-day that drift when working-hour boundaries shift (e.g.
-    # baseline ends 15:00 vs projected 10:00 after a fragnet pushes the
-    # next activity onto a new workweek start); truncating the
-    # fractional-day delta via ``_date_delta_days`` undercounts the
-    # actual calendar-day shift by 1. Rounding to the nearest day
-    # reflects the physical SC slip the way a delay consultant would
-    # count it.
-    net_delay_days = _rounded_date_delta_days(baseline_sc, projected_sc)
+    net_delay_days = _date_delta_days(baseline_sc, projected_sc)
 
     base_paths = extract_paths(
         base_results, base_metadata, baseline_parsed.get("TASKPRED", []),
@@ -202,7 +194,7 @@ def compute_tia(
         new_row = new_by_id.get(tid)
         if new_row is None:
             continue
-        delta = _rounded_date_delta_days(
+        delta = _date_delta_days(
             old_row.get("early_end_date", ""),
             new_row.get("early_end_date", ""),
         )
@@ -236,40 +228,6 @@ def _next_unused_id(existing: set, prefix: str) -> str:
         if candidate not in existing:
             return candidate
         i += 1
-
-
-def _rounded_date_delta_days(base_date_str: str, curr_date_str: str) -> int:
-    """Return rounded calendar-day delta between two date strings.
-
-    Unlike :func:`cross_baseline._date_delta_days`, which truncates via
-    ``timedelta.days``, this rounds to the nearest whole day. CPM
-    timestamps embed the calendar's hour-of-day; when a fragnet pushes a
-    successor to a new workweek start (e.g. baseline ends 15:00, projected
-    ends 10:00 of the following Wednesday) the truncated delta undercounts
-    the physical calendar-day shift by 1. Rounding gives the consultant's
-    intuitive answer.
-
-    Accepts ``%Y-%m-%d %H:%M`` or ``%Y-%m-%d``. Returns 0 when either side
-    is empty or unparseable.
-    """
-    from datetime import datetime
-
-    def _parse(s: str):
-        if not s:
-            return None
-        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
-            try:
-                return datetime.strptime(s.strip(), fmt)
-            except ValueError:
-                continue
-        return None
-
-    a = _parse(base_date_str)
-    b = _parse(curr_date_str)
-    if a is None or b is None:
-        return 0
-    seconds = (b - a).total_seconds()
-    return int(round(seconds / 86400))
 
 
 def compute_window_analysis(
