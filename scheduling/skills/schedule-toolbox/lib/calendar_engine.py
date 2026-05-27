@@ -40,9 +40,17 @@ def _parse_time(time_str):
     return int(h) * 60 + int(m)
 
 
-def _minutes_to_time(minutes):
-    """Convert minutes from midnight to time object."""
-    return time(minutes // 60, minutes % 60)
+def _combine_date_minutes(d, minutes):
+    """Combine a date with minutes-from-midnight into a datetime.
+
+    Handles the P6 24-hour convention where end-of-day is stored as 24:00
+    (1440 minutes) — the rcal_24Hour lag-calendar option triggers this.
+    Python's time(hour=0..23) can't represent 24:00, so we roll any minutes
+    value of 1440 or more into the equivalent next-day instant via
+    timedelta. Matches P6's own treatment: a work period ending at 24:00
+    is the same instant as the next day's 00:00.
+    """
+    return datetime.combine(d, time(0)) + timedelta(minutes=int(minutes))
 
 
 def _extract_work_periods(text):
@@ -321,14 +329,14 @@ def next_work_start(dt, cal):
     periods = _get_work_periods(current_date, cal)
     for start, end in periods:
         if current_minutes <= start:
-            return datetime.combine(current_date, _minutes_to_time(start))
+            return _combine_date_minutes(current_date, start)
 
     # Advance to next working day
     for offset in range(1, 1000):  # Safety limit
         next_date = current_date + timedelta(days=offset)
         periods = _get_work_periods(next_date, cal)
         if periods:
-            return datetime.combine(next_date, _minutes_to_time(periods[0][0]))
+            return _combine_date_minutes(next_date, periods[0][0])
 
     # Fallback — should never reach here with a valid calendar
     return dt
@@ -351,14 +359,14 @@ def snap_to_work_time(dt, cal):
         if start <= current_minutes < end:
             return dt  # Already within a work period
         if current_minutes < start:
-            return datetime.combine(current_date, _minutes_to_time(start))
+            return _combine_date_minutes(current_date, start)
 
     # After all periods or non-working day — advance to next working day
     for offset in range(1, 1000):
         next_date = current_date + timedelta(days=offset)
         periods = _get_work_periods(next_date, cal)
         if periods:
-            return datetime.combine(next_date, _minutes_to_time(periods[0][0]))
+            return _combine_date_minutes(next_date, periods[0][0])
 
     return dt
 
@@ -376,7 +384,7 @@ def prev_work_end(dt, cal):
     periods = _get_work_periods(current_date, cal)
     for start, end in reversed(periods):
         if current_minutes >= end:
-            return datetime.combine(current_date, _minutes_to_time(end))
+            return _combine_date_minutes(current_date, end)
 
     # Go to previous working day
     for offset in range(1, 1000):
@@ -384,7 +392,7 @@ def prev_work_end(dt, cal):
         periods = _get_work_periods(prev_date, cal)
         if periods:
             last_end = periods[-1][1]
-            return datetime.combine(prev_date, _minutes_to_time(last_end))
+            return _combine_date_minutes(prev_date, last_end)
 
     return dt
 
@@ -432,7 +440,7 @@ def add_work_hours(start, hours, cal):
                 available = p_end - current_min
                 if remaining_minutes <= available:
                     result_min = current_min + remaining_minutes
-                    return datetime.combine(current_date, _minutes_to_time(int(result_min)))
+                    return _combine_date_minutes(current_date, int(result_min))
                 remaining_minutes -= available
                 current_min = p_end
             elif current_min < p_start and started:
@@ -441,7 +449,7 @@ def add_work_hours(start, hours, cal):
                 available = p_end - p_start
                 if remaining_minutes <= available:
                     result_min = p_start + remaining_minutes
-                    return datetime.combine(current_date, _minutes_to_time(int(result_min)))
+                    return _combine_date_minutes(current_date, int(result_min))
                 remaining_minutes -= available
                 current_min = p_end
 
@@ -455,7 +463,7 @@ def add_work_hours(start, hours, cal):
             available = p_end - p_start
             if remaining_minutes <= available:
                 result_min = p_start + remaining_minutes
-                return datetime.combine(next_date, _minutes_to_time(int(result_min)))
+                return _combine_date_minutes(next_date, int(result_min))
             remaining_minutes -= available
 
     # Should never reach here
@@ -496,7 +504,7 @@ def subtract_work_hours(end, hours, cal):
                 available = current_min - p_start
                 if remaining_minutes <= available:
                     result_min = current_min - remaining_minutes
-                    return datetime.combine(current_date, _minutes_to_time(int(result_min)))
+                    return _combine_date_minutes(current_date, int(result_min))
                 remaining_minutes -= available
                 current_min = p_start
             elif current_min > p_start:
@@ -513,7 +521,7 @@ def subtract_work_hours(end, hours, cal):
             available = p_end - p_start
             if remaining_minutes <= available:
                 result_min = p_end - remaining_minutes
-                return datetime.combine(prev_date, _minutes_to_time(int(result_min)))
+                return _combine_date_minutes(prev_date, int(result_min))
             remaining_minutes -= available
 
     return end - timedelta(hours=hours)
