@@ -11,6 +11,7 @@ from cache import CpmCache  # noqa: E402
 from tools import (  # noqa: E402
     compare,
     cpm_path,
+    delay_analysis,
     omnibus,
     quality,
     structure,
@@ -32,6 +33,7 @@ def ping() -> dict:
 structure.register(mcp, _cache)
 cpm_path.register(mcp, _cache)
 update_analytics.register(mcp, _cache)
+delay_analysis.register(mcp, _cache)
 quality.register(mcp, _cache)
 update_review.register(mcp, _cache)
 compare.register(mcp, _cache)
