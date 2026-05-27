@@ -31,6 +31,41 @@ work_hours_between = _cal_mod.work_hours_between
 next_work_start = _cal_mod.next_work_start
 prev_work_end = _cal_mod.prev_work_end
 snap_to_work_time = _cal_mod.snap_to_work_time
+_get_work_periods = _cal_mod._get_work_periods
+
+
+def _maybe_snap_to_period_end(dt, cal):
+    """If ``dt`` lands exactly at the start of a work period in ``cal``,
+    snap backward to the end of the previous work period. Otherwise
+    return ``dt`` unchanged.
+
+    Used for FS constraints where pred.LF = succ.LS. The two datetimes
+    are the same instant in work-calendar terms, but P6 reports the
+    predecessor's LF as the previous period's close (e.g., Fri 17:00
+    instead of Mon 08:00). When the inherited time is mid-period — i.e.
+    a non-boundary like 09:00 from some upstream constraint — P6 keeps
+    it as-is, so we must not snap.
+    """
+    periods = _get_work_periods(dt.date(), cal)
+    current_minutes = dt.hour * 60 + dt.minute
+    for p_start, _ in periods:
+        if current_minutes == p_start:
+            return prev_work_end(dt, cal)
+    return dt
+
+
+def _maybe_snap_to_period_start(dt, cal):
+    """If ``dt`` lands exactly at the end of a work period, snap forward
+    to the start of the next work period. Mirror of
+    ``_maybe_snap_to_period_end`` for SF constraints where pred.LS =
+    succ.LF.
+    """
+    periods = _get_work_periods(dt.date(), cal)
+    current_minutes = dt.hour * 60 + dt.minute
+    for _, p_end in periods:
+        if current_minutes == p_end:
+            return next_work_start(dt, cal)
+    return dt
 _default_calendar = _cal_mod._default_calendar
 
 # Milestone resolver — try regular import first (when lib/ is on sys.path
@@ -635,18 +670,20 @@ def _relationship_constraint_backward(succ_task, rel, pred_cal, lag_cal=None):
     if succ_ls is None or succ_lf is None:
         return None
 
-    # P6 representation convention: LS/ES land on a period's start;
-    # LF/EF land on a period's end. When a constraint flows from
-    # succ.LS → pred.LF (FS) or succ.LF → pred.LS (SF), the moment in
-    # calendar time is the same but the representation differs by a
-    # work-period boundary. Snap to the predecessor-side convention IN
-    # THE PREDECESSOR'S CALENDAR — using lag_c here would snap against
-    # the 24-hour lag calendar and produce 24:00/next-day-00:00 instead
-    # of the predecessor's actual close-of-business.
+    # P6 representation convention: LS/ES at period-start; LF/EF at
+    # period-end. When succ.LS → pred.LF (FS), or succ.LF → pred.LS (SF),
+    # the moment is the same but the representation differs by one
+    # work-period boundary IF AND ONLY IF the inherited time lands on a
+    # boundary (e.g., 08:00 = period start, 17:00 = period end). When
+    # the inherited time is mid-period (e.g., an upstream constraint
+    # leaves succ.LS at 09:00 instead of 08:00), P6 propagates that
+    # time-of-day unchanged — so we conditionally snap, only at exact
+    # boundaries, using the predecessor's calendar (not the lag
+    # calendar, which under rcal_24Hour would snap to 24:00).
     if _is_fs(pred_type):
         # Pred LF <= Succ LS - lag
         dt = subtract_work_hours(succ_ls, lag_hours, lag_c) if lag_hours else succ_ls
-        return ('lf', prev_work_end(dt, pred_cal))
+        return ('lf', _maybe_snap_to_period_end(dt, pred_cal))
     elif _is_ss(pred_type):
         # Pred LS <= Succ LS - lag
         dt = subtract_work_hours(succ_ls, lag_hours, lag_c) if lag_hours else succ_ls
@@ -658,7 +695,7 @@ def _relationship_constraint_backward(succ_task, rel, pred_cal, lag_cal=None):
     elif _is_sf(pred_type):
         # Pred LS <= Succ LF - lag
         dt = subtract_work_hours(succ_lf, lag_hours, lag_c) if lag_hours else succ_lf
-        return ('ls', next_work_start(dt, pred_cal))
+        return ('ls', _maybe_snap_to_period_start(dt, pred_cal))
     return None
 
 
