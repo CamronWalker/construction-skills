@@ -17,7 +17,8 @@ sys.path.insert(0, str(SERVER_DIR))
 from cache import CpmCache  # noqa: E402
 from tools import cpm_path  # noqa: E402
 
-FIXTURE = Path(__file__).parent / "fixtures" / "minimal.xer"
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURE = FIXTURES_DIR / "minimal.xer"
 
 
 class TestGetCriticalPath(unittest.TestCase):
@@ -543,6 +544,41 @@ class TestGetNearCriticalChains(unittest.TestCase):
             str(FIXTURE), tolerance_days=2, cache=self.cache
         )
         self.assertIn("near_critical", result)
+
+
+class TestMilestoneAmbiguous(unittest.TestCase):
+    """multi_terminal.xer has two TT_FinMile activities with no
+    successors. Tools that auto-resolve the terminal milestone should
+    raise MilestoneAmbiguousError carrying both candidates when
+    milestone_id is omitted."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cache = CpmCache()
+        cls.fixture = str(FIXTURES_DIR / "multi_terminal.xer")
+
+    def test_get_milestone_path_coverage_raises_with_candidates(self):
+        from milestones import MilestoneAmbiguousError
+        with self.assertRaises(MilestoneAmbiguousError) as ctx:
+            cpm_path.get_milestone_path_coverage_impl(
+                self.fixture, milestone_id=None, cache=self.cache,
+            )
+        self.assertGreaterEqual(len(ctx.exception.candidates), 2)
+
+    def test_get_delay_impacts_raises_with_candidates(self):
+        from milestones import MilestoneAmbiguousError
+        with self.assertRaises(MilestoneAmbiguousError):
+            cpm_path.get_delay_impacts_impl(
+                self.fixture, impact_activities=None, milestone_id=None,
+                cache=self.cache,
+            )
+
+    def test_explicit_milestone_id_succeeds(self):
+        # Pass an explicit terminal milestone -- no error.
+        result = cpm_path.get_milestone_path_coverage_impl(
+            self.fixture, milestone_id="20002", cache=self.cache,
+        )
+        self.assertIn("sc_task_id", result)
 
 
 if __name__ == "__main__":
