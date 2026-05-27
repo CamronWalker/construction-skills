@@ -29,7 +29,43 @@ add_work_hours = _cal_mod.add_work_hours
 subtract_work_hours = _cal_mod.subtract_work_hours
 work_hours_between = _cal_mod.work_hours_between
 next_work_start = _cal_mod.next_work_start
+prev_work_end = _cal_mod.prev_work_end
 snap_to_work_time = _cal_mod.snap_to_work_time
+_get_work_periods = _cal_mod._get_work_periods
+
+
+def _maybe_snap_to_period_end(dt, cal):
+    """If ``dt`` lands exactly at the start of a work period in ``cal``,
+    snap backward to the end of the previous work period. Otherwise
+    return ``dt`` unchanged.
+
+    Used for FS constraints where pred.LF = succ.LS. The two datetimes
+    are the same instant in work-calendar terms, but P6 reports the
+    predecessor's LF as the previous period's close (e.g., Fri 17:00
+    instead of Mon 08:00). When the inherited time is mid-period — i.e.
+    a non-boundary like 09:00 from some upstream constraint — P6 keeps
+    it as-is, so we must not snap.
+    """
+    periods = _get_work_periods(dt.date(), cal)
+    current_minutes = dt.hour * 60 + dt.minute
+    for p_start, _ in periods:
+        if current_minutes == p_start:
+            return prev_work_end(dt, cal)
+    return dt
+
+
+def _maybe_snap_to_period_start(dt, cal):
+    """If ``dt`` lands exactly at the end of a work period, snap forward
+    to the start of the next work period. Mirror of
+    ``_maybe_snap_to_period_end`` for SF constraints where pred.LS =
+    succ.LF.
+    """
+    periods = _get_work_periods(dt.date(), cal)
+    current_minutes = dt.hour * 60 + dt.minute
+    for _, p_end in periods:
+        if current_minutes == p_end:
+            return next_work_start(dt, cal)
+    return dt
 _default_calendar = _cal_mod._default_calendar
 
 # Milestone resolver — try regular import first (when lib/ is on sys.path
@@ -610,15 +646,23 @@ def _relationship_contribution_forward(pred_task, rel, succ_cal, lag_cal=None):
     return None
 
 
-def _relationship_constraint_backward(succ_task, rel, succ_cal, lag_cal=None):
+def _relationship_constraint_backward(succ_task, rel, pred_cal, lag_cal=None):
     """
     Compute what a successor relationship constrains on the predecessor.
+
+    Args:
+        succ_task: the successor task (already-computed _ls/_lf)
+        rel: relationship dict
+        pred_cal: the PREDECESSOR's parsed calendar — used for the period
+                  boundary snap (P6 represents pred dates in pred's calendar).
+        lag_cal: calendar to use for lag arithmetic (per SCHEDOPTIONS); may
+                 be a synthetic 24-hour calendar. Falls back to pred_cal.
 
     Returns: (target, dt) where target is 'ls' or 'lf'
     """
     pred_type = rel.get('pred_type', 'PR_FS')
     lag_hours = _safe_float(rel.get('lag_hr_cnt', 0))
-    cal = lag_cal or succ_cal
+    lag_c = lag_cal or pred_cal
 
     succ_ls = succ_task.get('_ls')
     succ_lf = succ_task.get('_lf')
@@ -626,22 +670,32 @@ def _relationship_constraint_backward(succ_task, rel, succ_cal, lag_cal=None):
     if succ_ls is None or succ_lf is None:
         return None
 
+    # P6 representation convention: LS/ES at period-start; LF/EF at
+    # period-end. When succ.LS → pred.LF (FS), or succ.LF → pred.LS (SF),
+    # the moment is the same but the representation differs by one
+    # work-period boundary IF AND ONLY IF the inherited time lands on a
+    # boundary (e.g., 08:00 = period start, 17:00 = period end). When
+    # the inherited time is mid-period (e.g., an upstream constraint
+    # leaves succ.LS at 09:00 instead of 08:00), P6 propagates that
+    # time-of-day unchanged — so we conditionally snap, only at exact
+    # boundaries, using the predecessor's calendar (not the lag
+    # calendar, which under rcal_24Hour would snap to 24:00).
     if _is_fs(pred_type):
         # Pred LF <= Succ LS - lag
-        dt = subtract_work_hours(succ_ls, lag_hours, cal) if lag_hours else succ_ls
-        return ('lf', dt)
+        dt = subtract_work_hours(succ_ls, lag_hours, lag_c) if lag_hours else succ_ls
+        return ('lf', _maybe_snap_to_period_end(dt, pred_cal))
     elif _is_ss(pred_type):
         # Pred LS <= Succ LS - lag
-        dt = subtract_work_hours(succ_ls, lag_hours, cal) if lag_hours else succ_ls
+        dt = subtract_work_hours(succ_ls, lag_hours, lag_c) if lag_hours else succ_ls
         return ('ls', dt)
     elif _is_ff(pred_type):
         # Pred LF <= Succ LF - lag
-        dt = subtract_work_hours(succ_lf, lag_hours, cal) if lag_hours else succ_lf
+        dt = subtract_work_hours(succ_lf, lag_hours, lag_c) if lag_hours else succ_lf
         return ('lf', dt)
     elif _is_sf(pred_type):
         # Pred LS <= Succ LF - lag
-        dt = subtract_work_hours(succ_lf, lag_hours, cal) if lag_hours else succ_lf
-        return ('ls', dt)
+        dt = subtract_work_hours(succ_lf, lag_hours, lag_c) if lag_hours else succ_lf
+        return ('ls', _maybe_snap_to_period_start(dt, pred_cal))
     return None
 
 
@@ -903,10 +957,18 @@ def _backward_pass(tasks_by_id, reverse_topo, succ_map, pred_map, cal_lookup, pr
         status = task.get('status_code', '')
         duration = _get_duration_hours(task)
 
-        # Completed tasks: late = early
+        # Completed tasks: trust P6's stored late dates directly from the
+        # XER (parallel to how the forward pass trusts stored early dates
+        # for completed tasks at the top of _forward_pass). P6's stored
+        # late dates carry historical baseline slack — recomputing them as
+        # LS=ES/LF=EF erases the original late-finish information and
+        # diverges from P6's own CPM output. Fall back to ES/EF only when
+        # the XER doesn't have stored values.
         if status == 'TK_Complete':
-            task['_ls'] = task['_es']
-            task['_lf'] = task['_ef']
+            stored_ls = _parse_date(task.get('late_start_date', ''))
+            stored_lf = _parse_date(task.get('late_end_date', ''))
+            task['_ls'] = stored_ls if stored_ls else task['_es']
+            task['_lf'] = stored_lf if stored_lf else task['_ef']
             continue
 
         # Compute from successor relationships
