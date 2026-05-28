@@ -1482,6 +1482,80 @@ def _handle_modify_wbs(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
+@_register_handler("move_activities_to_wbs")
+def _handle_move_activities_to_wbs(doc, change: dict, state: ChangeState) -> dict:
+    """Bulk set TASK.wbs_id for a list of activities.
+
+    Validations (all raise ValidationFailure):
+      1. TASK section must exist.
+      2. PROJWBS section must exist.
+      3. activity_ids must not be empty.
+      4. new_wbs_id must exist in PROJWBS or state.new_wbs_ids.
+      5. All activity_ids must resolve to TASK rows by task_code (all missing
+         ids collected and reported together).
+
+    Duplicate activity_ids are silently deduplicated.
+
+    Returns:
+      {"moved_count": int, "new_wbs_id": str, "activity_ids": [sorted deduped list]}
+    """
+    activity_ids = change["activity_ids"]
+    new_wbs_id = change["new_wbs_id"]
+
+    # Validation 1: TASK section must exist
+    task_section = doc.section("TASK")
+    if task_section is None:
+        raise ValidationFailure(
+            "move_activities_to_wbs: TASK section not found in XER document"
+        )
+
+    # Validation 2: PROJWBS section must exist
+    projwbs = doc.section("PROJWBS")
+    if projwbs is None:
+        raise ValidationFailure(
+            "move_activities_to_wbs: PROJWBS section not found in XER document"
+        )
+
+    # Validation 3: activity_ids must not be empty
+    if not activity_ids:
+        raise ValidationFailure(
+            "move_activities_to_wbs: activity_ids must not be empty"
+        )
+
+    # Validation 4: new_wbs_id must exist in PROJWBS or state.new_wbs_ids
+    wbs_in_doc = any(r.get("wbs_id") == new_wbs_id for r in projwbs.rows)
+    if not wbs_in_doc and new_wbs_id not in state.new_wbs_ids:
+        raise ValidationFailure(
+            f"move_activities_to_wbs: new_wbs_id {new_wbs_id!r} not found in PROJWBS section"
+        )
+
+    # Dedup activity_ids (order-insensitive; duplicates are a no-op)
+    deduped_ids = list(dict.fromkeys(activity_ids))  # preserves first-seen order for dedup
+
+    # Validation 5: all activity_ids must resolve to TASK rows
+    existing_codes = {r.get("task_code") for r in task_section.rows}
+    missing = [aid for aid in deduped_ids if aid not in existing_codes]
+    if missing:
+        raise ValidationFailure(
+            f"move_activities_to_wbs: activity_id(s) not found in TASK section: "
+            f"{missing}"
+        )
+
+    # Mutation: set wbs_id on all matching TASK rows
+    moved_count = 0
+    for i, row in enumerate(task_section.rows):
+        if row.get("task_code") in deduped_ids:
+            row["wbs_id"] = new_wbs_id
+            task_section.mark_dirty(i)
+            moved_count += 1
+
+    return {
+        "moved_count": moved_count,
+        "new_wbs_id": new_wbs_id,
+        "activity_ids": sorted(deduped_ids),
+    }
+
+
 @_register_handler("set_calendar")
 def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     activity_id = change["activity_id"]

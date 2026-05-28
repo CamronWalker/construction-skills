@@ -4258,3 +4258,259 @@ class TestModifyWbs(unittest.TestCase):
         self.assertEqual(set(fb["fields_changed"]), {"wbs_name", "wbs_short_name"})
         self.assertNotIn("wbs_code", fb["fields_changed"])
         self.assertNotIn("parent_wbs_id", fb["fields_changed"])
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestMoveActivitiesToWbs
+# ---------------------------------------------------------------------------
+
+def _move_activities_change(activity_ids: list, new_wbs_id: str):
+    """Return a move_activities_to_wbs change record."""
+    return {
+        "type": "move_activities_to_wbs",
+        "activity_ids": activity_ids,
+        "new_wbs_id": new_wbs_id,
+    }
+
+
+class TestMoveActivitiesToWbs(unittest.TestCase):
+    """Tests for the move_activities_to_wbs change handler (D14).
+
+    Uses _make_doc_with_wbs_tree which builds:
+        wbs_id="10"  parent=""    root
+        wbs_id="20"  parent="10"  child-A
+        wbs_id="30"  parent="10"  child-B  ← default location of T101 and T102
+        wbs_id="40"  parent="20"  grandchild
+
+    TASK rows (default): T101 and T102 assigned to wbs_id="30".
+    """
+
+    # ---- Test 1: happy path single activity ----------------------------------
+
+    def test_happy_path_single_activity(self):
+        """One activity moved: TASK row updated to new_wbs_id; row is dirty."""
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T101"], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        task = result.doc.section("TASK")
+        t101_row = next(r for r in task.rows if r["task_code"] == "T101")
+        t102_row = next(r for r in task.rows if r["task_code"] == "T102")
+        # T101 moved; T102 untouched
+        self.assertEqual(t101_row["wbs_id"], "20")
+        self.assertEqual(t102_row["wbs_id"], "30")
+        # Verify dirty: row index 0 is T101
+        t101_idx = task.rows.index(t101_row)
+        self.assertTrue(task.is_dirty(t101_idx))
+
+    # ---- Test 2: happy path multiple activities ------------------------------
+
+    def test_happy_path_multiple_activities(self):
+        """All listed activities updated to new_wbs_id."""
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T101", "T102"], "40")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        task = result.doc.section("TASK")
+        for row in task.rows:
+            self.assertEqual(row["wbs_id"], "40",
+                             f"{row['task_code']} should have wbs_id='40'")
+        # Both rows dirty
+        for i in range(len(task.rows)):
+            self.assertTrue(task.is_dirty(i))
+
+    # ---- Test 3: duplicate activity_ids silently deduplicated ----------------
+
+    def test_duplicate_activity_ids_deduplicated(self):
+        """Duplicate ids in the list are silently deduplicated; moved_count=1."""
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T101", "T101"], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["moved_count"], 1)
+        # T101 still moved
+        task = result.doc.section("TASK")
+        t101 = next(r for r in task.rows if r["task_code"] == "T101")
+        self.assertEqual(t101["wbs_id"], "20")
+
+    # ---- Test 4: empty activity_ids list → ValidationFailure -----------------
+
+    def test_empty_activity_ids_raises(self):
+        """Empty activity_ids list is a caller bug → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_move_activities_change([], "20")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("move_activities_to_wbs", err)
+
+    # ---- Test 5: one activity missing → ValidationFailure --------------------
+
+    def test_one_activity_missing_raises(self):
+        """One activity_id not found in TASK → ValidationFailure naming it."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_move_activities_change(["T101", "ZZZZ"], "20")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("ZZZZ", err)
+
+    # ---- Test 6: multiple activities missing → ValidationFailure listing all -
+
+    def test_multiple_activities_missing_raises(self):
+        """Multiple missing activity_ids all listed in ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_move_activities_change(["AAAA", "BBBB"], "20")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("AAAA", err)
+        self.assertIn("BBBB", err)
+
+    # ---- Test 7: new_wbs_id missing → ValidationFailure ---------------------
+
+    def test_new_wbs_id_missing_raises(self):
+        """new_wbs_id not in PROJWBS and not in state.new_wbs_ids → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_move_activities_change(["T101"], "9999")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("9999", err)
+
+    # ---- Test 8: new_wbs_id from state.new_wbs_ids → succeeds ---------------
+
+    def test_new_wbs_id_from_state_succeeds(self):
+        """new_wbs_id in state.new_wbs_ids (preceding add_wbs) → handler succeeds."""
+        from xer_modify import _HANDLERS, ChangeState
+        doc = _make_doc_with_wbs_tree()
+        state = ChangeState(new_wbs_ids={"999"})
+        feedback = _HANDLERS["move_activities_to_wbs"](
+            doc,
+            _move_activities_change(["T101"], "999"),
+            state,
+        )
+        t101 = next(r for r in doc.section("TASK").rows if r["task_code"] == "T101")
+        self.assertEqual(t101["wbs_id"], "999")
+        self.assertEqual(feedback["moved_count"], 1)
+
+    # ---- Test 9: no TASK section → ValidationFailure ------------------------
+
+    def test_no_task_section_raises(self):
+        """Doc with no TASK section raises ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+
+        wbs_field_order = [
+            "wbs_id", "proj_id", "wbs_short_name", "wbs_name",
+            "parent_wbs_id", "status_code",
+        ]
+        wbs_section = XerSection(
+            name="PROJWBS",
+            field_order=wbs_field_order,
+            rows=[
+                {"wbs_id": "10", "proj_id": "1", "wbs_short_name": "R",
+                 "wbs_name": "Root", "parent_wbs_id": "", "status_code": "WS_Open"},
+                {"wbs_id": "20", "proj_id": "1", "wbs_short_name": "CA",
+                 "wbs_name": "Child A", "parent_wbs_id": "10", "status_code": "WS_Open"},
+            ],
+            raw_lines=[
+                "%R\t10\t1\tR\tRoot\t\tWS_Open",
+                "%R\t20\t1\tCA\tChild A\t10\tWS_Open",
+            ],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[wbs_section],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_move_activities_change(["T101"], "20")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("TASK", str(ctx.exception))
+
+    # ---- Test 10: no PROJWBS section → ValidationFailure --------------------
+
+    def test_no_projwbs_section_raises(self):
+        """Doc with no PROJWBS section raises ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "proj_id", "wbs_id", "task_code",
+                         "target_drtn_hr_cnt", "remain_drtn_hr_cnt"],
+            rows=[{
+                "task_id": "101", "proj_id": "1", "wbs_id": "30",
+                "task_code": "T101",
+                "target_drtn_hr_cnt": "8", "remain_drtn_hr_cnt": "8",
+            }],
+            raw_lines=["%R\t101\t1\t30\tT101\t8\t8"],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_move_activities_change(["T101"], "20")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("PROJWBS", str(ctx.exception))
+
+    # ---- Test 11: feedback shape ---------------------------------------------
+
+    def test_feedback_shape(self):
+        """Feedback has moved_count, new_wbs_id, and activity_ids (deduped, sorted)."""
+        doc = _make_doc_with_wbs_tree()
+        # Supply duplicates and unsorted to verify dedup + sort in feedback
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T102", "T101", "T101"], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        fb = result.per_change_feedback[0].feedback
+        self.assertIn("moved_count", fb)
+        self.assertIn("new_wbs_id", fb)
+        self.assertIn("activity_ids", fb)
+        self.assertEqual(fb["moved_count"], 2)
+        self.assertEqual(fb["new_wbs_id"], "20")
+        # activity_ids should be deduped and sorted
+        self.assertEqual(fb["activity_ids"], ["T101", "T102"])
