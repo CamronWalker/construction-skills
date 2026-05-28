@@ -35,6 +35,7 @@ class TestServer(unittest.TestCase):
             "omnibus": "weekly_update_review",
             "update_analytics": "get_critical_path_changes",   # Plan 2
             "delay_analysis": "compute_tia",                   # Plan 2
+            "xer_validate_main": "validate_xer_structure",     # Plan 3
         }
         missing = [
             name for name in expected_representatives.values()
