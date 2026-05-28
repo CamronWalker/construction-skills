@@ -257,6 +257,83 @@ def _handle_add_logic(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
+@_register_handler("remove_logic")
+def _handle_remove_logic(doc, change: dict, state: ChangeState) -> dict:
+    predecessor_id = change["predecessor_id"]
+    successor_id = change["successor_id"]
+    relationship = change["relationship"]
+
+    # Validate the TASKPRED section exists
+    taskpred = doc.section("TASKPRED")
+    if taskpred is None:
+        raise ValidationFailure(
+            "remove_logic: TASKPRED section not found in XER document"
+        )
+
+    # Resolve predecessor and successor task_codes to numeric task_ids
+    task_section = doc.section("TASK")
+
+    pred_task_id = None
+    succ_task_id = None
+
+    if task_section is not None:
+        for row in task_section.rows:
+            if row.get("task_code") == predecessor_id:
+                pred_task_id = row["task_id"]
+            if row.get("task_code") == successor_id:
+                succ_task_id = row["task_id"]
+
+    if pred_task_id is None:
+        raise ValidationFailure(
+            f"remove_logic: predecessor_id {predecessor_id!r} not found in TASK section"
+        )
+    if succ_task_id is None:
+        raise ValidationFailure(
+            f"remove_logic: successor_id {successor_id!r} not found in TASK section"
+        )
+
+    # Map the relationship string to P6 pred_type
+    p6_pred_type = _PRED_TYPE_MAP[relationship]
+
+    # Find all matching rows
+    matching_indices = [
+        i for i, row in enumerate(taskpred.rows)
+        if (
+            row.get("pred_task_id") == pred_task_id
+            and row.get("task_id") == succ_task_id
+            and row.get("pred_type") == p6_pred_type
+        )
+    ]
+
+    if len(matching_indices) == 0:
+        raise ValidationFailure(
+            f"remove_logic: relationship ({predecessor_id!r} → {successor_id!r}, "
+            f"{relationship!r}) not found in TASKPRED"
+        )
+    if len(matching_indices) > 1:
+        raise ValidationFailure(
+            f"remove_logic: multiple rows match ({predecessor_id!r} → {successor_id!r}, "
+            f"{relationship!r}) in TASKPRED — document is structurally malformed"
+        )
+
+    i = matching_indices[0]
+
+    # Remove the row from rows (and raw_lines if present), then re-index _dirty
+    taskpred.rows.pop(i)
+    if taskpred.raw_lines is not None:
+        taskpred.raw_lines.pop(i)
+
+    # Re-index _dirty: entries at index > i shift down by 1; entry i itself is gone
+    taskpred._dirty = {d - 1 if d > i else d for d in taskpred._dirty if d != i}
+
+    return {
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
 @_register_handler("set_calendar")
 def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     activity_id = change["activity_id"]
