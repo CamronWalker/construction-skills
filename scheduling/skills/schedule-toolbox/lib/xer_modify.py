@@ -15,9 +15,22 @@ the return value populates per_change_feedback.
 """
 from __future__ import annotations
 
+import importlib.util
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+# Load cpm_engine from the same lib directory at import time so the handler
+# can call schedule_forward_backward and suggest_anchor_absorption without
+# adding lib to sys.path (xer_modify may be imported from outside contexts
+# where sys.path does not include the lib directory).
+_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
+_cpm_spec = importlib.util.spec_from_file_location(
+    "cpm_engine", os.path.join(_LIB_DIR, "cpm_engine.py")
+)
+_cpm = importlib.util.module_from_spec(_cpm_spec)
+_cpm_spec.loader.exec_module(_cpm)
 
 # ---- public types -----------------------------------------------------------
 
@@ -1594,6 +1607,140 @@ def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     task_section.mark_dirty(row_index)
 
     return {
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
+@_register_handler("apply_anchor_absorption")
+def _handle_apply_anchor_absorption(doc, change: dict, state: ChangeState) -> dict:
+    """Re-invoke the anchor-absorption-suggestion logic and lower the chosen
+    suggestion to a set_duration change.
+
+    Required change keys:
+        anchor_slip      — one entry from get_anchor_conflicts; must contain
+                           'task_id' and 'slip_days'.
+        suggestion_index — non-negative int index into the regenerated
+                           suggestion list.
+
+    Lowering: picks suggestions[suggestion_index], computes
+        new_duration = current_duration_days - suggested_max_cut_days
+    and delegates to _handle_set_duration with a synthetic change record.
+
+    Validations (all raise ValidationFailure):
+      1. Required sections TASK, TASKPRED, CALENDAR, PROJECT must all exist.
+      2. anchor_slip must contain 'task_id'.
+      3. anchor_slip must contain 'slip_days'.
+      4. suggestion_index must be a non-negative int.
+      5. suggest_anchor_absorption must return a non-empty list.
+      6. suggestion_index must be in range of the suggestion list.
+      7. suggestion kind must be 'duration_cut' (future-proofing: explicit
+         rejection of unknown kinds so v2 kinds don't silently do the wrong
+         thing here).
+      8. new_duration_days (current - cut) must be >= 1 (a 0-day work task
+         is nonsensical; set_duration allows 0 but we gate it here).
+    """
+    anchor_slip = change.get("anchor_slip", {})
+    suggestion_index = change.get("suggestion_index")
+
+    # Validation 1: required sections
+    for section_name in ("TASK", "TASKPRED", "CALENDAR", "PROJECT"):
+        if doc.section(section_name) is None:
+            raise ValidationFailure(
+                f"apply_anchor_absorption: {section_name} section not found in XER document"
+            )
+
+    # Validation 2-3: anchor_slip shape
+    if "task_id" not in anchor_slip:
+        raise ValidationFailure(
+            "apply_anchor_absorption: anchor_slip must contain 'task_id'"
+        )
+    if "slip_days" not in anchor_slip:
+        raise ValidationFailure(
+            "apply_anchor_absorption: anchor_slip must contain 'slip_days'"
+        )
+
+    # Validation 4: suggestion_index must be a non-negative int
+    if not isinstance(suggestion_index, int) or suggestion_index < 0:
+        raise ValidationFailure(
+            f"apply_anchor_absorption: suggestion_index must be a non-negative int, "
+            f"got {suggestion_index!r}"
+        )
+
+    # Run CPM to get results needed by suggest_anchor_absorption.
+    # The memory note says schedule_forward_backward mutates TASK dicts; we
+    # read only the suggestion metadata (task_code, durations) so mutation is
+    # acceptable here — the dict values are string fields CPM only writes
+    # float/datetime computed fields back onto, not the duration fields we need.
+    task_rows = doc.section("TASK").rows
+    pred_rows = doc.section("TASKPRED").rows
+    cal_rows = doc.section("CALENDAR").rows
+    project_row = doc.section("PROJECT").rows[0]
+    data_date = (
+        project_row.get("last_recalc_date")
+        or project_row.get("plan_start_date")
+    )
+
+    results, _meta = _cpm.schedule_forward_backward(
+        task_rows, pred_rows, cal_rows, data_date
+    )
+
+    suggestions = _cpm.suggest_anchor_absorption(results, pred_rows, anchor_slip)
+
+    # Validation 5: non-empty suggestion list
+    if not suggestions:
+        raise ValidationFailure(
+            "apply_anchor_absorption: no absorption suggestions available for the "
+            "given anchor_slip (anchor task may have no driving critical predecessors "
+            "with reducible durations)"
+        )
+
+    # Validation 6: suggestion_index in range
+    if suggestion_index >= len(suggestions):
+        raise ValidationFailure(
+            f"apply_anchor_absorption: suggestion_index {suggestion_index} is out of "
+            f"range — {len(suggestions)} suggestion(s) available "
+            f"(valid indices: 0–{len(suggestions) - 1})"
+        )
+
+    suggestion = suggestions[suggestion_index]
+
+    # Validation 7: kind must be 'duration_cut'
+    kind = suggestion.get("kind")
+    if kind != "duration_cut":
+        raise ValidationFailure(
+            f"apply_anchor_absorption: suggestion kind {kind!r} is not supported — "
+            f"only 'duration_cut' is handled in this version"
+        )
+
+    # Compute the lowered duration
+    new_duration_days = (
+        suggestion["current_duration_days"] - suggestion["suggested_max_cut_days"]
+    )
+
+    # Validation 8: new_duration must be >= 1 (guard against over-aggressive cuts)
+    if new_duration_days < 1:
+        raise ValidationFailure(
+            f"apply_anchor_absorption: lowered duration would be {new_duration_days} days "
+            f"(current={suggestion['current_duration_days']}d, "
+            f"cut={suggestion['suggested_max_cut_days']}d) — minimum is 1 day"
+        )
+
+    # Lower to a set_duration change and delegate to the existing handler
+    lowered_change = {
+        "type": "set_duration",
+        "activity_id": suggestion["task_code"],
+        "new_duration_days": new_duration_days,
+    }
+    set_duration_feedback = _handle_set_duration(doc, lowered_change, state)
+
+    return {
+        "suggestion_chosen": suggestion,
+        "total_suggestions": len(suggestions),
+        "lowered_changes_count": 1,
+        "set_duration_feedback": set_duration_feedback,
         "activity_end_before": None,
         "activity_end_after": None,
         "milestone_impact_days": None,

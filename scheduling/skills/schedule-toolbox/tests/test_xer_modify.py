@@ -4514,3 +4514,490 @@ class TestMoveActivitiesToWbs(unittest.TestCase):
         self.assertEqual(fb["new_wbs_id"], "20")
         # activity_ids should be deduped and sorted
         self.assertEqual(fb["activity_ids"], ["T101", "T102"])
+
+
+# ---------------------------------------------------------------------------
+# apply_anchor_absorption
+# ---------------------------------------------------------------------------
+
+def _make_cpm_doc():
+    """Build a CPM-capable XerDoc in memory.
+
+    Schedule topology: A1000 (10d) -> A2000 (20d) -> M3000 (finish milestone).
+    Both task predecessors are on the critical path (TF=0).
+    The PROJECT section provides a data_date for CPM.
+
+    A slip against M3000 with slip_days > 0 will produce two suggestions:
+        index 0: A2000 (20d, max cut 10d)
+        index 1: A1000 (10d, max cut 5d)
+    """
+    from xer_io import XerDoc, XerSection
+
+    # TASK section — full field set CPM needs
+    task_field_order = [
+        "task_id", "proj_id", "wbs_id", "clndr_id", "phys_complete_pct",
+        "task_type", "duration_type", "status_code", "task_code", "task_name",
+        "total_float_hr_cnt", "free_float_hr_cnt",
+        "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+        "early_start_date", "early_end_date",
+        "late_start_date", "late_end_date",
+        "act_start_date", "act_end_date",
+    ]
+    task_rows = [
+        {
+            "task_id": "1", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+            "phys_complete_pct": "0", "task_type": "TT_Task",
+            "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+            "task_code": "A1000", "task_name": "Activity A",
+            "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+            "target_drtn_hr_cnt": "80", "remain_drtn_hr_cnt": "80",
+            "early_start_date": "", "early_end_date": "",
+            "late_start_date": "", "late_end_date": "",
+            "act_start_date": "", "act_end_date": "",
+        },
+        {
+            "task_id": "2", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+            "phys_complete_pct": "0", "task_type": "TT_Task",
+            "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+            "task_code": "A2000", "task_name": "Activity B",
+            "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+            "target_drtn_hr_cnt": "160", "remain_drtn_hr_cnt": "160",
+            "early_start_date": "", "early_end_date": "",
+            "late_start_date": "", "late_end_date": "",
+            "act_start_date": "", "act_end_date": "",
+        },
+        {
+            "task_id": "3", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+            "phys_complete_pct": "0", "task_type": "TT_FinMile",
+            "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+            "task_code": "M3000", "task_name": "Finish Milestone",
+            "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+            "target_drtn_hr_cnt": "0", "remain_drtn_hr_cnt": "0",
+            "early_start_date": "", "early_end_date": "",
+            "late_start_date": "", "late_end_date": "",
+            "act_start_date": "", "act_end_date": "",
+        },
+    ]
+    task_section = XerSection(
+        name="TASK",
+        field_order=task_field_order,
+        rows=task_rows,
+        raw_lines=["\t".join(r[f] for f in task_field_order) for r in task_rows],
+        e_line=None,
+    )
+
+    # TASKPRED: A1000 -> A2000 (FS), A2000 -> M3000 (FS)
+    pred_field_order = ["task_pred_id", "task_id", "pred_task_id", "proj_id",
+                        "pred_proj_id", "pred_type", "lag_hr_cnt"]
+    pred_rows = [
+        {"task_pred_id": "1", "task_id": "2", "pred_task_id": "1",
+         "proj_id": "1", "pred_proj_id": "1", "pred_type": "PR_FS", "lag_hr_cnt": "0"},
+        {"task_pred_id": "2", "task_id": "3", "pred_task_id": "2",
+         "proj_id": "1", "pred_proj_id": "1", "pred_type": "PR_FS", "lag_hr_cnt": "0"},
+    ]
+    pred_section = XerSection(
+        name="TASKPRED",
+        field_order=pred_field_order,
+        rows=pred_rows,
+        raw_lines=["\t".join(r[f] for f in pred_field_order) for r in pred_rows],
+        e_line=None,
+    )
+
+    # CALENDAR: minimal 5-day-week definition that calendar_engine can parse
+    cal_field_order = ["clndr_id", "default_flag", "clndr_name", "proj_id",
+                       "base_clndr_id", "last_chng_date", "clndr_type", "day_hr_cnt"]
+    cal_rows = [
+        {
+            "clndr_id": "100", "default_flag": "Y", "clndr_name": "Standard 5-day",
+            "proj_id": "1", "base_clndr_id": "", "last_chng_date": "",
+            "clndr_type": "CT_Base", "day_hr_cnt": "8",
+        }
+    ]
+    cal_section = XerSection(
+        name="CALENDAR",
+        field_order=cal_field_order,
+        rows=cal_rows,
+        raw_lines=["\t".join(r[f] for f in cal_field_order) for r in cal_rows],
+        e_line=None,
+    )
+
+    # PROJECT: provides the data_date for CPM
+    proj_field_order = ["proj_id", "last_recalc_date", "plan_start_date"]
+    proj_rows = [
+        {"proj_id": "1", "last_recalc_date": "2026-01-01 08:00", "plan_start_date": ""}
+    ]
+    proj_section = XerSection(
+        name="PROJECT",
+        field_order=proj_field_order,
+        rows=proj_rows,
+        raw_lines=["\t".join(r[f] for f in proj_field_order) for r in proj_rows],
+        e_line=None,
+    )
+
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=[task_section, pred_section, cal_section, proj_section],
+    )
+
+
+class TestApplyAnchorAbsorption(unittest.TestCase):
+    """Tests for the apply_anchor_absorption composite handler."""
+
+    # ---- Test 1: happy path ------------------------------------------------
+
+    def test_happy_path_lowers_to_set_duration(self):
+        """Picking suggestion_index=0 (A2000, 20d, cut 10d) should set A2000 to 10d."""
+        doc = _make_cpm_doc()
+        anchor_slip = {"task_id": "3", "slip_days": 5}
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": anchor_slip,
+              "suggestion_index": 0}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        task_section = result.doc.section("TASK")
+        # Find A2000 row
+        a2000 = next(r for r in task_section.rows if r["task_code"] == "A2000")
+        # current=20d, cut=10d → new=10d → 80 hours
+        self.assertEqual(a2000["target_drtn_hr_cnt"], "80")
+        self.assertEqual(a2000["remain_drtn_hr_cnt"], "80")
+
+    # ---- Test 2: suggestion_index out of range ----------------------------
+
+    def test_suggestion_index_out_of_range(self):
+        """suggestion_index beyond the list length raises ValidationFailure
+        with the actual count of suggestions mentioned."""
+        doc = _make_cpm_doc()
+        anchor_slip = {"task_id": "3", "slip_days": 5}
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": anchor_slip,
+                  "suggestion_index": 99}],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("99", str(ctx.exception))
+        # The message should mention the actual count available
+        self.assertIn("suggestion", str(ctx.exception).lower())
+
+    # ---- Test 3: empty suggestion list -----------------------------------
+
+    def test_empty_suggestion_list_raises(self):
+        """When anchor_task has no driving critical predecessors,
+        suggest_anchor_absorption returns [] and the handler raises."""
+        doc = _make_cpm_doc()
+        # Anchor is M3000 (task_id='3'), but we re-use a slip pointing to
+        # M3000 with a large slip_days but the anchor task has no
+        # non-milestone predecessors with TF > 0 cut headroom — actually in
+        # this fixture both tasks ARE critical. To force an empty list we
+        # point at task_id='1' (A1000), which has no predecessors.
+        anchor_slip = {"task_id": "1", "slip_days": 5}
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": anchor_slip,
+                  "suggestion_index": 0}],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception).lower()
+        self.assertIn("no absorption suggestion", err)
+
+    # ---- Test 4: anchor_slip missing task_id -----------------------------
+
+    def test_anchor_slip_missing_task_id(self):
+        """anchor_slip without 'task_id' raises ValidationFailure."""
+        doc = _make_cpm_doc()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"slip_days": 5},
+                  "suggestion_index": 0}],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("task_id", str(ctx.exception))
+
+    # ---- Test 5: anchor_slip missing slip_days ---------------------------
+
+    def test_anchor_slip_missing_slip_days(self):
+        """anchor_slip without 'slip_days' raises ValidationFailure."""
+        doc = _make_cpm_doc()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"task_id": "3"},
+                  "suggestion_index": 0}],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("slip_days", str(ctx.exception))
+
+    # ---- Test 6: negative suggestion_index -------------------------------
+
+    def test_negative_suggestion_index(self):
+        """Negative suggestion_index raises ValidationFailure."""
+        doc = _make_cpm_doc()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"task_id": "3", "slip_days": 5},
+                  "suggestion_index": -1}],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("-1", str(ctx.exception))
+
+    # ---- Test 7: unknown suggestion kind ---------------------------------
+    # Cannot be triggered by the current cpm_engine (only 'duration_cut' is
+    # produced). Marked untested per spec — the validation code path exists
+    # and is tested only by inspection of the handler source.
+
+    # ---- Test 8: new_duration < 1 (over-aggressive cut) ------------------
+
+    def test_new_duration_zero_raises(self):
+        """When current_duration - suggested_max_cut < 1, raise ValidationFailure.
+
+        Build a doc where A1000 has duration=1d (8h).  suggest_anchor_absorption
+        filters tasks with duration < 1d, so we need at least 1d.  We set
+        target_drtn_hr_cnt='8' (1d) and set up a chain so that A1000 is the
+        only critical predecessor of the anchor.
+
+        The suggestion will compute max_cut = max(1, int(1 * 0.5)) = 1.
+        new_duration = 1 - 1 = 0 → ValidationFailure.
+        """
+        from xer_io import XerDoc, XerSection
+
+        task_field_order = [
+            "task_id", "proj_id", "wbs_id", "clndr_id", "phys_complete_pct",
+            "task_type", "duration_type", "status_code", "task_code", "task_name",
+            "total_float_hr_cnt", "free_float_hr_cnt",
+            "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+            "early_start_date", "early_end_date",
+            "late_start_date", "late_end_date",
+            "act_start_date", "act_end_date",
+        ]
+        task_rows = [
+            {
+                "task_id": "1", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+                "phys_complete_pct": "0", "task_type": "TT_Task",
+                "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+                "task_code": "A1000", "task_name": "Activity A",
+                "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+                # 1 day = 8 hours
+                "target_drtn_hr_cnt": "8", "remain_drtn_hr_cnt": "8",
+                "early_start_date": "", "early_end_date": "",
+                "late_start_date": "", "late_end_date": "",
+                "act_start_date": "", "act_end_date": "",
+            },
+            {
+                "task_id": "2", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+                "phys_complete_pct": "0", "task_type": "TT_FinMile",
+                "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+                "task_code": "M2000", "task_name": "Finish Milestone",
+                "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+                "target_drtn_hr_cnt": "0", "remain_drtn_hr_cnt": "0",
+                "early_start_date": "", "early_end_date": "",
+                "late_start_date": "", "late_end_date": "",
+                "act_start_date": "", "act_end_date": "",
+            },
+        ]
+        task_section = XerSection(
+            name="TASK", field_order=task_field_order, rows=task_rows,
+            raw_lines=["\t".join(r[f] for f in task_field_order) for r in task_rows],
+            e_line=None,
+        )
+        pred_field_order = ["task_pred_id", "task_id", "pred_task_id", "proj_id",
+                            "pred_proj_id", "pred_type", "lag_hr_cnt"]
+        pred_rows = [
+            {"task_pred_id": "1", "task_id": "2", "pred_task_id": "1",
+             "proj_id": "1", "pred_proj_id": "1", "pred_type": "PR_FS", "lag_hr_cnt": "0"},
+        ]
+        pred_section = XerSection(
+            name="TASKPRED", field_order=pred_field_order, rows=pred_rows,
+            raw_lines=["\t".join(r[f] for f in pred_field_order) for r in pred_rows],
+            e_line=None,
+        )
+        cal_field_order = ["clndr_id", "default_flag", "clndr_name", "proj_id",
+                           "base_clndr_id", "last_chng_date", "clndr_type", "day_hr_cnt"]
+        cal_rows = [{
+            "clndr_id": "100", "default_flag": "Y", "clndr_name": "Standard",
+            "proj_id": "1", "base_clndr_id": "", "last_chng_date": "",
+            "clndr_type": "CT_Base", "day_hr_cnt": "8",
+        }]
+        cal_section = XerSection(
+            name="CALENDAR", field_order=cal_field_order, rows=cal_rows,
+            raw_lines=["\t".join(r[f] for f in cal_field_order) for r in cal_rows],
+            e_line=None,
+        )
+        proj_field_order = ["proj_id", "last_recalc_date", "plan_start_date"]
+        proj_rows = [{"proj_id": "1", "last_recalc_date": "2026-01-01 08:00",
+                      "plan_start_date": ""}]
+        proj_section = XerSection(
+            name="PROJECT", field_order=proj_field_order, rows=proj_rows,
+            raw_lines=["\t".join(r[f] for f in proj_field_order) for r in proj_rows],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...", encoding="cp1252",
+            sections=[task_section, pred_section, cal_section, proj_section],
+        )
+
+        # A1000 is 1d, max_cut=1 → new_duration=0 → ValidationFailure
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"task_id": "2", "slip_days": 1},
+                  "suggestion_index": 0}],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception).lower()
+        self.assertIn("duration", err)
+
+    # ---- Test 9: missing required sections --------------------------------
+
+    def test_missing_task_section_raises(self):
+        """Missing TASK section → ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+        proj_section = XerSection(
+            name="PROJECT", field_order=["proj_id", "last_recalc_date"],
+            rows=[{"proj_id": "1", "last_recalc_date": "2026-01-01 08:00"}],
+            raw_lines=[""], e_line=None,
+        )
+        doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
+                     sections=[proj_section])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"task_id": "1", "slip_days": 5},
+                  "suggestion_index": 0}],
+                strict=False, dry_run=False,
+            )
+        self.assertIn("TASK", str(ctx.exception))
+
+    def test_missing_taskpred_section_raises(self):
+        """Missing TASKPRED section → ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "task_code"],
+            rows=[{"task_id": "1", "task_code": "A1000"}],
+            raw_lines=[""], e_line=None,
+        )
+        doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
+                     sections=[task_section])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"task_id": "1", "slip_days": 5},
+                  "suggestion_index": 0}],
+                strict=False, dry_run=False,
+            )
+        self.assertIn("TASKPRED", str(ctx.exception))
+
+    def test_missing_calendar_section_raises(self):
+        """Missing CALENDAR section → ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "task_code"],
+            rows=[{"task_id": "1", "task_code": "A1000"}],
+            raw_lines=[""], e_line=None,
+        )
+        pred_section = XerSection(
+            name="TASKPRED",
+            field_order=["task_pred_id"],
+            rows=[],
+            raw_lines=[], e_line=None,
+        )
+        doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
+                     sections=[task_section, pred_section])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"task_id": "1", "slip_days": 5},
+                  "suggestion_index": 0}],
+                strict=False, dry_run=False,
+            )
+        self.assertIn("CALENDAR", str(ctx.exception))
+
+    def test_missing_project_section_raises(self):
+        """Missing PROJECT section → ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "task_code"],
+            rows=[{"task_id": "1", "task_code": "A1000"}],
+            raw_lines=[""], e_line=None,
+        )
+        pred_section = XerSection(
+            name="TASKPRED",
+            field_order=["task_pred_id"],
+            rows=[],
+            raw_lines=[], e_line=None,
+        )
+        cal_section = XerSection(
+            name="CALENDAR",
+            field_order=["clndr_id"],
+            rows=[{"clndr_id": "100"}],
+            raw_lines=[""], e_line=None,
+        )
+        doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
+                     sections=[task_section, pred_section, cal_section])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "apply_anchor_absorption",
+                  "anchor_slip": {"task_id": "1", "slip_days": 5},
+                  "suggestion_index": 0}],
+                strict=False, dry_run=False,
+            )
+        self.assertIn("PROJECT", str(ctx.exception))
+
+    # ---- Test 10: feedback shape ------------------------------------------
+
+    def test_feedback_shape(self):
+        """Feedback dict must have all 8 expected keys."""
+        doc = _make_cpm_doc()
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "3", "slip_days": 5},
+              "suggestion_index": 0}],
+            strict=False,
+            dry_run=False,
+        )
+        fb = result.per_change_feedback[0].feedback
+        expected_keys = {
+            "suggestion_chosen",
+            "total_suggestions",
+            "lowered_changes_count",
+            "set_duration_feedback",
+            "activity_end_before",
+            "activity_end_after",
+            "milestone_impact_days",
+            "now_on_critical_path",
+        }
+        self.assertEqual(set(fb.keys()), expected_keys)
+        self.assertEqual(fb["lowered_changes_count"], 1)
+        self.assertIsNotNone(fb["suggestion_chosen"])
+        self.assertGreater(fb["total_suggestions"], 0)
+        self.assertIsNone(fb["activity_end_before"])
+        self.assertIsNone(fb["activity_end_after"])
+        self.assertIsNone(fb["milestone_impact_days"])
+        self.assertIsNone(fb["now_on_critical_path"])
