@@ -175,6 +175,85 @@ class TestDanglingRefs(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Duplicate checks C3 Group 2
+# ---------------------------------------------------------------------------
+
+class TestDuplicateRelationships(unittest.TestCase):
+    def test_detects_duplicate_relationship(self):
+        from xer_validate import _check_duplicate_relationships
+        doc = _make_doc({
+            "TASK": [_make_task("1"), _make_task("2", task_code="A2000")],
+            "TASKPRED": [
+                _make_pred("9001", "1", "2"),
+                _make_pred("9002", "1", "2"),  # same pair + type
+            ],
+        })
+        issues = _check_duplicate_relationships(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "DUPLICATE_RELATIONSHIP")
+        self.assertEqual(issues[0].severity, "error")
+
+    def test_different_type_not_duplicate(self):
+        from xer_validate import _check_duplicate_relationships
+        doc = _make_doc({
+            "TASK": [_make_task("1"), _make_task("2", task_code="A2000")],
+            "TASKPRED": [
+                _make_pred("9001", "1", "2", pred_type="PR_FS"),
+                _make_pred("9002", "1", "2", pred_type="PR_SS"),
+            ],
+        })
+        issues = _check_duplicate_relationships(doc)
+        self.assertEqual(len(issues), 0)
+
+    def test_no_taskpred_section(self):
+        from xer_validate import _check_duplicate_relationships
+        doc = _make_doc({"TASK": [_make_task("1")]})
+        self.assertEqual(_check_duplicate_relationships(doc), [])
+
+
+class TestDuplicateCalendarIds(unittest.TestCase):
+    def test_detects_duplicate_calendar(self):
+        from xer_validate import _check_duplicate_calendar_ids
+        doc = _make_doc({
+            "CALENDAR": [_make_cal("100"), _make_cal("100")],
+        })
+        issues = _check_duplicate_calendar_ids(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "DUPLICATE_CALENDAR_ID")
+
+    def test_unique_calendars_ok(self):
+        from xer_validate import _check_duplicate_calendar_ids
+        doc = _make_doc({"CALENDAR": [_make_cal("100"), _make_cal("200")]})
+        self.assertEqual(_check_duplicate_calendar_ids(doc), [])
+
+
+class TestDuplicateWbsCodes(unittest.TestCase):
+    def test_detects_same_short_name_same_parent(self):
+        from xer_validate import _check_duplicate_wbs_codes
+        doc = _make_doc({
+            "PROJWBS": [
+                _make_wbs("1000", proj_node="Y"),
+                _make_wbs("2001", "1000", "STRUCT"),
+                _make_wbs("2002", "1000", "STRUCT"),  # dup
+            ],
+        })
+        issues = _check_duplicate_wbs_codes(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "DUPLICATE_WBS_CODE")
+
+    def test_same_short_name_different_parent_ok(self):
+        from xer_validate import _check_duplicate_wbs_codes
+        doc = _make_doc({
+            "PROJWBS": [
+                _make_wbs("1000", proj_node="Y"),
+                _make_wbs("2001", "1000", "STRUCT"),
+                _make_wbs("2002", "9999", "STRUCT"),  # different parent
+            ],
+        })
+        self.assertEqual(_check_duplicate_wbs_codes(doc), [])
+
+
+# ---------------------------------------------------------------------------
 # Logic: circular + self-loop (C3 Group 1)
 # ---------------------------------------------------------------------------
 

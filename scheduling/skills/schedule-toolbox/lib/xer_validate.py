@@ -212,6 +212,78 @@ def _check_self_loops(doc) -> list[ValidationIssue]:
     return issues
 
 
+def _check_duplicate_relationships(doc) -> list[ValidationIssue]:
+    """TASKPRED rows with identical (pred_task_id, task_id, pred_type) tuples."""
+    pred_sec = doc.section("TASKPRED")
+    if pred_sec is None:
+        return []
+    seen: dict[tuple, list[str]] = {}
+    for r in pred_sec.rows:
+        key = (r.get("pred_task_id", ""), r.get("task_id", ""), r.get("pred_type", ""))
+        seen.setdefault(key, []).append(r.get("task_pred_id", ""))
+    issues = []
+    for (pid, sid, ptype), ids in seen.items():
+        if len(ids) > 1:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Duplicates",
+                code="DUPLICATE_RELATIONSHIP",
+                message=(
+                    f"Relationship {pid!r} -> {sid!r} ({ptype}) appears "
+                    f"{len(ids)} times (task_pred_ids {', '.join(ids)})"
+                ),
+                affected=ids,
+            ))
+    return issues
+
+
+def _check_duplicate_calendar_ids(doc) -> list[ValidationIssue]:
+    """CALENDAR rows with identical clndr_id."""
+    cal = doc.section("CALENDAR")
+    if cal is None:
+        return []
+    seen: dict[str, int] = {}
+    for r in cal.rows:
+        cid = r.get("clndr_id", "")
+        seen[cid] = seen.get(cid, 0) + 1
+    issues = []
+    for cid, count in seen.items():
+        if count > 1:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Duplicates",
+                code="DUPLICATE_CALENDAR_ID",
+                message=f"Calendar id {cid!r} appears {count} times",
+                affected=[cid],
+            ))
+    return issues
+
+
+def _check_duplicate_wbs_codes(doc) -> list[ValidationIssue]:
+    """PROJWBS rows with identical (parent_wbs_id, wbs_short_name) pairs."""
+    wbs = doc.section("PROJWBS")
+    if wbs is None:
+        return []
+    seen: dict[tuple, list[str]] = {}
+    for r in wbs.rows:
+        key = (r.get("parent_wbs_id", ""), r.get("wbs_short_name", ""))
+        seen.setdefault(key, []).append(r.get("wbs_id", ""))
+    issues = []
+    for (parent, short), ids in seen.items():
+        if len(ids) > 1:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Duplicates",
+                code="DUPLICATE_WBS_CODE",
+                message=(
+                    f"WBS short name {short!r} under parent {parent!r} "
+                    f"appears {len(ids)} times (wbs_ids {', '.join(ids)})"
+                ),
+                affected=ids,
+            ))
+    return issues
+
+
 def validate(doc) -> ValidationReport:
     """Run all file-integrity checks. Returns a ValidationReport with
     all detected issues. import_ready = no error-severity issues.
@@ -222,6 +294,9 @@ def validate(doc) -> ValidationReport:
     issues.extend(_check_dangling_calendars(doc))
     # Duplicates
     issues.extend(_check_duplicate_activity_ids(doc))
+    issues.extend(_check_duplicate_relationships(doc))
+    issues.extend(_check_duplicate_calendar_ids(doc))
+    issues.extend(_check_duplicate_wbs_codes(doc))
     # Logic
     issues.extend(_check_circular_logic(doc))
     issues.extend(_check_self_loops(doc))
