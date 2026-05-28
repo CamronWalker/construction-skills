@@ -896,6 +896,326 @@ class TestSetCalendar(unittest.TestCase):
         self.assertIn("activity_end_before", feedback)
 
 
+def _make_doc_with_task_wbs_calendar(
+    task_rows: list[dict] | None = None,
+    wbs_rows: list[dict] | None = None,
+    calendar_rows: list[dict] | None = None,
+):
+    """Build an in-memory XerDoc with TASK, PROJWBS, and CALENDAR sections.
+
+    Defaults build a single-row fixture matching minimal.xer's structure:
+      - TASK: one row (task_id=10001, task_code=A1010, TT_Task, 40h)
+      - PROJWBS: one row (wbs_id=1000, proj_id=1)
+      - CALENDAR: one row (clndr_id=100)
+
+    Callers may supply their own rows lists to override any section.
+    """
+    from xer_io import XerDoc, XerSection
+
+    if task_rows is None:
+        task_rows = [
+            {
+                "task_id": "10001",
+                "proj_id": "1",
+                "wbs_id": "1000",
+                "clndr_id": "100",
+                "task_code": "A1010",
+                "task_name": "Existing Task",
+                "task_type": "TT_Task",
+                "duration_type": "DT_FixedDUR2",
+                "status_code": "TK_NotStart",
+                "complete_pct_type": "CP_Drtn",
+                "phys_complete_pct": "0",
+                "target_drtn_hr_cnt": "40",
+                "remain_drtn_hr_cnt": "40",
+            }
+        ]
+    if wbs_rows is None:
+        wbs_rows = [{"wbs_id": "1000", "proj_id": "1", "wbs_name": "Root"}]
+    if calendar_rows is None:
+        calendar_rows = [{"clndr_id": "100", "clndr_name": "Standard"}]
+
+    task_field_order = [
+        "task_id", "proj_id", "wbs_id", "clndr_id",
+        "task_code", "task_name", "task_type", "duration_type",
+        "status_code", "complete_pct_type", "phys_complete_pct",
+        "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+    ]
+    wbs_field_order = ["wbs_id", "proj_id", "wbs_name"]
+    cal_field_order = ["clndr_id", "clndr_name"]
+
+    def _raw_task(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in task_field_order)
+
+    def _raw_wbs(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in wbs_field_order)
+
+    def _raw_cal(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in cal_field_order)
+
+    task_section = XerSection(
+        name="TASK",
+        field_order=task_field_order,
+        rows=task_rows,
+        raw_lines=[_raw_task(r) for r in task_rows],
+        e_line=None,
+    )
+    wbs_section = XerSection(
+        name="PROJWBS",
+        field_order=wbs_field_order,
+        rows=wbs_rows,
+        raw_lines=[_raw_wbs(r) for r in wbs_rows],
+        e_line=None,
+    )
+    cal_section = XerSection(
+        name="CALENDAR",
+        field_order=cal_field_order,
+        rows=calendar_rows,
+        raw_lines=[_raw_cal(r) for r in calendar_rows],
+        e_line=None,
+    )
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=[task_section, wbs_section, cal_section],
+    )
+
+
+def _add_activity_change(**spec_kwargs):
+    """Return a minimal add_activity change record. All spec fields required."""
+    spec = {
+        "code": "A2010",
+        "name": "New Task",
+        "duration_days": 5,
+        "calendar_id": "100",
+        "wbs_id": "1000",
+        "activity_type": "TT_Task",
+    }
+    spec.update(spec_kwargs)
+    return {"type": "add_activity", "spec": spec}
+
+
+class TestAddActivity(unittest.TestCase):
+    """Tests for the add_activity change handler (D7)."""
+
+    # ---- Test 1: happy path --------------------------------------------------
+
+    def test_happy_path_appends_row_and_populates_state(self):
+        """All fields valid; new TASK row appended with correct values; state updated."""
+        doc = _make_doc_with_task_wbs_calendar()
+        result = apply_changes(
+            doc,
+            [_add_activity_change()],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        task_section = result.doc.section("TASK")
+        self.assertEqual(len(task_section.rows), 2)
+
+        new_row = task_section.rows[1]
+        self.assertEqual(new_row["task_id"], "10002")       # max(10001)+1
+        self.assertEqual(new_row["task_code"], "A2010")
+        self.assertEqual(new_row["task_name"], "New Task")
+        self.assertEqual(new_row["task_type"], "TT_Task")
+        self.assertEqual(new_row["target_drtn_hr_cnt"], "40")   # 5 days * 8
+        self.assertEqual(new_row["remain_drtn_hr_cnt"], "40")
+        self.assertEqual(new_row["clndr_id"], "100")
+        self.assertEqual(new_row["wbs_id"], "1000")
+        self.assertEqual(new_row["status_code"], "TK_NotStart")
+        self.assertEqual(new_row["duration_type"], "DT_FixedDUR2")
+        self.assertEqual(new_row["complete_pct_type"], "CP_Drtn")
+        self.assertEqual(new_row["phys_complete_pct"], "0")
+
+        # State tracking
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_task_id"], "10002")
+
+        # Verify state via direct handler call to inspect ChangeState
+        from xer_modify import _HANDLERS, ChangeState
+        doc2 = _make_doc_with_task_wbs_calendar()
+        state = ChangeState()
+        _HANDLERS["add_activity"](doc2, _add_activity_change(), state)
+        self.assertIn("A2010", state.new_activity_ids)
+        self.assertEqual(state.new_activity_id_map["A2010"], "10002")
+
+    # ---- Test 2: missing required field -------------------------------------
+
+    def test_missing_spec_field_raises(self):
+        """Omitting 'name' from spec raises ValidationFailure naming the field."""
+        doc = _make_doc_with_task_wbs_calendar()
+        change = {"type": "add_activity", "spec": {
+            "code": "A2010",
+            # name intentionally omitted
+            "duration_days": 5,
+            "calendar_id": "100",
+            "wbs_id": "1000",
+            "activity_type": "TT_Task",
+        }}
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIn("name", str(ctx.exception))
+
+    # ---- Test 3: duplicate task_code ----------------------------------------
+
+    def test_duplicate_task_code_raises(self):
+        """task_code already exists in TASK section; ValidationFailure names the code."""
+        doc = _make_doc_with_task_wbs_calendar()
+        # A1010 is the existing row's task_code
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_activity_change(code="A1010")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("A1010", str(ctx.exception))
+
+    # ---- Test 4: unknown wbs_id ---------------------------------------------
+
+    def test_unknown_wbs_id_raises(self):
+        """wbs_id not in PROJWBS and not in state → ValidationFailure."""
+        doc = _make_doc_with_task_wbs_calendar()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_activity_change(wbs_id="9999")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("9999", str(ctx.exception))
+
+    # ---- Test 5: unknown calendar_id ----------------------------------------
+
+    def test_unknown_calendar_id_raises(self):
+        """calendar_id not in CALENDAR and not in state → ValidationFailure."""
+        doc = _make_doc_with_task_wbs_calendar()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_activity_change(calendar_id="999")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("999", str(ctx.exception))
+
+    # ---- Test 6: unknown activity_type --------------------------------------
+
+    def test_unknown_activity_type_raises(self):
+        """activity_type='TT_Bogus' raises ValidationFailure."""
+        doc = _make_doc_with_task_wbs_calendar()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_activity_change(activity_type="TT_Bogus")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("TT_Bogus", str(ctx.exception))
+
+    # ---- Test 7: negative duration ------------------------------------------
+
+    def test_negative_duration_raises(self):
+        """duration_days=-1 raises ValidationFailure."""
+        doc = _make_doc_with_task_wbs_calendar()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_activity_change(duration_days=-1)],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("-1", str(ctx.exception))
+
+    # ---- Test 8: zero-duration milestone ------------------------------------
+
+    def test_zero_duration_milestone_succeeds(self):
+        """TT_Mile with duration_days=0 succeeds; durations stored as '0'."""
+        doc = _make_doc_with_task_wbs_calendar()
+        result = apply_changes(
+            doc,
+            [_add_activity_change(activity_type="TT_Mile", duration_days=0)],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        new_row = result.doc.section("TASK").rows[1]
+        self.assertEqual(new_row["target_drtn_hr_cnt"], "0")
+        self.assertEqual(new_row["remain_drtn_hr_cnt"], "0")
+        self.assertEqual(new_row["task_type"], "TT_Mile")
+
+    # ---- Test 9: task_id generation from non-contiguous existing ids --------
+
+    def test_task_id_is_max_plus_one(self):
+        """TASK has task_ids '1', '5', '3'; new id should be '6'."""
+        task_rows = [
+            {
+                "task_id": tid, "proj_id": "1", "wbs_id": "1000", "clndr_id": "100",
+                "task_code": f"A{tid}", "task_name": "X",
+                "task_type": "TT_Task", "duration_type": "DT_FixedDUR2",
+                "status_code": "TK_NotStart", "complete_pct_type": "CP_Drtn",
+                "phys_complete_pct": "0",
+                "target_drtn_hr_cnt": "8", "remain_drtn_hr_cnt": "8",
+            }
+            for tid in ["1", "5", "3"]
+        ]
+        doc = _make_doc_with_task_wbs_calendar(task_rows=task_rows)
+        result = apply_changes(
+            doc,
+            [_add_activity_change(code="A9999")],
+            strict=False,
+            dry_run=False,
+        )
+        new_row = result.doc.section("TASK").rows[-1]
+        self.assertEqual(new_row["task_id"], "6")   # max(1,5,3)+1
+
+    # ---- Test 10: empty TASK section → task_id starts at 1 -----------------
+
+    def test_empty_task_section_task_id_starts_at_one(self):
+        """When TASK has no rows, the first new row gets task_id='1'."""
+        doc = _make_doc_with_task_wbs_calendar(task_rows=[])
+        result = apply_changes(
+            doc,
+            [_add_activity_change()],
+            strict=False,
+            dry_run=False,
+        )
+        new_row = result.doc.section("TASK").rows[0]
+        self.assertEqual(new_row["task_id"], "1")
+
+    # ---- Test 11: wbs_id satisfied by state.new_wbs_ids ---------------------
+
+    def test_wbs_id_satisfied_by_state(self):
+        """wbs_id not in PROJWBS but present in state.new_wbs_ids → succeeds."""
+        from xer_modify import _HANDLERS, ChangeState
+        doc = _make_doc_with_task_wbs_calendar()
+        state = ChangeState(new_wbs_ids={"8888"})
+        feedback = _HANDLERS["add_activity"](
+            doc,
+            _add_activity_change(wbs_id="8888"),
+            state,
+        )
+        new_row = doc.section("TASK").rows[-1]
+        self.assertEqual(new_row["wbs_id"], "8888")
+        self.assertIn("new_task_id", feedback)
+
+    # ---- Test 12: calendar_id satisfied by state.new_calendar_ids -----------
+
+    def test_calendar_id_satisfied_by_state(self):
+        """calendar_id not in CALENDAR but present in state.new_calendar_ids → succeeds."""
+        from xer_modify import _HANDLERS, ChangeState
+        doc = _make_doc_with_task_wbs_calendar()
+        state = ChangeState(new_calendar_ids={"777"})
+        feedback = _HANDLERS["add_activity"](
+            doc,
+            _add_activity_change(calendar_id="777"),
+            state,
+        )
+        new_row = doc.section("TASK").rows[-1]
+        self.assertEqual(new_row["clndr_id"], "777")
+        self.assertIn("new_task_id", feedback)
+
+
 class TestModifyLogic(unittest.TestCase):
     """Tests for the modify_logic change handler (D6)."""
 

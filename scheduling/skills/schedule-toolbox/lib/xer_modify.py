@@ -79,6 +79,7 @@ class ChangeState:
     later add_logic can reference an activity added earlier in the call."""
 
     new_activity_ids: set[str] = field(default_factory=set)
+    new_activity_id_map: dict[str, str] = field(default_factory=dict)
     new_calendar_ids: set[str] = field(default_factory=set)
     new_wbs_ids: set[str] = field(default_factory=set)
     removed_activity_ids: set[str] = field(default_factory=set)
@@ -162,6 +163,8 @@ def _handle_set_duration(doc, change: dict, state: ChangeState) -> dict:
         "now_on_critical_path": None,
     }
 
+
+_ACTIVITY_TYPES = {"TT_Task", "TT_Mile", "TT_FinMile", "TT_LOE", "TT_WBSSummary"}
 
 _PRED_TYPE_MAP = {
     "FS": "PR_FS",
@@ -431,6 +434,108 @@ def _handle_modify_logic(doc, change: dict, state: ChangeState) -> dict:
     taskpred.mark_dirty(i)
 
     return {
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
+@_register_handler("add_activity")
+def _handle_add_activity(doc, change: dict, state: ChangeState) -> dict:
+    spec = change.get("spec", {})
+
+    # Validation 1: TASK section must exist
+    task = doc.section("TASK")
+    if task is None:
+        raise ValidationFailure(
+            "add_activity: TASK section not found in XER document"
+        )
+
+    # Validation 2: all required spec fields must be present
+    required_fields = ("code", "name", "duration_days", "calendar_id", "wbs_id", "activity_type")
+    missing = [f for f in required_fields if f not in spec]
+    if missing:
+        raise ValidationFailure(
+            f"add_activity: missing required spec field(s): {', '.join(missing)}"
+        )
+
+    code = spec["code"]
+    name = spec["name"]
+    duration_days = spec["duration_days"]
+    calendar_id = spec["calendar_id"]
+    wbs_id = spec["wbs_id"]
+    activity_type = spec["activity_type"]
+
+    # Validation 3: task_code must be unique
+    existing_codes = {r.get("task_code") for r in task.rows}
+    if code in existing_codes or code in state.new_activity_ids:
+        raise ValidationFailure(
+            f"add_activity: task_code {code!r} already exists — duplicate activity codes are not allowed"
+        )
+
+    # Validation 4: wbs_id must exist in doc or state
+    projwbs = doc.section("PROJWBS")
+    wbs_in_doc = (
+        projwbs is not None
+        and any(r.get("wbs_id") == wbs_id for r in projwbs.rows)
+    )
+    if not wbs_in_doc and wbs_id not in state.new_wbs_ids:
+        raise ValidationFailure(
+            f"add_activity: wbs_id {wbs_id!r} not found in PROJWBS section"
+        )
+
+    # Validation 5: calendar_id must exist in doc or state
+    calendar_section = doc.section("CALENDAR")
+    cal_in_doc = (
+        calendar_section is not None
+        and any(r.get("clndr_id") == calendar_id for r in calendar_section.rows)
+    )
+    if not cal_in_doc and calendar_id not in state.new_calendar_ids:
+        raise ValidationFailure(
+            f"add_activity: calendar_id {calendar_id!r} not found in CALENDAR section"
+        )
+
+    # Validation 6: activity_type must be a known P6 enum
+    if activity_type not in _ACTIVITY_TYPES:
+        raise ValidationFailure(
+            f"add_activity: unknown activity_type {activity_type!r} — "
+            f"must be one of {sorted(_ACTIVITY_TYPES)}"
+        )
+
+    # Validation 7: duration_days must be >= 0
+    if duration_days < 0:
+        raise ValidationFailure(
+            f"add_activity: duration_days must be >= 0, got {duration_days}"
+        )
+
+    # Build the new row
+    new_task_id = str(max((int(r["task_id"]) for r in task.rows), default=0) + 1)
+    hours_str = str(int(duration_days * 8))
+
+    new_row = {f: "" for f in task.field_order}
+    new_row["task_id"] = new_task_id
+    new_row["task_code"] = code
+    new_row["task_name"] = name
+    new_row["task_type"] = activity_type
+    new_row["target_drtn_hr_cnt"] = hours_str
+    new_row["remain_drtn_hr_cnt"] = hours_str
+    new_row["clndr_id"] = calendar_id
+    new_row["wbs_id"] = wbs_id
+    new_row["proj_id"] = task.rows[0]["proj_id"] if task.rows else ""
+    new_row["status_code"] = "TK_NotStart"
+    new_row["duration_type"] = "DT_FixedDUR2"
+    new_row["complete_pct_type"] = "CP_Drtn"
+    new_row["phys_complete_pct"] = "0"
+
+    task.append_row(new_row)
+
+    # State tracking
+    state.new_activity_ids.add(code)
+    state.new_activity_id_map[code] = new_task_id
+
+    return {
+        "new_task_id": new_task_id,
         "activity_end_before": None,
         "activity_end_after": None,
         "milestone_impact_days": None,
