@@ -1912,3 +1912,566 @@ class TestRemoveActivity(unittest.TestCase):
         self.assertIn("A1020", state.removed_activity_ids)
         # A1030 is untouched
         self.assertNotIn("A1030", state.removed_activity_ids)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestDissolveActivity
+# ---------------------------------------------------------------------------
+
+def _make_dissolve_doc(
+    task_rows: list[dict],
+    taskpred_rows: list[dict],
+):
+    """Build an in-memory XerDoc with TASK and TASKPRED sections for dissolve tests.
+
+    task_rows must include at least: task_id, proj_id, task_code,
+    target_drtn_hr_cnt, remain_drtn_hr_cnt.
+    """
+    from xer_io import XerDoc, XerSection
+
+    task_field_order = [
+        "task_id", "proj_id", "task_code",
+        "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+    ]
+    taskpred_field_order = [
+        "task_pred_id", "task_id", "pred_task_id",
+        "proj_id", "pred_proj_id",
+        "pred_type", "lag_hr_cnt",
+        "comments", "float_path", "aref", "arls",
+    ]
+
+    def _raw_task(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in task_field_order)
+
+    def _raw_tp(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in taskpred_field_order)
+
+    task_section = XerSection(
+        name="TASK",
+        field_order=task_field_order,
+        rows=task_rows,
+        raw_lines=[_raw_task(r) for r in task_rows],
+        e_line=None,
+    )
+    taskpred_section = XerSection(
+        name="TASKPRED",
+        field_order=taskpred_field_order,
+        rows=taskpred_rows,
+        raw_lines=[_raw_tp(r) for r in taskpred_rows],
+        e_line=None,
+    )
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=[task_section, taskpred_section],
+    )
+
+
+def _tp_row(tpid, succ_task_id, pred_task_id, pred_type="PR_FS", lag="0"):
+    """Convenience: build a TASKPRED row dict."""
+    return {
+        "task_pred_id": tpid,
+        "task_id": succ_task_id,
+        "pred_task_id": pred_task_id,
+        "proj_id": "1",
+        "pred_proj_id": "1",
+        "pred_type": pred_type,
+        "lag_hr_cnt": lag,
+        "comments": "",
+        "float_path": "",
+        "aref": "",
+        "arls": "",
+    }
+
+
+def _task_row(task_id, task_code, drtn="16"):
+    return {
+        "task_id": task_id,
+        "proj_id": "1",
+        "task_code": task_code,
+        "target_drtn_hr_cnt": drtn,
+        "remain_drtn_hr_cnt": drtn,
+    }
+
+
+class TestDissolveActivity(unittest.TestCase):
+    """Tests for the dissolve_activity change handler (D9).
+
+    Composition rule: new_rel = pred_rel[0] + succ_rel[1]  (XZ endpoint composition).
+    Lag formula: new_lag_hr = pred_lag_hr + dissolved_drtn_hr + succ_lag_hr.
+    """
+
+    # ---- Test 1: single pred, single succ ------------------------------------
+
+    def test_single_pred_single_succ_happy_path(self):
+        """A FS→D FS→B, D duration=16h.  Dissolve D:
+        - New edge A FS→B with lag=16h created.
+        - Original A→D and D→B edges removed.
+        - D removed from TASK.
+        """
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("101", "A"),
+                _task_row("200", "D", drtn="16"),
+                _task_row("103", "B"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "200", "101", "PR_FS", "0"),  # A FS→D lag=0
+                _tp_row("2", "103", "200", "PR_FS", "0"),  # D FS→B lag=0
+            ],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+
+        # D is gone from TASK
+        task_codes = {r["task_code"] for r in task.rows}
+        self.assertNotIn("D", task_codes)
+        self.assertIn("A", task_codes)
+        self.assertIn("B", task_codes)
+
+        # Exactly one edge remains: A→B
+        self.assertEqual(len(tp.rows), 1)
+        new_edge = tp.rows[0]
+        self.assertEqual(new_edge["pred_task_id"], "101")   # A
+        self.assertEqual(new_edge["task_id"], "103")         # B
+        self.assertEqual(new_edge["pred_type"], "PR_FS")     # FS×FS → FS
+        self.assertEqual(new_edge["lag_hr_cnt"], "16")       # 0 + 16 + 0
+
+        # Feedback
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["removed_edges_count"], 2)
+        self.assertEqual(fb["new_edges_count"], 1)
+        self.assertFalse(fb["fanout_warning"])
+
+    # ---- Test 2: cartesian fanout (2 preds × 2 succs) -------------------------
+
+    def test_cartesian_fanout_two_by_two(self):
+        """A1,A2 FS→D FS→B1,B2; D duration=8h; dissolve D → 4 new edges."""
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("10", "A1"),
+                _task_row("20", "A2"),
+                _task_row("50", "D", drtn="8"),
+                _task_row("60", "B1"),
+                _task_row("70", "B2"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "50", "10", "PR_FS", "0"),   # A1 FS→D
+                _tp_row("2", "50", "20", "PR_FS", "0"),   # A2 FS→D
+                _tp_row("3", "60", "50", "PR_FS", "0"),   # D FS→B1
+                _tp_row("4", "70", "50", "PR_FS", "0"),   # D FS→B2
+            ],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), 4)
+
+        # All D-related edges gone; 4 new edges A1→B1, A1→B2, A2→B1, A2→B2
+        new_pairs = {(r["pred_task_id"], r["task_id"]) for r in tp.rows}
+        self.assertIn(("10", "60"), new_pairs)
+        self.assertIn(("10", "70"), new_pairs)
+        self.assertIn(("20", "60"), new_pairs)
+        self.assertIn(("20", "70"), new_pairs)
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_edges_count"], 4)
+        self.assertFalse(fb["fanout_warning"])
+
+    # ---- Test 3: composition table SS×FS → SS ---------------------------------
+
+    def test_composition_ss_fs_yields_ss(self):
+        """A SS→D FS→B, D duration=16h: new edge A SS→B, lag=0+16+0=16h."""
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("101", "A"),
+                _task_row("200", "D", drtn="16"),
+                _task_row("103", "B"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "200", "101", "PR_SS", "0"),  # A SS→D
+                _tp_row("2", "103", "200", "PR_FS", "0"),  # D FS→B
+            ],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), 1)
+        new_edge = tp.rows[0]
+        self.assertEqual(new_edge["pred_type"], "PR_SS")   # SS×FS → SS (S+S)
+        self.assertEqual(new_edge["lag_hr_cnt"], "16")
+
+    # ---- Test 4: all 16 composition combinations (parametrized via subTest) ---
+
+    def test_all_16_composition_combinations(self):
+        """_compose_dissolve(pred_rel, succ_rel) == pred_rel[0] + succ_rel[1] for all 16."""
+        from xer_modify import _compose_dissolve
+
+        rel_types = ["FS", "SS", "FF", "SF"]
+        expected = {
+            ("FS", "FS"): "FS",
+            ("FS", "SS"): "FS",
+            ("FS", "FF"): "FF",
+            ("FS", "SF"): "FF",
+            ("SS", "FS"): "SS",
+            ("SS", "SS"): "SS",
+            ("SS", "FF"): "SF",
+            ("SS", "SF"): "SF",
+            ("FF", "FS"): "FS",
+            ("FF", "SS"): "FS",
+            ("FF", "FF"): "FF",
+            ("FF", "SF"): "FF",
+            ("SF", "FS"): "SS",
+            ("SF", "SS"): "SS",
+            ("SF", "FF"): "SF",
+            ("SF", "SF"): "SF",
+        }
+        for pred_rel in rel_types:
+            for succ_rel in rel_types:
+                with self.subTest(pred_rel=pred_rel, succ_rel=succ_rel):
+                    result = _compose_dissolve(pred_rel, succ_rel)
+                    self.assertEqual(result, expected[(pred_rel, succ_rel)])
+
+    # ---- Test 5: 0 predecessors, N successors → no new edges -----------------
+
+    def test_zero_preds_n_succs_removes_only(self):
+        """D has 0 preds, 2 succs: dissolve removes D and its 2 succ-edges; no new edges."""
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("50", "D", drtn="8"),
+                _task_row("60", "B1"),
+                _task_row("70", "B2"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "60", "50", "PR_FS", "0"),   # D FS→B1
+                _tp_row("2", "70", "50", "PR_FS", "0"),   # D FS→B2
+            ],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), 0)
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_edges_count"], 0)
+        self.assertEqual(fb["removed_edges_count"], 2)
+        self.assertFalse(fb["fanout_warning"])
+
+    # ---- Test 6: N predecessors, 0 successors → no new edges -----------------
+
+    def test_n_preds_zero_succs_removes_only(self):
+        """D has 2 preds, 0 succs: dissolve removes D and its 2 pred-edges; no new edges."""
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("10", "A1"),
+                _task_row("20", "A2"),
+                _task_row("50", "D", drtn="8"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "50", "10", "PR_FS", "0"),   # A1 FS→D
+                _tp_row("2", "50", "20", "PR_FS", "0"),   # A2 FS→D
+            ],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), 0)
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_edges_count"], 0)
+        self.assertEqual(fb["removed_edges_count"], 2)
+
+    # ---- Test 7: 0 preds, 0 succs → just remove D ----------------------------
+
+    def test_zero_preds_zero_succs_removes_task_only(self):
+        """Isolated D: no edges, no new edges; just D removed from TASK."""
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("50", "D", drtn="8"),
+                _task_row("60", "B"),
+            ],
+            taskpred_rows=[],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        task = result.doc.section("TASK")
+        self.assertEqual(len(task.rows), 1)
+        self.assertEqual(task.rows[0]["task_code"], "B")
+
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), 0)
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_edges_count"], 0)
+        self.assertEqual(fb["removed_edges_count"], 0)
+
+    # ---- Test 8: activity not found → ValidationFailure ----------------------
+
+    def test_activity_not_found_raises(self):
+        """dissolve_activity raises ValidationFailure for unknown activity_id."""
+        doc = _make_dissolve_doc(
+            task_rows=[_task_row("101", "A")],
+            taskpred_rows=[],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "dissolve_activity", "activity_id": "ZZZZ"}],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("ZZZZ", str(ctx.exception))
+
+    # ---- Test 9: duplicate edge → ValidationFailure --------------------------
+
+    def test_duplicate_edge_raises(self):
+        """A already has FS→B in TASKPRED; dissolve D (A→D→B) would create A FS→B duplicate."""
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("101", "A"),
+                _task_row("200", "D", drtn="8"),
+                _task_row("103", "B"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "200", "101", "PR_FS", "0"),  # A FS→D
+                _tp_row("2", "103", "200", "PR_FS", "0"),  # D FS→B
+                # Pre-existing A→B edge — would be duplicated by dissolve
+                _tp_row("3", "103", "101", "PR_FS", "0"),  # A FS→B
+            ],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{"type": "dissolve_activity", "activity_id": "D"}],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("A", err)
+        self.assertIn("B", err)
+
+    # ---- Test 10: fanout warning (5×5 = 25 new edges) -------------------------
+
+    def test_fanout_warning_twenty_five_edges(self):
+        """5 preds × 5 succs = 25 new edges; fanout_warning=True."""
+        task_rows = [_task_row(str(i), f"P{i}") for i in range(1, 6)]
+        task_rows += [_task_row("50", "D", drtn="8")]
+        task_rows += [_task_row(str(i + 60), f"S{i}") for i in range(1, 6)]
+
+        # D's preds: P1-P5 → D
+        pred_rows = [_tp_row(str(i), "50", str(i), "PR_FS", "0") for i in range(1, 6)]
+        # D's succs: D → S1-S5
+        succ_rows = [_tp_row(str(i + 10), str(i + 60), "50", "PR_FS", "0") for i in range(1, 6)]
+
+        doc = _make_dissolve_doc(
+            task_rows=task_rows,
+            taskpred_rows=pred_rows + succ_rows,
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_edges_count"], 25)
+        self.assertTrue(fb["fanout_warning"])
+
+    # ---- Test 11: lag math with non-zero lags on both sides -------------------
+
+    def test_lag_math_with_lags(self):
+        """A FS+8→D (lag=8h); D duration=24h; D FS+16→B (lag=16h).
+        New lag = 8 + 24 + 16 = 48h.
+        """
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("101", "A"),
+                _task_row("200", "D", drtn="24"),
+                _task_row("103", "B"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "200", "101", "PR_FS", "8"),   # A FS+8→D
+                _tp_row("2", "103", "200", "PR_FS", "16"),  # D FS+16→B
+            ],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), 1)
+        self.assertEqual(tp.rows[0]["lag_hr_cnt"], "48")   # 8 + 24 + 16
+
+    # ---- Test 12: task_pred_id generation respects pre-removal max ------------
+
+    def test_task_pred_id_generation_respects_pre_removal_max(self):
+        """TASKPRED has IDs {1,2,3,4} where 2 and 3 reference D.
+        After dissolve with 1 new edge, new edge gets task_pred_id='5' (not 3 or 4).
+        """
+        doc = _make_dissolve_doc(
+            task_rows=[
+                _task_row("101", "A"),
+                _task_row("200", "D", drtn="8"),
+                _task_row("103", "B"),
+                _task_row("104", "C"),  # unrelated task
+            ],
+            taskpred_rows=[
+                # ID=1: unrelated edge (A→C)
+                _tp_row("1", "104", "101", "PR_FS", "0"),
+                # ID=2: A FS→D  (D as successor)
+                _tp_row("2", "200", "101", "PR_FS", "0"),
+                # ID=3: D FS→B  (D as predecessor)
+                _tp_row("3", "103", "200", "PR_FS", "0"),
+                # ID=4: unrelated edge (A→C, different type)
+                _tp_row("4", "104", "101", "PR_SS", "0"),
+            ],
+        )
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        # Original: 4 rows; 2 removed (IDs 2,3); 1 new added.
+        # Remaining rows: ID=1 (A→C FS), ID=4 (A→C SS), new edge (A→B FS).
+        self.assertEqual(len(tp.rows), 3)
+
+        # New edge should have task_pred_id = "5" (max of original {1,2,3,4} + 1)
+        new_edge = next(
+            r for r in tp.rows
+            if r["pred_task_id"] == "101" and r["task_id"] == "103"
+        )
+        self.assertEqual(new_edge["task_pred_id"], "5")
+
+    # ---- Test 13: state.removed_activity_ids populated -----------------------
+
+    def test_state_removed_activity_ids_populated(self):
+        """dissolve_activity adds the dissolved activity_id to state.removed_activity_ids."""
+        from xer_modify import _HANDLERS, ChangeState
+
+        doc = _make_dissolve_doc(
+            task_rows=[_task_row("200", "D", drtn="8")],
+            taskpred_rows=[],
+        )
+        state = ChangeState()
+        _HANDLERS["dissolve_activity"](
+            doc,
+            {"type": "dissolve_activity", "activity_id": "D"},
+            state,
+        )
+        self.assertIn("D", state.removed_activity_ids)
+
+    # ---- Test 14: TASKPRED _dirty re-indexed correctly -----------------------
+
+    def test_dirty_reindex_after_dissolve(self):
+        """5 TASKPRED rows; rows 1 and 2 reference D; rows 0 and 4 are dirty.
+        After dissolve: rows 1 and 2 removed, 1 new row appended.
+        Surviving rows are originals [0,3,4] at new indices [0,1,2].
+        Original dirty {0,4} → new dirty {0,2}; appended new row is also dirty.
+        """
+        from xer_io import XerDoc, XerSection
+
+        task_field_order = [
+            "task_id", "proj_id", "task_code",
+            "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+        ]
+        taskpred_field_order = [
+            "task_pred_id", "task_id", "pred_task_id",
+            "proj_id", "pred_proj_id",
+            "pred_type", "lag_hr_cnt",
+            "comments", "float_path", "aref", "arls",
+        ]
+
+        def _raw_task(r):
+            return "%R\t" + "\t".join(r.get(f, "") for f in task_field_order)
+
+        def _raw_tp(r):
+            return "%R\t" + "\t".join(r.get(f, "") for f in taskpred_field_order)
+
+        task_rows = [
+            _task_row("101", "A"),
+            _task_row("200", "D", drtn="8"),
+            _task_row("103", "B"),
+            _task_row("104", "C"),
+        ]
+        tp_rows = [
+            _tp_row("1", "104", "101", "PR_FS", "0"),  # idx 0: A→C (unrelated)
+            _tp_row("2", "200", "101", "PR_FS", "0"),  # idx 1: A→D  (D as succ)
+            _tp_row("3", "103", "200", "PR_FS", "0"),  # idx 2: D→B  (D as pred)
+            _tp_row("4", "103", "101", "PR_SS", "0"),  # idx 3: A→B SS (unrelated)
+            _tp_row("5", "104", "103", "PR_FS", "0"),  # idx 4: B→C (unrelated)
+        ]
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=task_field_order,
+            rows=task_rows,
+            raw_lines=[_raw_task(r) for r in task_rows],
+            e_line=None,
+        )
+        taskpred_section = XerSection(
+            name="TASKPRED",
+            field_order=taskpred_field_order,
+            rows=tp_rows,
+            raw_lines=[_raw_tp(r) for r in tp_rows],
+            e_line=None,
+        )
+        # Pre-seed dirty: original rows 0 and 4
+        taskpred_section._dirty = {0, 4}
+
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section, taskpred_section],
+        )
+
+        apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+
+        tp = doc.section("TASKPRED")
+        # Rows removed: idx 1 (A→D) and idx 2 (D→B); 1 new row appended (A→B FS).
+        # Final rows: A→C(FS), A→B(SS), B→C, A→B(FS) — 4 rows total
+        self.assertEqual(len(tp.rows), 4)
+
+        # Original idx 0 (A→C FS) → new idx 0; dirty stays at 0
+        # Original idx 3 (A→B SS) → new idx 1; was not dirty
+        # Original idx 4 (B→C) → new idx 2; dirty was 4 → now 2
+        # Appended row → new idx 3; always dirty
+        self.assertIn(0, tp._dirty)       # original row 0
+        self.assertIn(2, tp._dirty)       # original row 4 → shifted to 2
+        self.assertTrue(tp.is_dirty(3))   # newly appended row (no raw_lines entry)

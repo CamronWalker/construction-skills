@@ -173,6 +173,34 @@ _PRED_TYPE_MAP = {
     "SF": "PR_SF",
 }
 
+# Reverse map used by dissolve_activity to convert the XER pred_type token back
+# to the two-character short form before composition.
+_INVERSE_PRED_TYPE_MAP = {v: k for k, v in _PRED_TYPE_MAP.items()}
+
+
+def _compose_dissolve(pred_rel: str, succ_rel: str) -> str:
+    """Return the composed relationship type when an activity is dissolved.
+
+    P6 dissolve composition rule: take the predecessor-endpoint (first character
+    of pred_rel) and the successor-endpoint (second character of succ_rel).
+
+        new_rel = pred_rel[0] + succ_rel[1]
+
+    The dissolved activity's interior endpoints (pred_rel[1] and succ_rel[0])
+    are absorbed into the lag formula (pred_lag + dissolved_duration + succ_lag).
+
+    Full 16-combination table:
+        FS×FS→FS  FS×SS→FS  FS×FF→FF  FS×SF→FF
+        SS×FS→SS  SS×SS→SS  SS×FF→SF  SS×SF→SF
+        FF×FS→FS  FF×SS→FS  FF×FF→FF  FF×SF→FF
+        SF×FS→SS  SF×SS→SS  SF×FF→SF  SF×SF→SF
+
+    Note: the plan's illustrative "FS×SS→SS" example was almost certainly a typo;
+    FS×SS → "F"+"S" = FS under this rule, which is information-preserving and
+    consistent with the lag formula.  The rule above is used throughout.
+    """
+    return pred_rel[0] + succ_rel[1]
+
 
 @_register_handler("add_logic")
 def _handle_add_logic(doc, change: dict, state: ChangeState) -> dict:
@@ -616,6 +644,226 @@ def _handle_remove_activity(doc, change: dict, state: ChangeState) -> dict:
     return {
         "removed_task_id": removed_task_id,
         "removed_edges_count": removed_edges_count,
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
+@_register_handler("dissolve_activity")
+def _handle_dissolve_activity(doc, change: dict, state: ChangeState) -> dict:
+    """Remove an activity and re-wire its predecessors directly to its successors.
+
+    For each (pred, succ) pair in the cartesian product of the dissolved
+    activity's predecessors × successors, inserts a new direct edge:
+
+        pred -<composed_rel>+<combined_lag>-> succ
+
+    Composition rule (XZ endpoint composition):
+        new_rel = pred_to_D_rel[0] + D_to_succ_rel[1]
+
+    Lag formula:
+        new_lag_hr = pred_to_D_lag_hr + dissolved_target_drtn_hr + D_to_succ_lag_hr
+
+    Edge cases:
+    - 0 preds OR 0 succs: remove the activity and its edges; no new edges created.
+    - Self-loop guard: if pred task_id == succ task_id, skip that cartesian pair.
+    - Duplicate guard: if the composed new edge would duplicate an existing
+      (pred, succ, rel) triple in TASKPRED, raise ValidationFailure (strict, mirrors
+      add_logic behaviour — caller should use remove_logic + add_logic if different
+      behaviour is needed).
+    - Fanout warning: if N*M > 20, feedback['fanout_warning'] = True; no error raised.
+
+    Returns a feedback dict with keys:
+        removed_task_id, removed_edges_count, new_edges_count,
+        fanout_warning, activity_end_before, activity_end_after,
+        milestone_impact_days, now_on_critical_path.
+    """
+    activity_id = change["activity_id"]
+
+    # --- Locate the TASK row for the dissolved activity -----------------------
+    task = doc.section("TASK")
+    if task is None:
+        raise ValidationFailure(
+            "dissolve_activity: TASK section not found in XER document"
+        )
+
+    task_row_index = None
+    dissolved_task_id = None
+    dissolved_drtn_hr = 0
+
+    for i, row in enumerate(task.rows):
+        if row.get("task_code") == activity_id:
+            task_row_index = i
+            dissolved_task_id = row["task_id"]
+            try:
+                dissolved_drtn_hr = int(row.get("target_drtn_hr_cnt") or "0")
+            except ValueError:
+                dissolved_drtn_hr = 0
+            break
+
+    if task_row_index is None:
+        raise ValidationFailure(
+            f"dissolve_activity: activity_id {activity_id!r} not found in TASK section"
+        )
+
+    # --- Collect predecessor and successor edges from TASKPRED ----------------
+    taskpred = doc.section("TASKPRED")
+    pred_edges: list[dict] = []  # edges where D is the successor (task_id == D)
+    succ_edges: list[dict] = []  # edges where D is the predecessor (pred_task_id == D)
+
+    if taskpred is not None:
+        for row in taskpred.rows:
+            if row.get("task_id") == dissolved_task_id:
+                pred_edges.append(row)
+            elif row.get("pred_task_id") == dissolved_task_id:
+                succ_edges.append(row)
+
+    # --- Read max task_pred_id BEFORE any removal ----------------------------
+    # Step 1 of the task_pred_id sequencing contract: snapshot max now so that
+    # the IDs we generate don't collide with the rows we are about to remove.
+    if taskpred is not None and taskpred.rows:
+        max_task_pred_id = max(int(r["task_pred_id"]) for r in taskpred.rows)
+    else:
+        max_task_pred_id = 0
+
+    # --- Compute new edges (cartesian product) --------------------------------
+    new_edge_specs: list[tuple[str, str, str, str]] = []
+    # Each entry: (pred_task_id, succ_task_id, p6_pred_type, lag_hr_str)
+
+    if pred_edges and succ_edges:
+        # Build a snapshot of existing (pred, succ, type) triples for dup check.
+        # We include all current TASKPRED rows; after removal the D-edges will be
+        # gone, but the remaining edges are what we must avoid duplicating against.
+        # Exclude D's own edges from the dup-check set since they will be removed.
+        d_edge_ids = {r["task_pred_id"] for r in pred_edges + succ_edges}
+        existing_triples: set[tuple[str, str, str]] = set()
+        if taskpred is not None:
+            for row in taskpred.rows:
+                if row["task_pred_id"] not in d_edge_ids:
+                    existing_triples.add((
+                        row["pred_task_id"],
+                        row["task_id"],
+                        row["pred_type"],
+                    ))
+
+        for pred_edge in pred_edges:
+            for succ_edge in succ_edges:
+                p_task_id = pred_edge["pred_task_id"]
+                s_task_id = succ_edge["task_id"]
+
+                # Self-loop guard
+                if p_task_id == s_task_id:
+                    continue
+
+                # Compose relationship type
+                pred_short = _INVERSE_PRED_TYPE_MAP.get(pred_edge["pred_type"], "FS")
+                succ_short = _INVERSE_PRED_TYPE_MAP.get(succ_edge["pred_type"], "FS")
+                composed_short = _compose_dissolve(pred_short, succ_short)
+                p6_composed = _PRED_TYPE_MAP[composed_short]
+
+                # Compute combined lag
+                try:
+                    pred_lag = int(pred_edge.get("lag_hr_cnt") or "0")
+                except ValueError:
+                    pred_lag = 0
+                try:
+                    succ_lag = int(succ_edge.get("lag_hr_cnt") or "0")
+                except ValueError:
+                    succ_lag = 0
+                new_lag_hr = pred_lag + dissolved_drtn_hr + succ_lag
+
+                # Duplicate edge check (strict — raise, do not skip)
+                triple = (p_task_id, s_task_id, p6_composed)
+                if triple in existing_triples:
+                    # Identify human-readable codes for the error message
+                    pred_code = next(
+                        (r["task_code"] for r in task.rows if r["task_id"] == p_task_id),
+                        p_task_id,
+                    )
+                    succ_code = next(
+                        (r["task_code"] for r in task.rows if r["task_id"] == s_task_id),
+                        s_task_id,
+                    )
+                    raise ValidationFailure(
+                        f"dissolve_activity: dissolving {activity_id!r} would create a "
+                        f"duplicate relationship ({pred_code!r} → {succ_code!r}, "
+                        f"{composed_short!r}) — already exists in TASKPRED"
+                    )
+
+                new_edge_specs.append((p_task_id, s_task_id, p6_composed, str(new_lag_hr)))
+                # Register in the dup-check set so later cartesian pairs also see it
+                existing_triples.add(triple)
+
+    # --- Remove the dissolved activity's TASK row and all its edges -----------
+    # (mirrors _handle_remove_activity logic exactly)
+
+    # Remove TASK row
+    task.rows.pop(task_row_index)
+    if task.raw_lines is not None:
+        task.raw_lines.pop(task_row_index)
+    task._dirty = {
+        d - 1 if d > task_row_index else d
+        for d in task._dirty
+        if d != task_row_index
+    }
+
+    removed_edges_count = 0
+    if taskpred is not None:
+        taskpred_indices_to_remove = [
+            i for i, row in enumerate(taskpred.rows)
+            if row.get("pred_task_id") == dissolved_task_id
+            or row.get("task_id") == dissolved_task_id
+        ]
+        removed_edges_count = len(taskpred_indices_to_remove)
+
+        for i in sorted(taskpred_indices_to_remove, reverse=True):
+            taskpred.rows.pop(i)
+            if taskpred.raw_lines is not None:
+                taskpred.raw_lines.pop(i)
+
+        removed_set = set(taskpred_indices_to_remove)
+        new_dirty: set[int] = set()
+        for d in taskpred._dirty:
+            if d in removed_set:
+                continue
+            shift = sum(1 for r in removed_set if r < d)
+            new_dirty.add(d - shift)
+        taskpred._dirty = new_dirty
+
+    # --- Append new edges to TASKPRED -----------------------------------------
+    if new_edge_specs and taskpred is not None:
+        # Determine proj_ids from the TASK rows (best-effort; fall back to "")
+        task_proj_map: dict[str, str] = {
+            row["task_id"]: row.get("proj_id", "")
+            for row in task.rows
+        }
+
+        next_id = max_task_pred_id
+        for (p_task_id, s_task_id, p6_type, lag_hr_str) in new_edge_specs:
+            next_id += 1
+            new_row = {f: "" for f in taskpred.field_order}
+            new_row["task_pred_id"] = str(next_id)
+            new_row["task_id"] = s_task_id
+            new_row["pred_task_id"] = p_task_id
+            new_row["proj_id"] = task_proj_map.get(s_task_id, "")
+            new_row["pred_proj_id"] = task_proj_map.get(p_task_id, "")
+            new_row["pred_type"] = p6_type
+            new_row["lag_hr_cnt"] = lag_hr_str
+            taskpred.append_row(new_row)
+
+    # --- State and feedback ---------------------------------------------------
+    state.removed_activity_ids.add(activity_id)
+
+    new_edges_count = len(new_edge_specs)
+    fanout_warning = new_edges_count > 20
+
+    return {
+        "removed_task_id": dissolved_task_id,
+        "removed_edges_count": removed_edges_count,
+        "new_edges_count": new_edges_count,
+        "fanout_warning": fanout_warning,
         "activity_end_before": None,
         "activity_end_after": None,
         "milestone_impact_days": None,
