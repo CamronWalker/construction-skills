@@ -187,6 +187,28 @@ class CpmCache:
         self._put(xer_path, key, {"doc": doc})
         return doc
 
+    def put_doc(self, path: str, doc: XerDoc, cpm: "tuple[list[dict], dict] | None" = None) -> None:
+        """Insert (or replace) a freshly-produced doc into the cache under str(path).
+
+        Used by write-path tools (apply_xer_changes, fix_duplicate_activity_ids,
+        create_xer_from_template) to expose the just-written output to subsequent
+        get_parsed / get_cpm calls without re-reading from disk.
+
+        The CacheKey is built by calling _safe_key, which reads the file from
+        disk (two stat calls, 100ms apart) to confirm the write has landed and
+        the file is stable.  Call this only after xer_io.write() has returned.
+
+        cpm: optional pre-computed CPM result tuple (results, metadata) from
+            schedule_forward_backward.  If None, CPM is computed lazily on the
+            first get_cpm call.  Lazy is preferred by the apply_xer_changes
+            wrapper (D18 spec decision) to avoid a redundant CPM pass.
+        """
+        key = self._safe_key(path)
+        payload: dict = {"doc": doc}
+        if cpm is not None:
+            payload["cpm"] = cpm
+        self._put(str(path), key, payload)
+
     def invalidate(self, xer_path: str) -> bool:
         """Drop the cache entry for this path. Returns True if an entry was
         removed, False if there was nothing to drop."""

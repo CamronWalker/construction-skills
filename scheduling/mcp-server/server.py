@@ -17,6 +17,7 @@ from tools import (  # noqa: E402
     structure,
     update_analytics,
     update_review,
+    xer_modify,
     xer_validate,
 )
 
@@ -40,6 +41,7 @@ update_review.register(mcp, _cache)
 compare.register(mcp, _cache)
 omnibus.register(mcp, _cache)
 xer_validate.register(mcp, _cache)
+xer_modify.register(mcp, _cache)
 
 
 if __name__ == "__main__":
