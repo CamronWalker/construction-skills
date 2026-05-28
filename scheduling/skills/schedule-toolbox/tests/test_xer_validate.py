@@ -296,6 +296,24 @@ class TestCircularLogic(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].code, "CIRCULAR_LOGIC")
 
+    def test_deep_linear_chain_no_recursion_error(self):
+        """A chain of 2 000 activities must not raise RecursionError.
+
+        Python's default recursion limit is 1 000 frames; a naive recursive
+        DFS would crash on any schedule whose critical path is longer than
+        ~900 activities — common on large commercial projects.
+        """
+        from xer_validate import _check_circular_logic
+        n = 2000
+        tasks = [_make_task(str(i), task_code=f"A{i:04d}") for i in range(n)]
+        preds = [
+            _make_pred(str(i), str(i), str(i + 1))
+            for i in range(n - 1)
+        ]
+        doc = _make_doc({"TASK": tasks, "TASKPRED": preds})
+        issues = _check_circular_logic(doc)
+        self.assertEqual(issues, [], "Linear chain should have no cycles")
+
 
 class TestSelfLoops(unittest.TestCase):
     def test_detects_self_loop(self):

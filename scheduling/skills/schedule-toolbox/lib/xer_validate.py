@@ -136,9 +136,11 @@ def _check_dangling_calendars(doc) -> list[ValidationIssue]:
 def _check_circular_logic(doc) -> list[ValidationIssue]:
     """DFS cycle detection on the TASKPRED graph.
 
-    Builds a predecessor->successor adjacency map, then runs a three-color
-    (white/gray/black) DFS.  Each detected cycle is reported once with the
-    cycle path as ``affected``.
+    Builds a predecessor->successor adjacency map, then runs an iterative
+    three-color (white/gray/black) DFS.  Using an explicit call-stack avoids
+    Python's recursion limit on large schedules (real projects can have
+    predecessor chains longer than 1 000 activities).  Each detected cycle is
+    reported once with the cycle path as ``affected``.
     """
     pred_sec = doc.section("TASKPRED")
     task_sec = doc.section("TASK")
@@ -157,18 +159,39 @@ def _check_circular_logic(doc) -> list[ValidationIssue]:
 
     WHITE, GRAY, BLACK = 0, 1, 2
     color: dict[str, int] = {n: WHITE for n in all_nodes}
-    stack_path: list[str] = []
     issues: list[ValidationIssue] = []
     reported_cycles: set[frozenset] = set()
 
-    def dfs(node: str) -> None:
-        color[node] = GRAY
-        stack_path.append(node)
-        for nbr in adj.get(node, []):
-            if color.get(nbr, WHITE) == GRAY:
-                # Found a back-edge: extract cycle from stack
-                idx = stack_path.index(nbr)
-                cycle = stack_path[idx:]
+    # Iterative DFS using an explicit frame stack.
+    # Each frame is (node, iterator-over-neighbours, path-snapshot-length).
+    # We maintain a path list in parallel to detect back-edges.
+    for start in list(all_nodes):
+        if color.get(start, WHITE) != WHITE:
+            continue
+
+        path: list[str] = []
+        # Stack entries: (node, neighbour_iterator)
+        # On first visit push with a fresh iterator; on re-entry continue it.
+        call_stack: list[tuple[str, object]] = [(start, iter(adj.get(start, [])))]
+        color[start] = GRAY
+        path.append(start)
+
+        while call_stack:
+            node, nbr_iter = call_stack[-1]
+            try:
+                nbr = next(nbr_iter)
+            except StopIteration:
+                # All neighbours visited — node is done.
+                color[node] = BLACK
+                path.pop()
+                call_stack.pop()
+                continue
+
+            c = color.get(nbr, WHITE)
+            if c == GRAY:
+                # Back-edge: nbr is on the current path — cycle found.
+                idx = path.index(nbr)
+                cycle = path[idx:]
                 key = frozenset(cycle)
                 if key not in reported_cycles:
                     reported_cycles.add(key)
@@ -180,14 +203,10 @@ def _check_circular_logic(doc) -> list[ValidationIssue]:
                         message=f"Circular relationship detected: {cycle_str}",
                         affected=list(cycle),
                     ))
-            elif color.get(nbr, WHITE) == WHITE:
-                dfs(nbr)
-        stack_path.pop()
-        color[node] = BLACK
-
-    for node in list(all_nodes):
-        if color.get(node, WHITE) == WHITE:
-            dfs(node)
+            elif c == WHITE:
+                color[nbr] = GRAY
+                path.append(nbr)
+                call_stack.append((nbr, iter(adj.get(nbr, []))))
 
     return issues
 
