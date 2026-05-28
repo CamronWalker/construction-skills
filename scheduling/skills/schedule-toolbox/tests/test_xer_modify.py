@@ -3886,3 +3886,375 @@ class TestRemoveWbs(unittest.TestCase):
         projwbs = result.doc.section("PROJWBS")
         self.assertEqual(len(projwbs.rows), 1)
         self.assertEqual(projwbs.rows[0]["wbs_id"], "10")
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestModifyWbs
+# ---------------------------------------------------------------------------
+
+
+def _modify_wbs_change(wbs_id: str, **kwargs):
+    """Return a modify_wbs change record.
+
+    wbs_id is required.  Any of new_wbs_code, new_wbs_name,
+    new_parent_wbs_id, new_wbs_short_name may be supplied via kwargs.
+    """
+    return {"type": "modify_wbs", "wbs_id": wbs_id, **kwargs}
+
+
+class TestModifyWbs(unittest.TestCase):
+    """Tests for the modify_wbs change handler (D13)."""
+
+    # _make_doc_with_wbs_tree builds:
+    #   wbs_id="10"  parent=""    root
+    #   wbs_id="20"  parent="10"  child-A  (wbs_code absent unless added)
+    #   wbs_id="30"  parent="10"  child-B
+    #   wbs_id="40"  parent="20"  grandchild
+
+    # ---- Test 1: modify name only --------------------------------------------
+
+    def test_modify_name_only(self):
+        """new_wbs_name updates wbs_name; other fields untouched; row is dirty."""
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20", new_wbs_name="Renamed Child A")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        projwbs = result.doc.section("PROJWBS")
+        row = next(r for r in projwbs.rows if r["wbs_id"] == "20")
+        self.assertEqual(row["wbs_name"], "Renamed Child A")
+        # parent untouched
+        self.assertEqual(row["parent_wbs_id"], "10")
+        # dirty
+        idx = projwbs.rows.index(row)
+        self.assertTrue(projwbs.is_dirty(idx))
+        # feedback
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["wbs_id"], "20")
+        self.assertIn("wbs_name", fb["fields_changed"])
+        self.assertNotIn("wbs_code", fb["fields_changed"])
+
+    # ---- Test 2: modify code only -------------------------------------------
+
+    def test_modify_code_only(self):
+        """new_wbs_code updates wbs_code and row is dirty."""
+        # Add wbs_code field to the existing tree fixture
+        doc = _make_doc_with_wbs_tree()
+        projwbs = doc.section("PROJWBS")
+        projwbs.field_order.append("wbs_code")
+        for row in projwbs.rows:
+            row.setdefault("wbs_code", "")
+        projwbs.rows[1]["wbs_code"] = "OLD-CODE"   # wbs_id="20"
+
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20", new_wbs_code="NEW-CODE")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        row = next(r for r in result.doc.section("PROJWBS").rows if r["wbs_id"] == "20")
+        self.assertEqual(row["wbs_code"], "NEW-CODE")
+        idx = result.doc.section("PROJWBS").rows.index(row)
+        self.assertTrue(result.doc.section("PROJWBS").is_dirty(idx))
+        fb = result.per_change_feedback[0].feedback
+        self.assertIn("wbs_code", fb["fields_changed"])
+
+    # ---- Test 3: modify parent only -----------------------------------------
+
+    def test_modify_parent_only(self):
+        """new_parent_wbs_id reparents the WBS node."""
+        doc = _make_doc_with_wbs_tree()
+        # Move grandchild ("40", parent="20") to child-B ("30")
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("40", new_parent_wbs_id="30")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        row = next(r for r in result.doc.section("PROJWBS").rows if r["wbs_id"] == "40")
+        self.assertEqual(row["parent_wbs_id"], "30")
+        fb = result.per_change_feedback[0].feedback
+        self.assertIn("parent_wbs_id", fb["fields_changed"])
+
+    # ---- Test 4: modify short_name only -------------------------------------
+
+    def test_modify_short_name_only(self):
+        """new_wbs_short_name updates wbs_short_name field."""
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20", new_wbs_short_name="XY")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        row = next(r for r in result.doc.section("PROJWBS").rows if r["wbs_id"] == "20")
+        self.assertEqual(row["wbs_short_name"], "XY")
+        fb = result.per_change_feedback[0].feedback
+        self.assertIn("wbs_short_name", fb["fields_changed"])
+
+    # ---- Test 5: modify multiple fields at once -----------------------------
+
+    def test_modify_multiple_fields(self):
+        """All four new_* fields provided; all updated; fields_changed lists all four."""
+        doc = _make_doc_with_wbs_tree()
+        projwbs = doc.section("PROJWBS")
+        projwbs.field_order.append("wbs_code")
+        for row in projwbs.rows:
+            row.setdefault("wbs_code", "")
+
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change(
+                "40",
+                new_wbs_code="GC-NEW",
+                new_wbs_name="Grandchild Renamed",
+                new_parent_wbs_id="30",
+                new_wbs_short_name="GR",
+            )],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        row = next(r for r in result.doc.section("PROJWBS").rows if r["wbs_id"] == "40")
+        self.assertEqual(row["wbs_code"], "GC-NEW")
+        self.assertEqual(row["wbs_name"], "Grandchild Renamed")
+        self.assertEqual(row["parent_wbs_id"], "30")
+        self.assertEqual(row["wbs_short_name"], "GR")
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(set(fb["fields_changed"]),
+                         {"wbs_code", "wbs_name", "parent_wbs_id", "wbs_short_name"})
+
+    # ---- Test 6: no new_* fields → ValidationFailure -------------------------
+
+    def test_no_fields_raises(self):
+        """modify_wbs with no new_* fields is a caller bug → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_modify_wbs_change("20")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("modify_wbs", err)
+
+    # ---- Test 7: wbs_id not found → ValidationFailure -----------------------
+
+    def test_wbs_id_not_found_raises(self):
+        """wbs_id that does not exist in PROJWBS → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_modify_wbs_change("9999", new_wbs_name="X")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("9999", err)
+
+    # ---- Test 8: new_wbs_code collides with another row → ValidationFailure --
+
+    def test_new_wbs_code_collision_raises(self):
+        """new_wbs_code already in use by a different row → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        projwbs = doc.section("PROJWBS")
+        projwbs.field_order.append("wbs_code")
+        for row in projwbs.rows:
+            row.setdefault("wbs_code", "")
+        # wbs_id="20" has code "CODE-A"; wbs_id="30" has code "CODE-B"
+        projwbs.rows[1]["wbs_code"] = "CODE-A"   # wbs_id="20"
+        projwbs.rows[2]["wbs_code"] = "CODE-B"   # wbs_id="30"
+
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                # Try to rename "20" to use the code already belonging to "30"
+                [_modify_wbs_change("20", new_wbs_code="CODE-B")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("CODE-B", err)
+
+    # ---- Test 9: new_wbs_code same as existing — not a collision -------------
+
+    def test_new_wbs_code_same_as_existing_succeeds(self):
+        """Setting new_wbs_code to the row's current value is a no-op; not a collision."""
+        doc = _make_doc_with_wbs_tree()
+        projwbs = doc.section("PROJWBS")
+        projwbs.field_order.append("wbs_code")
+        for row in projwbs.rows:
+            row.setdefault("wbs_code", "")
+        projwbs.rows[1]["wbs_code"] = "SAME-CODE"   # wbs_id="20"
+
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20", new_wbs_code="SAME-CODE")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        row = next(r for r in result.doc.section("PROJWBS").rows if r["wbs_id"] == "20")
+        self.assertEqual(row["wbs_code"], "SAME-CODE")
+
+    # ---- Test 10: new_parent_wbs_id not found → ValidationFailure -----------
+
+    def test_new_parent_wbs_id_not_found_raises(self):
+        """new_parent_wbs_id not in PROJWBS and not in state.new_wbs_ids → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_modify_wbs_change("40", new_parent_wbs_id="8888")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("8888", err)
+
+    # ---- Test 11: new_parent_wbs_id satisfied by state.new_wbs_ids ----------
+
+    def test_new_parent_satisfied_by_state(self):
+        """new_parent_wbs_id in state.new_wbs_ids (added by preceding add_wbs) succeeds."""
+        from xer_modify import _HANDLERS, ChangeState
+        doc = _make_doc_with_wbs_tree()
+        state = ChangeState(new_wbs_ids={"999"})
+        feedback = _HANDLERS["modify_wbs"](
+            doc,
+            _modify_wbs_change("40", new_parent_wbs_id="999"),
+            state,
+        )
+        row = next(r for r in doc.section("PROJWBS").rows if r["wbs_id"] == "40")
+        self.assertEqual(row["parent_wbs_id"], "999")
+        self.assertIn("parent_wbs_id", feedback["fields_changed"])
+
+    # ---- Test 12: cycle — self-loop (new_parent == target) → ValidationFailure
+
+    def test_cycle_self_loop_raises(self):
+        """Setting new_parent_wbs_id to the node's own wbs_id → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_modify_wbs_change("20", new_parent_wbs_id="20")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("cycle", err.lower())
+
+    # ---- Test 13: cycle — direct child as new parent → ValidationFailure ----
+
+    def test_cycle_direct_child_raises(self):
+        """Reparenting root ("10") under its direct child ("20") → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                # "10" is parent of "20"; making "20" the parent of "10" = cycle
+                [_modify_wbs_change("10", new_parent_wbs_id="20")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("cycle", err.lower())
+
+    # ---- Test 14: cycle — grandchild as new parent → ValidationFailure ------
+
+    def test_cycle_grandchild_raises(self):
+        """Reparenting root ("10") under its grandchild ("40") → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        # Tree: 10→20→40; trying to make 40 the parent of 10 creates a cycle
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_modify_wbs_change("10", new_parent_wbs_id="40")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("cycle", err.lower())
+
+    # ---- Test 15: no cycle when new parent is sibling → succeeds -------------
+
+    def test_no_cycle_sibling_reparent_succeeds(self):
+        """Reparenting grandchild ("40") under sibling child-B ("30") — no cycle."""
+        doc = _make_doc_with_wbs_tree()
+        # "40" is under "20"; "30" is a sibling of "20" (both under "10")
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("40", new_parent_wbs_id="30")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        row = next(r for r in result.doc.section("PROJWBS").rows if r["wbs_id"] == "40")
+        self.assertEqual(row["parent_wbs_id"], "30")
+
+    # ---- Test 16: new_wbs_short_name too short → ValidationFailure ----------
+
+    def test_short_name_too_short_raises(self):
+        """new_wbs_short_name='X' (1 char) → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_modify_wbs_change("20", new_wbs_short_name="X")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("wbs_short_name", err)
+
+    # ---- Test 17: missing PROJWBS section → ValidationFailure ---------------
+
+    def test_no_projwbs_section_raises(self):
+        """Doc with no PROJWBS section raises ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "task_code"],
+            rows=[{"task_id": "1", "task_code": "A1010"}],
+            raw_lines=["%R\t1\tA1010"],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_modify_wbs_change("10", new_wbs_name="X")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("PROJWBS", str(ctx.exception))
+
+    # ---- Test 18: feedback shape — fields_changed exact match ---------------
+
+    def test_feedback_fields_changed_exact(self):
+        """fields_changed reflects exactly the new_* fields that were provided."""
+        doc = _make_doc_with_wbs_tree()
+        # Provide only new_wbs_name and new_wbs_short_name
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20", new_wbs_name="X Y", new_wbs_short_name="XY")],
+            strict=False,
+            dry_run=False,
+        )
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["wbs_id"], "20")
+        self.assertEqual(set(fb["fields_changed"]), {"wbs_name", "wbs_short_name"})
+        self.assertNotIn("wbs_code", fb["fields_changed"])
+        self.assertNotIn("parent_wbs_id", fb["fields_changed"])

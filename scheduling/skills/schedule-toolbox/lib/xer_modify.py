@@ -1319,6 +1319,169 @@ def _handle_remove_wbs(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
+def _would_create_wbs_cycle(
+    projwbs,
+    candidate_parent_id: str,
+    target_wbs_id: str,
+) -> bool:
+    """Return True if making candidate_parent_id the parent of target_wbs_id creates a cycle.
+
+    Walks up candidate_parent's ancestor chain; if we encounter target_wbs_id, it's
+    a cycle (target is an ancestor of candidate_parent, so candidate_parent is a
+    descendant of target — making target a child of its own descendant closes the loop).
+
+    Also returns True on self-loop (candidate_parent_id == target_wbs_id).
+    """
+    current = candidate_parent_id
+    visited: set[str] = set()
+    while current:
+        if current == target_wbs_id:
+            return True
+        if current in visited:
+            # Existing cycle in the tree — defensive guard
+            return True
+        visited.add(current)
+        # Find the row with wbs_id == current to get its parent
+        parent = None
+        for r in projwbs.rows:
+            if r.get("wbs_id") == current:
+                parent = r.get("parent_wbs_id", "")
+                break
+        if parent is None:
+            # current not in PROJWBS rows — it may be a newly added WBS whose row
+            # was appended by a preceding add_wbs in the same call.  The spec says
+            # state.new_wbs_ids only tracks IDs, not parent links.  Since we cannot
+            # walk further, break conservatively (no cycle detected so far).
+            break
+        current = parent
+    return False
+
+
+@_register_handler("modify_wbs")
+def _handle_modify_wbs(doc, change: dict, state: ChangeState) -> dict:
+    """Update fields on an existing PROJWBS row.
+
+    Supported fields (all optional, but at least one required):
+        new_wbs_code         — must not collide with any OTHER row's wbs_code
+        new_wbs_name         — free text
+        new_parent_wbs_id    — must exist in PROJWBS or state.new_wbs_ids; must
+                               not create a WBS cycle
+        new_wbs_short_name   — must be >= 2 characters
+
+    Returns:
+        {"wbs_id": <str>, "fields_changed": [<field_name>, ...]}
+    """
+    wbs_id = change.get("wbs_id", "")
+    new_wbs_code = change.get("new_wbs_code")
+    new_wbs_name = change.get("new_wbs_name")
+    new_parent_wbs_id = change.get("new_parent_wbs_id")
+    new_wbs_short_name = change.get("new_wbs_short_name")
+
+    # Validation 1: at least one new_* field
+    if (new_wbs_code is None
+            and new_wbs_name is None
+            and new_parent_wbs_id is None
+            and new_wbs_short_name is None):
+        raise ValidationFailure(
+            "modify_wbs: at least one of new_wbs_code, new_wbs_name, "
+            "new_parent_wbs_id, or new_wbs_short_name must be provided"
+        )
+
+    # Validation 2: PROJWBS section must exist
+    projwbs = doc.section("PROJWBS")
+    if projwbs is None:
+        raise ValidationFailure(
+            "modify_wbs: PROJWBS section not found in XER document"
+        )
+
+    # Validation 3: wbs_id must exist in PROJWBS
+    row_index = None
+    for i, row in enumerate(projwbs.rows):
+        if row.get("wbs_id") == wbs_id:
+            row_index = i
+            break
+
+    if row_index is None:
+        raise ValidationFailure(
+            f"modify_wbs: wbs_id {wbs_id!r} not found in PROJWBS section"
+        )
+
+    target_row = projwbs.rows[row_index]
+
+    # Validation 4: new_wbs_code uniqueness (exempt own row from the check)
+    if new_wbs_code is not None:
+        current_code = target_row.get("wbs_code", "")
+        if new_wbs_code != current_code:
+            for i, row in enumerate(projwbs.rows):
+                if i == row_index:
+                    continue
+                if row.get("wbs_code") == new_wbs_code:
+                    raise ValidationFailure(
+                        f"modify_wbs: new_wbs_code {new_wbs_code!r} already exists "
+                        f"in PROJWBS (wbs_id={row.get('wbs_id')!r})"
+                    )
+
+    # Validation 5: new_parent_wbs_id checks
+    if new_parent_wbs_id is not None:
+        # 5a: self-loop
+        if new_parent_wbs_id == wbs_id:
+            raise ValidationFailure(
+                f"modify_wbs: new_parent_wbs_id {new_parent_wbs_id!r} equals the "
+                f"target wbs_id — a WBS node cannot be its own parent (cycle)"
+            )
+
+        # 5b: parent must exist
+        parent_in_doc = any(
+            r.get("wbs_id") == new_parent_wbs_id for r in projwbs.rows
+        )
+        if not parent_in_doc and new_parent_wbs_id not in state.new_wbs_ids:
+            raise ValidationFailure(
+                f"modify_wbs: new_parent_wbs_id {new_parent_wbs_id!r} not found "
+                f"in PROJWBS section"
+            )
+
+        # 5c: cycle check — candidate_parent must not be a descendant of target
+        if _would_create_wbs_cycle(projwbs, new_parent_wbs_id, wbs_id):
+            raise ValidationFailure(
+                f"modify_wbs: setting parent of {wbs_id!r} to "
+                f"{new_parent_wbs_id!r} would create a WBS cycle"
+            )
+
+    # Validation 6: new_wbs_short_name length
+    if new_wbs_short_name is not None:
+        if len(new_wbs_short_name) < 2:
+            raise ValidationFailure(
+                f"modify_wbs: new_wbs_short_name {new_wbs_short_name!r} is too short "
+                f"(minimum 2 characters required)"
+            )
+
+    # Mutation: apply all requested changes and track what changed
+    fields_changed: list[str] = []
+
+    if new_wbs_code is not None:
+        target_row["wbs_code"] = new_wbs_code
+        fields_changed.append("wbs_code")
+
+    if new_wbs_name is not None:
+        target_row["wbs_name"] = new_wbs_name
+        fields_changed.append("wbs_name")
+
+    if new_parent_wbs_id is not None:
+        target_row["parent_wbs_id"] = new_parent_wbs_id
+        fields_changed.append("parent_wbs_id")
+
+    if new_wbs_short_name is not None:
+        target_row["wbs_short_name"] = new_wbs_short_name
+        fields_changed.append("wbs_short_name")
+
+    projwbs.mark_dirty(row_index)
+
+    return {
+        "wbs_id": wbs_id,
+        "fields_changed": fields_changed,
+    }
+
+
 @_register_handler("set_calendar")
 def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     activity_id = change["activity_id"]
