@@ -334,6 +334,110 @@ def _handle_remove_logic(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
+@_register_handler("modify_logic")
+def _handle_modify_logic(doc, change: dict, state: ChangeState) -> dict:
+    predecessor_id = change["predecessor_id"]
+    successor_id = change["successor_id"]
+    relationship = change["relationship"]
+    new_relationship = change.get("new_relationship")
+    new_lag_days = change.get("new_lag_days")
+
+    # At least one mutation field must be provided
+    if new_relationship is None and new_lag_days is None:
+        raise ValidationFailure(
+            "modify_logic: at least one of 'new_relationship' or 'new_lag_days' must be provided"
+        )
+
+    # Validate the TASKPRED section exists
+    taskpred = doc.section("TASKPRED")
+    if taskpred is None:
+        raise ValidationFailure(
+            "modify_logic: TASKPRED section not found in XER document"
+        )
+
+    # Resolve predecessor and successor task_codes to numeric task_ids
+    task_section = doc.section("TASK")
+
+    pred_task_id = None
+    succ_task_id = None
+
+    if task_section is not None:
+        for row in task_section.rows:
+            if row.get("task_code") == predecessor_id:
+                pred_task_id = row["task_id"]
+            if row.get("task_code") == successor_id:
+                succ_task_id = row["task_id"]
+
+    if pred_task_id is None:
+        raise ValidationFailure(
+            f"modify_logic: predecessor_id {predecessor_id!r} not found in TASK section"
+        )
+    if succ_task_id is None:
+        raise ValidationFailure(
+            f"modify_logic: successor_id {successor_id!r} not found in TASK section"
+        )
+
+    # Map the selector relationship to P6 pred_type
+    p6_pred_type = _PRED_TYPE_MAP[relationship]
+
+    # Find all rows matching the selector triple (pred_task_id, task_id, pred_type)
+    matching_indices = [
+        i for i, row in enumerate(taskpred.rows)
+        if (
+            row.get("pred_task_id") == pred_task_id
+            and row.get("task_id") == succ_task_id
+            and row.get("pred_type") == p6_pred_type
+        )
+    ]
+
+    if len(matching_indices) == 0:
+        raise ValidationFailure(
+            f"modify_logic: relationship ({predecessor_id!r} → {successor_id!r}, "
+            f"{relationship!r}) not found in TASKPRED"
+        )
+    if len(matching_indices) > 1:
+        raise ValidationFailure(
+            f"modify_logic: multiple rows match ({predecessor_id!r} → {successor_id!r}, "
+            f"{relationship!r}) in TASKPRED — document is structurally malformed"
+        )
+
+    i = matching_indices[0]
+
+    # If new_relationship changes the type, verify the new triple won't create a duplicate.
+    # Only check when new_relationship is provided AND differs from the current selector.
+    if new_relationship is not None:
+        new_p6_pred_type = _PRED_TYPE_MAP[new_relationship]
+        if new_p6_pred_type != p6_pred_type:
+            for j, row in enumerate(taskpred.rows):
+                if j == i:
+                    continue
+                if (
+                    row.get("pred_task_id") == pred_task_id
+                    and row.get("task_id") == succ_task_id
+                    and row.get("pred_type") == new_p6_pred_type
+                ):
+                    raise ValidationFailure(
+                        f"modify_logic: changing ({predecessor_id!r} → {successor_id!r}) "
+                        f"from {relationship!r} to {new_relationship!r} would create a "
+                        f"duplicate relationship in TASKPRED"
+                    )
+
+    # Apply mutations
+    if new_relationship is not None:
+        taskpred.rows[i]["pred_type"] = _PRED_TYPE_MAP[new_relationship]
+    if new_lag_days is not None:
+        taskpred.rows[i]["lag_hr_cnt"] = str(int(new_lag_days * 8))
+
+    taskpred.mark_dirty(i)
+
+    return {
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
 @_register_handler("set_calendar")
 def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     activity_id = change["activity_id"]

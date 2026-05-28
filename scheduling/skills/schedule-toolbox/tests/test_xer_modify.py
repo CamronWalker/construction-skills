@@ -894,3 +894,276 @@ class TestSetCalendar(unittest.TestCase):
         feedback = handler(doc, {"type": "set_calendar", "activity_id": "A1010", "new_calendar_id": "300"}, state)
         self.assertEqual(doc.section("TASK").rows[0]["clndr_id"], "300")
         self.assertIn("activity_end_before", feedback)
+
+
+class TestModifyLogic(unittest.TestCase):
+    """Tests for the modify_logic change handler (D6)."""
+
+    def _two_activity_doc(self, taskpred_rows=None):
+        """Two activities (A1010, A1020) with an empty or supplied TASKPRED."""
+        if taskpred_rows is None:
+            taskpred_rows = []
+        return _make_doc_with_task_and_taskpred(
+            task_rows=[
+                {"task_id": "101", "proj_id": "1", "task_code": "A1010",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+                {"task_id": "102", "proj_id": "1", "task_code": "A1020",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            ],
+            taskpred_rows=taskpred_rows,
+        )
+
+    def _fs_row(self, pred_id="101", succ_id="102", tpid="5001", lag="8"):
+        return {
+            "task_pred_id": tpid,
+            "task_id": succ_id,
+            "pred_task_id": pred_id,
+            "proj_id": "1",
+            "pred_proj_id": "1",
+            "pred_type": "PR_FS",
+            "lag_hr_cnt": lag,
+            "comments": "",
+            "float_path": "",
+            "aref": "",
+            "arls": "",
+        }
+
+    def _ss_row(self, pred_id="101", succ_id="102", tpid="5002", lag="0"):
+        return {
+            "task_pred_id": tpid,
+            "task_id": succ_id,
+            "pred_task_id": pred_id,
+            "proj_id": "1",
+            "pred_proj_id": "1",
+            "pred_type": "PR_SS",
+            "lag_hr_cnt": lag,
+            "comments": "",
+            "float_path": "",
+            "aref": "",
+            "arls": "",
+        }
+
+    # ---- Test 1: modify lag only ---------------------------------------------
+
+    def test_modify_lag_only(self):
+        """new_lag_days=3 only: lag_hr_cnt becomes '24', pred_type unchanged, row dirty."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row(lag="8")])
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "new_lag_days": 3,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        tp = result.doc.section("TASKPRED")
+        row = tp.rows[0]
+        self.assertEqual(row["lag_hr_cnt"], "24")       # 3 days * 8
+        self.assertEqual(row["pred_type"], "PR_FS")     # unchanged
+        self.assertTrue(tp.is_dirty(0))
+
+    # ---- Test 2: modify relationship only ------------------------------------
+
+    def test_modify_relationship_only(self):
+        """new_relationship='SS' only: pred_type becomes 'PR_SS', lag unchanged, dirty."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row(lag="8")])
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "new_relationship": "SS",
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        tp = result.doc.section("TASKPRED")
+        row = tp.rows[0]
+        self.assertEqual(row["pred_type"], "PR_SS")
+        self.assertEqual(row["lag_hr_cnt"], "8")        # unchanged
+        self.assertTrue(tp.is_dirty(0))
+
+    # ---- Test 3: modify both -------------------------------------------------
+
+    def test_modify_both_fields(self):
+        """Both new_relationship and new_lag_days provided: both updated."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row(lag="8")])
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "new_relationship": "FF",
+                "new_lag_days": 2,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        row = tp.rows[0]
+        self.assertEqual(row["pred_type"], "PR_FF")
+        self.assertEqual(row["lag_hr_cnt"], "16")       # 2 days * 8
+        self.assertTrue(tp.is_dirty(0))
+
+    # ---- Test 4: neither field provided → ValidationFailure ------------------
+
+    def test_neither_field_provided_raises(self):
+        """No new_relationship and no new_lag_days → ValidationFailure (caller bug)."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{
+                    "type": "modify_logic",
+                    "predecessor_id": "A1010",
+                    "successor_id": "A1020",
+                    "relationship": "FS",
+                }],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("modify_logic", str(ctx.exception))
+
+    # ---- Test 5: predecessor not found ---------------------------------------
+
+    def test_predecessor_not_found_raises(self):
+        """ValidationFailure naming the missing predecessor activity_id."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{
+                    "type": "modify_logic",
+                    "predecessor_id": "ZZZPRED",
+                    "successor_id": "A1020",
+                    "relationship": "FS",
+                    "new_lag_days": 1,
+                }],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("ZZZPRED", str(ctx.exception))
+
+    # ---- Test 6: successor not found -----------------------------------------
+
+    def test_successor_not_found_raises(self):
+        """ValidationFailure naming the missing successor activity_id."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{
+                    "type": "modify_logic",
+                    "predecessor_id": "A1010",
+                    "successor_id": "ZZZSUCC",
+                    "relationship": "FS",
+                    "new_lag_days": 1,
+                }],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("ZZZSUCC", str(ctx.exception))
+
+    # ---- Test 7: edge not found (wrong selector type) ------------------------
+
+    def test_edge_not_found_raises(self):
+        """TASKPRED has (A1010→A1020, FS); selecting SS raises ValidationFailure."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{
+                    "type": "modify_logic",
+                    "predecessor_id": "A1010",
+                    "successor_id": "A1020",
+                    "relationship": "SS",       # selector, not the existing edge
+                    "new_lag_days": 1,
+                }],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("A1010", err)
+        self.assertIn("A1020", err)
+
+    # ---- Test 8: multiple matching rows → ValidationFailure ------------------
+
+    def test_multiple_matching_rows_raises(self):
+        """Two identical (pred, succ, type) rows in TASKPRED → ValidationFailure."""
+        dup_a = self._fs_row(tpid="5001", lag="8")
+        dup_b = self._fs_row(tpid="5002", lag="16")   # same triple, different lag
+        doc = self._two_activity_doc(taskpred_rows=[dup_a, dup_b])
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{
+                    "type": "modify_logic",
+                    "predecessor_id": "A1010",
+                    "successor_id": "A1020",
+                    "relationship": "FS",
+                    "new_lag_days": 2,
+                }],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("A1010", err)
+        self.assertIn("A1020", err)
+
+    # ---- Test 9: duplicate new edge → ValidationFailure ---------------------
+
+    def test_duplicate_new_edge_raises(self):
+        """TASKPRED has (A,B,FS) and (A,B,SS); modify (A,B,FS) → SS would create duplicate."""
+        doc = self._two_activity_doc(
+            taskpred_rows=[self._fs_row(tpid="5001"), self._ss_row(tpid="5002")]
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [{
+                    "type": "modify_logic",
+                    "predecessor_id": "A1010",
+                    "successor_id": "A1020",
+                    "relationship": "FS",
+                    "new_relationship": "SS",   # would collide with existing SS row
+                }],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("A1010", err)
+        self.assertIn("A1020", err)
+
+    # ---- Test 10: no-op relationship change does not trip duplicate check ----
+
+    def test_noop_relationship_with_lag_change_succeeds(self):
+        """modify (A,B,FS) with new_relationship='FS' (same) + new_lag_days=10; no duplicate error."""
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row(lag="8")])
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "new_relationship": "FS",   # same type — no-op on relationship
+                "new_lag_days": 10,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        row = tp.rows[0]
+        self.assertEqual(row["lag_hr_cnt"], "80")   # 10 days * 8
+        self.assertEqual(row["pred_type"], "PR_FS")
+        self.assertEqual(result.changes_applied, 1)
