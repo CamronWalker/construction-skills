@@ -87,14 +87,19 @@ _ENCODINGS = ("cp1252", "utf-8-sig", "utf-8", "latin-1")
 
 
 def _detect_decode(raw: bytes) -> tuple[str, str]:
-    """Try the encoding fallback chain. Returns (text, encoding_used)."""
+    """Try the encoding fallback chain. Returns (text, encoding_used).
+
+    latin-1 is the guaranteed last entry: it's single-byte and decodes any
+    sequence, so the loop always succeeds before exhaustion.
+    """
     for enc in _ENCODINGS:
         try:
             return raw.decode(enc), enc
         except (UnicodeDecodeError, LookupError):
             continue
-    # Last-resort: latin-1 decodes any byte sequence
-    return raw.decode("latin-1"), "latin-1"
+    # Unreachable in practice (latin-1 in _ENCODINGS never raises), but
+    # static analyzers want all paths to return.
+    raise RuntimeError(f"Failed to decode XER with any of {_ENCODINGS}")
 
 
 def parse_for_writing(xer_path: str) -> XerDoc:
@@ -112,12 +117,27 @@ def parse_for_writing(xer_path: str) -> XerDoc:
         raw = f.read()
     text, encoding = _detect_decode(raw)
 
+    # Guard against LF-only line endings -- P6 always writes CRLF, but a
+    # cross-platform copy via wsl/scp without text-mode translation may have
+    # stripped the \r. Silently splitting on \r\n would yield one giant line
+    # and an empty XerDoc -- surface the issue instead.
+    if "\r\n" in text:
+        lines = text.split("\r\n")
+    elif "\n" in text:
+        # File appears to be LF-only. Either malformed or stripped during
+        # transfer. Raise so the caller knows.
+        raise ValueError(
+            f"XER at {xer_path!r} appears to use LF-only line endings. "
+            f"P6 writes CRLF -- re-export from P6 or convert the file."
+        )
+    else:
+        lines = [text]  # single-line file: pathological but parse what we have
+
     header_line = ""
     sections: list[XerSection] = []
     current: Optional[XerSection] = None
-    current_fields: list[str] = []
 
-    for line in text.split("\r\n"):
+    for line in lines:
         if not line:
             continue
         parts = line.split("\t")
@@ -125,7 +145,6 @@ def parse_for_writing(xer_path: str) -> XerDoc:
         if marker == "ERMHDR":
             header_line = line
         elif marker == "%T":
-            current_fields = []
             current = XerSection(
                 name=parts[1].strip(),
                 field_order=[],
@@ -135,11 +154,10 @@ def parse_for_writing(xer_path: str) -> XerDoc:
             )
             sections.append(current)
         elif marker == "%F" and current is not None:
-            current_fields = [f.strip() for f in parts[1:]]
-            current.field_order = current_fields
+            current.field_order = [f.strip() for f in parts[1:]]
         elif marker == "%R" and current is not None:
             current.raw_lines.append(line)
-            current.rows.append(dict(zip(current_fields, parts[1:])))
+            current.rows.append(dict(zip(current.field_order, parts[1:])))
         elif marker == "%E" and current is not None:
             current.e_line = line
             current = None
