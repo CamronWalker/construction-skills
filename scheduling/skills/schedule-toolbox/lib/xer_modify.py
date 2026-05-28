@@ -469,40 +469,45 @@ def _handle_modify_logic(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
-@_register_handler("add_activity")
-def _handle_add_activity(doc, change: dict, state: ChangeState) -> dict:
-    spec = change.get("spec", {})
+def _validate_activity_spec(
+    spec: dict,
+    task,
+    doc,
+    state: ChangeState,
+    handler_name: str,
+) -> None:
+    """Validate a new-activity spec dict; raise ValidationFailure on any violation.
 
-    # Validation 1: TASK section must exist
-    task = doc.section("TASK")
-    if task is None:
-        raise ValidationFailure(
-            "add_activity: TASK section not found in XER document"
-        )
+    Checks performed (same rules as add_activity D7):
+      1. All 6 required fields present.
+      2. task_code not already in TASK section or state.new_activity_ids.
+      3. wbs_id in PROJWBS or state.new_wbs_ids.
+      4. calendar_id in CALENDAR or state.new_calendar_ids.
+      5. activity_type in _ACTIVITY_TYPES.
+      6. duration_days >= 0.
 
-    # Validation 2: all required spec fields must be present
+    handler_name is used as a prefix in error messages so callers get context
+    (e.g. "pop_activity: ..." rather than the generic form).
+    """
     required_fields = ("code", "name", "duration_days", "calendar_id", "wbs_id", "activity_type")
     missing = [f for f in required_fields if f not in spec]
     if missing:
         raise ValidationFailure(
-            f"add_activity: missing required spec field(s): {', '.join(missing)}"
+            f"{handler_name}: missing required spec field(s): {', '.join(missing)}"
         )
 
     code = spec["code"]
-    name = spec["name"]
     duration_days = spec["duration_days"]
     calendar_id = spec["calendar_id"]
     wbs_id = spec["wbs_id"]
     activity_type = spec["activity_type"]
 
-    # Validation 3: task_code must be unique
     existing_codes = {r.get("task_code") for r in task.rows}
     if code in existing_codes or code in state.new_activity_ids:
         raise ValidationFailure(
-            f"add_activity: task_code {code!r} already exists — duplicate activity codes are not allowed"
+            f"{handler_name}: task_code {code!r} already exists — duplicate activity codes are not allowed"
         )
 
-    # Validation 4: wbs_id must exist in doc or state
     projwbs = doc.section("PROJWBS")
     wbs_in_doc = (
         projwbs is not None
@@ -510,10 +515,9 @@ def _handle_add_activity(doc, change: dict, state: ChangeState) -> dict:
     )
     if not wbs_in_doc and wbs_id not in state.new_wbs_ids:
         raise ValidationFailure(
-            f"add_activity: wbs_id {wbs_id!r} not found in PROJWBS section"
+            f"{handler_name}: wbs_id {wbs_id!r} not found in PROJWBS section"
         )
 
-    # Validation 5: calendar_id must exist in doc or state
     calendar_section = doc.section("CALENDAR")
     cal_in_doc = (
         calendar_section is not None
@@ -521,23 +525,34 @@ def _handle_add_activity(doc, change: dict, state: ChangeState) -> dict:
     )
     if not cal_in_doc and calendar_id not in state.new_calendar_ids:
         raise ValidationFailure(
-            f"add_activity: calendar_id {calendar_id!r} not found in CALENDAR section"
+            f"{handler_name}: calendar_id {calendar_id!r} not found in CALENDAR section"
         )
 
-    # Validation 6: activity_type must be a known P6 enum
     if activity_type not in _ACTIVITY_TYPES:
         raise ValidationFailure(
-            f"add_activity: unknown activity_type {activity_type!r} — "
+            f"{handler_name}: unknown activity_type {activity_type!r} — "
             f"must be one of {sorted(_ACTIVITY_TYPES)}"
         )
 
-    # Validation 7: duration_days must be >= 0
     if duration_days < 0:
         raise ValidationFailure(
-            f"add_activity: duration_days must be >= 0, got {duration_days}"
+            f"{handler_name}: duration_days must be >= 0, got {duration_days}"
         )
 
-    # Build the new row
+
+def _append_new_task(task, spec: dict, state: ChangeState) -> str:
+    """Append a new TASK row from a validated spec dict; update state; return new task_id.
+
+    Assumes spec has already been validated by _validate_activity_spec.
+    Returns the new numeric task_id string.
+    """
+    code = spec["code"]
+    name = spec["name"]
+    duration_days = spec["duration_days"]
+    calendar_id = spec["calendar_id"]
+    wbs_id = spec["wbs_id"]
+    activity_type = spec["activity_type"]
+
     new_task_id = str(max((int(r["task_id"]) for r in task.rows), default=0) + 1)
     hours_str = str(int(duration_days * 8))
 
@@ -558,9 +573,28 @@ def _handle_add_activity(doc, change: dict, state: ChangeState) -> dict:
 
     task.append_row(new_row)
 
-    # State tracking
     state.new_activity_ids.add(code)
     state.new_activity_id_map[code] = new_task_id
+
+    return new_task_id
+
+
+@_register_handler("add_activity")
+def _handle_add_activity(doc, change: dict, state: ChangeState) -> dict:
+    spec = change.get("spec", {})
+
+    # Validation 1: TASK section must exist
+    task = doc.section("TASK")
+    if task is None:
+        raise ValidationFailure(
+            "add_activity: TASK section not found in XER document"
+        )
+
+    # Validations 2-7: delegate to shared helper
+    _validate_activity_spec(spec, task, doc, state, "add_activity")
+
+    # Build and append the new row; update state
+    new_task_id = _append_new_task(task, spec, state)
 
     return {
         "new_task_id": new_task_id,
@@ -866,6 +900,161 @@ def _handle_dissolve_activity(doc, change: dict, state: ChangeState) -> dict:
         "removed_edges_count": removed_edges_count,
         "new_edges_count": new_edges_count,
         "fanout_warning": fanout_warning,
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
+@_register_handler("pop_activity")
+def _handle_pop_activity(doc, change: dict, state: ChangeState) -> dict:
+    """Insert a new activity X between an existing (predecessor_id, successor_id) edge.
+
+    Mutation sequence:
+      1. Remove the original A→B TASKPRED row.
+      2. Add new activity X to TASK.
+      3. Append two new TASKPRED rows:
+           A→X  (pred_type=original, lag_hr_cnt="0")
+           X→B  (pred_type=original, lag_hr_cnt=original if preserve_total else "0")
+
+    Spec ambiguity resolutions:
+      #1  Both new edges inherit the original A→B pred_type (not "FS" as the spec
+          comment suggests).  Rationale: information-preserving — an SS chain
+          A SS→X SS→B maintains A_start → X_start → B_start semantics, whereas
+          forcing FS would destroy them.
+      #2  A→X lag is always 0 regardless of split_lag policy.
+      #3  X→B lag = original A→B lag if split_lag=="preserve_total", else 0.
+    """
+    predecessor_id = change["predecessor_id"]
+    successor_id = change["successor_id"]
+    spec = change.get("spec", {})
+    split_lag = change.get("split_lag")
+
+    # --- Validate split_lag enum -----------------------------------------------
+    if split_lag not in ("preserve_total", "drop"):
+        raise ValidationFailure(
+            f"pop_activity: split_lag must be 'preserve_total' or 'drop', got {split_lag!r}"
+        )
+
+    # --- TASK section must exist -----------------------------------------------
+    task = doc.section("TASK")
+    if task is None:
+        raise ValidationFailure(
+            "pop_activity: TASK section not found in XER document"
+        )
+
+    # --- TASKPRED section must exist -------------------------------------------
+    taskpred = doc.section("TASKPRED")
+    if taskpred is None:
+        raise ValidationFailure(
+            "pop_activity: TASKPRED section not found in XER document"
+        )
+
+    # --- Resolve predecessor and successor task_codes to numeric task_ids ------
+    pred_task_id = None
+    succ_task_id = None
+    pred_proj_id = ""
+    succ_proj_id = ""
+
+    for row in task.rows:
+        if row.get("task_code") == predecessor_id:
+            pred_task_id = row["task_id"]
+            pred_proj_id = row.get("proj_id", "")
+        if row.get("task_code") == successor_id:
+            succ_task_id = row["task_id"]
+            succ_proj_id = row.get("proj_id", "")
+
+    if pred_task_id is None:
+        raise ValidationFailure(
+            f"pop_activity: predecessor_id {predecessor_id!r} not found in TASK section"
+        )
+    if succ_task_id is None:
+        raise ValidationFailure(
+            f"pop_activity: successor_id {successor_id!r} not found in TASK section"
+        )
+
+    # --- Find exactly one matching TASKPRED row --------------------------------
+    matching_indices = [
+        i for i, row in enumerate(taskpred.rows)
+        if row.get("pred_task_id") == pred_task_id
+        and row.get("task_id") == succ_task_id
+    ]
+
+    if len(matching_indices) == 0:
+        raise ValidationFailure(
+            f"pop_activity: no edge found between {predecessor_id!r} and {successor_id!r} "
+            f"in TASKPRED"
+        )
+    if len(matching_indices) > 1:
+        candidates = [
+            f"task_pred_id={taskpred.rows[i]['task_pred_id']} "
+            f"pred_type={taskpred.rows[i]['pred_type']}"
+            for i in matching_indices
+        ]
+        raise ValidationFailure(
+            f"pop_activity: multiple edges exist between {predecessor_id!r} and "
+            f"{successor_id!r} — cannot determine which to split without an explicit "
+            f"relationship selector. Candidates: {candidates}"
+        )
+
+    target_idx = matching_indices[0]
+    original_row = taskpred.rows[target_idx]
+    original_pred_type = original_row["pred_type"]
+    original_lag_hr_cnt = original_row.get("lag_hr_cnt", "0") or "0"
+
+    # --- Validate the new-activity spec ----------------------------------------
+    _validate_activity_spec(spec, task, doc, state, "pop_activity")
+
+    # --- Snapshot max task_pred_id BEFORE removal (per sequencing contract) ----
+    max_task_pred_id = max(int(r["task_pred_id"]) for r in taskpred.rows)
+
+    # --- Remove the original A→B edge -----------------------------------------
+    taskpred.rows.pop(target_idx)
+    if taskpred.raw_lines is not None:
+        taskpred.raw_lines.pop(target_idx)
+    # Re-index _dirty
+    taskpred._dirty = {
+        d - 1 if d > target_idx else d
+        for d in taskpred._dirty
+        if d != target_idx
+    }
+
+    # --- Add new activity X to TASK; update state ------------------------------
+    new_x_task_id = _append_new_task(task, spec, state)
+    x_code = spec["code"]
+
+    # --- Append A→X and X→B edges ---------------------------------------------
+    # Determine proj_id for X (inherit from the TASK row we just appended)
+    x_proj_id = task.rows[-1].get("proj_id", "")
+
+    x_lag_hr_cnt = original_lag_hr_cnt if split_lag == "preserve_total" else "0"
+
+    for edge_pred_task_id, edge_task_id, edge_pred_proj, edge_proj, edge_lag in (
+        (pred_task_id,    new_x_task_id, pred_proj_id, x_proj_id,    "0"),
+        (new_x_task_id,  succ_task_id,  x_proj_id,    succ_proj_id, x_lag_hr_cnt),
+    ):
+        max_task_pred_id += 1
+        new_edge = {f: "" for f in taskpred.field_order}
+        new_edge["task_pred_id"] = str(max_task_pred_id)
+        new_edge["task_id"] = edge_task_id
+        new_edge["pred_task_id"] = edge_pred_task_id
+        new_edge["proj_id"] = edge_proj
+        new_edge["pred_proj_id"] = edge_pred_proj
+        new_edge["pred_type"] = original_pred_type
+        new_edge["lag_hr_cnt"] = edge_lag
+        taskpred.append_row(new_edge)
+
+    # --- Feedback --------------------------------------------------------------
+    original_lag_days = int(original_lag_hr_cnt) // 8
+    removed_edge_short = _INVERSE_PRED_TYPE_MAP.get(original_pred_type, original_pred_type)
+
+    return {
+        "new_x_task_id": new_x_task_id,
+        "new_x_task_code": x_code,
+        "removed_edge_relationship": removed_edge_short,
+        "removed_edge_lag_days": original_lag_days,
+        "split_policy_applied": split_lag,
         "activity_end_before": None,
         "activity_end_after": None,
         "milestone_impact_days": None,

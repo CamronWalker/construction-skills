@@ -2475,3 +2475,548 @@ class TestDissolveActivity(unittest.TestCase):
         self.assertIn(0, tp._dirty)       # original row 0
         self.assertIn(2, tp._dirty)       # original row 4 → shifted to 2
         self.assertTrue(tp.is_dirty(3))   # newly appended row (no raw_lines entry)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestPopActivity
+# ---------------------------------------------------------------------------
+
+def _make_pop_doc(
+    task_rows: list[dict],
+    taskpred_rows: list[dict],
+    extra_sections: list | None = None,
+):
+    """Build an in-memory XerDoc with TASK, TASKPRED, PROJWBS, and CALENDAR sections.
+
+    PROJWBS has one row (wbs_id="1000").
+    CALENDAR has one row (clndr_id="100").
+    task_rows: dicts with at least task_id, proj_id, task_code,
+               target_drtn_hr_cnt, remain_drtn_hr_cnt.
+    taskpred_rows: dicts conforming to _tp_row() shape.
+    """
+    from xer_io import XerDoc, XerSection
+
+    task_field_order = [
+        "task_id", "proj_id", "wbs_id", "clndr_id",
+        "task_code", "task_name", "task_type", "duration_type",
+        "status_code", "complete_pct_type", "phys_complete_pct",
+        "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+    ]
+    taskpred_field_order = [
+        "task_pred_id", "task_id", "pred_task_id",
+        "proj_id", "pred_proj_id",
+        "pred_type", "lag_hr_cnt",
+        "comments", "float_path", "aref", "arls",
+    ]
+    wbs_field_order = ["wbs_id", "proj_id", "wbs_name"]
+    cal_field_order = ["clndr_id", "clndr_name"]
+
+    def _raw_task(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in task_field_order)
+
+    def _raw_tp(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in taskpred_field_order)
+
+    # Ensure all task rows have the full field_order set (fill defaults)
+    full_task_rows = []
+    for r in task_rows:
+        row = {f: "" for f in task_field_order}
+        row.update(r)
+        if not row.get("wbs_id"):
+            row["wbs_id"] = "1000"
+        if not row.get("clndr_id"):
+            row["clndr_id"] = "100"
+        if not row.get("task_type"):
+            row["task_type"] = "TT_Task"
+        if not row.get("status_code"):
+            row["status_code"] = "TK_NotStart"
+        if not row.get("duration_type"):
+            row["duration_type"] = "DT_FixedDUR2"
+        if not row.get("complete_pct_type"):
+            row["complete_pct_type"] = "CP_Drtn"
+        if not row.get("phys_complete_pct"):
+            row["phys_complete_pct"] = "0"
+        full_task_rows.append(row)
+
+    task_section = XerSection(
+        name="TASK",
+        field_order=task_field_order,
+        rows=full_task_rows,
+        raw_lines=[_raw_task(r) for r in full_task_rows],
+        e_line=None,
+    )
+    taskpred_section = XerSection(
+        name="TASKPRED",
+        field_order=taskpred_field_order,
+        rows=taskpred_rows,
+        raw_lines=[_raw_tp(r) for r in taskpred_rows],
+        e_line=None,
+    )
+    wbs_section = XerSection(
+        name="PROJWBS",
+        field_order=wbs_field_order,
+        rows=[{"wbs_id": "1000", "proj_id": "1", "wbs_name": "Root"}],
+        raw_lines=["%R\t1000\t1\tRoot"],
+        e_line=None,
+    )
+    cal_section = XerSection(
+        name="CALENDAR",
+        field_order=cal_field_order,
+        rows=[{"clndr_id": "100", "clndr_name": "Standard"}],
+        raw_lines=["%R\t100\tStandard"],
+        e_line=None,
+    )
+    sections = [task_section, taskpred_section, wbs_section, cal_section]
+    if extra_sections:
+        sections.extend(extra_sections)
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=sections,
+    )
+
+
+def _pop_task_row(task_id, task_code, drtn="16"):
+    """Minimal TASK row dict for pop_activity tests."""
+    return {
+        "task_id": task_id,
+        "proj_id": "1",
+        "task_code": task_code,
+        "target_drtn_hr_cnt": drtn,
+        "remain_drtn_hr_cnt": drtn,
+    }
+
+
+def _pop_change(
+    pred_id="A",
+    succ_id="B",
+    split_lag="preserve_total",
+    **spec_overrides,
+):
+    """Build a minimal pop_activity change record."""
+    spec = {
+        "code": "X",
+        "name": "Inserted Task",
+        "duration_days": 1,
+        "calendar_id": "100",
+        "wbs_id": "1000",
+        "activity_type": "TT_Task",
+    }
+    spec.update(spec_overrides)
+    return {
+        "type": "pop_activity",
+        "predecessor_id": pred_id,
+        "successor_id": succ_id,
+        "spec": spec,
+        "split_lag": split_lag,
+    }
+
+
+class TestPopActivity(unittest.TestCase):
+    """Tests for the pop_activity change handler (D10).
+
+    pop_activity inserts a new activity X between an existing (pred, succ) edge:
+      - removes the original A→B edge
+      - adds A→X (pred_type=original, lag=0)
+      - adds X→B (pred_type=original, lag=original if preserve_total else 0)
+    """
+
+    # ---- Shared helpers -------------------------------------------------------
+
+    def _two_task_doc_with_edge(self, pred_type="PR_FS", lag="16", tpid="3"):
+        """A (task_id=101) and B (task_id=102) with one TASKPRED edge."""
+        return _make_pop_doc(
+            task_rows=[
+                _pop_task_row("101", "A"),
+                _pop_task_row("102", "B"),
+            ],
+            taskpred_rows=[
+                _tp_row(tpid, "102", "101", pred_type, lag),
+            ],
+        )
+
+    # ---- Test 1: happy path preserve_total -------------------------------------
+
+    def test_happy_path_preserve_total(self):
+        """A FS→B lag=16h; pop X with preserve_total:
+        - A→X: FS lag=0
+        - X→B: FS lag=16h
+        - TASK: 3 rows (A, B, X)
+        - TASKPRED: 2 rows (was 1)
+        """
+        doc = self._two_task_doc_with_edge(pred_type="PR_FS", lag="16", tpid="3")
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", split_lag="preserve_total",
+                         code="X", duration_days=1)],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+
+        # TASK: A, B, X
+        self.assertEqual(len(task.rows), 3)
+        codes = {r["task_code"] for r in task.rows}
+        self.assertIn("X", codes)
+
+        # TASKPRED: exactly 2 rows
+        self.assertEqual(len(tp.rows), 2)
+
+        # Locate A→X and X→B rows
+        x_task_id = next(r["task_id"] for r in task.rows if r["task_code"] == "X")
+        ax_row = next(
+            (r for r in tp.rows if r["pred_task_id"] == "101" and r["task_id"] == x_task_id),
+            None,
+        )
+        xb_row = next(
+            (r for r in tp.rows if r["pred_task_id"] == x_task_id and r["task_id"] == "102"),
+            None,
+        )
+        self.assertIsNotNone(ax_row, "A→X edge not found")
+        self.assertIsNotNone(xb_row, "X→B edge not found")
+
+        # A→X: FS, lag=0
+        self.assertEqual(ax_row["pred_type"], "PR_FS")
+        self.assertEqual(ax_row["lag_hr_cnt"], "0")
+
+        # X→B: FS, lag=original (16)
+        self.assertEqual(xb_row["pred_type"], "PR_FS")
+        self.assertEqual(xb_row["lag_hr_cnt"], "16")
+
+    # ---- Test 2: happy path drop -----------------------------------------------
+
+    def test_happy_path_drop(self):
+        """A FS→B lag=16h; pop X with split_lag='drop': X→B lag=0."""
+        doc = self._two_task_doc_with_edge(pred_type="PR_FS", lag="16", tpid="3")
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", split_lag="drop",
+                         code="X", duration_days=1)],
+            strict=False,
+            dry_run=False,
+        )
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+
+        x_task_id = next(r["task_id"] for r in task.rows if r["task_code"] == "X")
+        xb_row = next(
+            (r for r in tp.rows if r["pred_task_id"] == x_task_id and r["task_id"] == "102"),
+            None,
+        )
+        self.assertIsNotNone(xb_row)
+        self.assertEqual(xb_row["lag_hr_cnt"], "0")
+
+    # ---- Test 3: SS inheritance ------------------------------------------------
+
+    def test_ss_relationship_inherited(self):
+        """A SS→B lag=8h; pop X: both A→X and X→B are SS (not FS)."""
+        doc = self._two_task_doc_with_edge(pred_type="PR_SS", lag="8", tpid="3")
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", split_lag="preserve_total",
+                         code="X")],
+            strict=False,
+            dry_run=False,
+        )
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+        x_task_id = next(r["task_id"] for r in task.rows if r["task_code"] == "X")
+
+        ax_row = next(r for r in tp.rows if r["pred_task_id"] == "101" and r["task_id"] == x_task_id)
+        xb_row = next(r for r in tp.rows if r["pred_task_id"] == x_task_id and r["task_id"] == "102")
+
+        self.assertEqual(ax_row["pred_type"], "PR_SS")
+        self.assertEqual(xb_row["pred_type"], "PR_SS")
+        self.assertEqual(xb_row["lag_hr_cnt"], "8")   # preserve_total
+
+    # ---- Test 4: FF inheritance ------------------------------------------------
+
+    def test_ff_relationship_inherited(self):
+        """A FF→B lag=8h; pop X: both A→X and X→B are FF."""
+        doc = self._two_task_doc_with_edge(pred_type="PR_FF", lag="8", tpid="3")
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", split_lag="preserve_total",
+                         code="X")],
+            strict=False,
+            dry_run=False,
+        )
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+        x_task_id = next(r["task_id"] for r in task.rows if r["task_code"] == "X")
+
+        ax_row = next(r for r in tp.rows if r["pred_task_id"] == "101" and r["task_id"] == x_task_id)
+        xb_row = next(r for r in tp.rows if r["pred_task_id"] == x_task_id and r["task_id"] == "102")
+
+        self.assertEqual(ax_row["pred_type"], "PR_FF")
+        self.assertEqual(xb_row["pred_type"], "PR_FF")
+        self.assertEqual(xb_row["lag_hr_cnt"], "8")
+
+    # ---- Test 5: predecessor not found → ValidationFailure --------------------
+
+    def test_predecessor_not_found_raises(self):
+        """predecessor_id not in TASK → ValidationFailure naming the missing id."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="ZZZPRED", succ_id="B")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("ZZZPRED", str(ctx.exception))
+
+    # ---- Test 6: successor not found → ValidationFailure ----------------------
+
+    def test_successor_not_found_raises(self):
+        """successor_id not in TASK → ValidationFailure naming the missing id."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="ZZZSUCC")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("ZZZSUCC", str(ctx.exception))
+
+    # ---- Test 7: edge not found → ValidationFailure ---------------------------
+
+    def test_edge_not_found_raises(self):
+        """A and B exist in TASK but no TASKPRED row between them → ValidationFailure."""
+        doc = _make_pop_doc(
+            task_rows=[
+                _pop_task_row("101", "A"),
+                _pop_task_row("102", "B"),
+                _pop_task_row("103", "C"),
+            ],
+            taskpred_rows=[
+                # edge between C and B, not A and B
+                _tp_row("1", "102", "103", "PR_FS", "0"),
+            ],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="B")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("A", err)
+        self.assertIn("B", err)
+
+    # ---- Test 8: multiple edges (ambiguous) → ValidationFailure ---------------
+
+    def test_multiple_edges_between_pred_succ_raises(self):
+        """Both FS and SS exist between A and B → ValidationFailure (ambiguous)."""
+        doc = _make_pop_doc(
+            task_rows=[
+                _pop_task_row("101", "A"),
+                _pop_task_row("102", "B"),
+            ],
+            taskpred_rows=[
+                _tp_row("1", "102", "101", "PR_FS", "0"),
+                _tp_row("2", "102", "101", "PR_SS", "8"),
+            ],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="B")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("A", err)
+        self.assertIn("B", err)
+
+    # ---- Test 9: missing spec field → ValidationFailure -----------------------
+
+    def test_missing_spec_field_raises(self):
+        """Omit 'code' from spec → ValidationFailure naming the missing field."""
+        doc = self._two_task_doc_with_edge()
+        change = {
+            "type": "pop_activity",
+            "predecessor_id": "A",
+            "successor_id": "B",
+            "spec": {
+                # code intentionally omitted
+                "name": "New",
+                "duration_days": 1,
+                "calendar_id": "100",
+                "wbs_id": "1000",
+                "activity_type": "TT_Task",
+            },
+            "split_lag": "preserve_total",
+        }
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIn("code", str(ctx.exception))
+
+    # ---- Test 10: duplicate X code → ValidationFailure -------------------------
+
+    def test_duplicate_x_code_raises(self):
+        """X's code already exists in TASK → ValidationFailure."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                # "A" already exists in TASK
+                [_pop_change(pred_id="A", succ_id="B", code="A")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("A", str(ctx.exception))
+
+    # ---- Test 11: unknown wbs_id / calendar_id / activity_type ----------------
+
+    def test_unknown_wbs_id_raises(self):
+        """wbs_id not in PROJWBS → ValidationFailure."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="B", wbs_id="9999")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("9999", str(ctx.exception))
+
+    def test_unknown_calendar_id_raises(self):
+        """calendar_id not in CALENDAR → ValidationFailure."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="B", calendar_id="999")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("999", str(ctx.exception))
+
+    def test_unknown_activity_type_raises(self):
+        """activity_type not in _ACTIVITY_TYPES → ValidationFailure."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="B", activity_type="TT_Bogus")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("TT_Bogus", str(ctx.exception))
+
+    # ---- Test 12: negative duration → ValidationFailure -----------------------
+
+    def test_negative_duration_raises(self):
+        """duration_days=-1 → ValidationFailure."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="B", duration_days=-1)],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("-1", str(ctx.exception))
+
+    # ---- Test 13: bad split_lag value → ValidationFailure ---------------------
+
+    def test_bad_split_lag_raises(self):
+        """split_lag='partial' (not a valid enum) → ValidationFailure."""
+        doc = self._two_task_doc_with_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_pop_change(pred_id="A", succ_id="B", split_lag="partial")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("partial", str(ctx.exception))
+
+    # ---- Test 14: state propagation -------------------------------------------
+
+    def test_state_propagation(self):
+        """After pop_activity: state.new_activity_ids contains X's code,
+        state.new_activity_id_map[X.code] == X's numeric task_id."""
+        from xer_modify import _HANDLERS, ChangeState
+
+        doc = self._two_task_doc_with_edge()
+        state = ChangeState()
+        _HANDLERS["pop_activity"](
+            doc,
+            _pop_change(pred_id="A", succ_id="B", code="X"),
+            state,
+        )
+        self.assertIn("X", state.new_activity_ids)
+        x_task_id = state.new_activity_id_map["X"]
+        # Verify the task_id maps to the actual row in TASK
+        task = doc.section("TASK")
+        x_row = next((r for r in task.rows if r["task_code"] == "X"), None)
+        self.assertIsNotNone(x_row)
+        self.assertEqual(x_row["task_id"], x_task_id)
+
+    # ---- Test 15: task_pred_id generation -------------------------------------
+
+    def test_task_pred_id_generation(self):
+        """Original edge has task_pred_id='3'; max existing is '5'.
+        After pop_activity, the two new edges get IDs '6' and '7'."""
+        doc = _make_pop_doc(
+            task_rows=[
+                _pop_task_row("101", "A"),
+                _pop_task_row("102", "B"),
+            ],
+            taskpred_rows=[
+                # Unrelated edges with higher IDs to set max=5
+                _tp_row("3", "102", "101", "PR_FS", "0"),   # A→B, the target edge
+                _tp_row("4", "101", "101", "PR_SS", "0"),   # self-ref filler (not realistic but valid for ID sequencing)
+                _tp_row("5", "102", "102", "PR_FF", "0"),   # filler
+            ],
+        )
+        # Remove the self-ref filler rows; use a simpler approach:
+        # Build doc with IDs 3,4,5 present; target edge is 3 (A→B)
+        # After pop: max pre-removal=5; new edges get 6 and 7.
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", code="X")],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        # Only the two new edges and the surviving fillers remain
+        task = result.doc.section("TASK")
+        x_task_id = next(r["task_id"] for r in task.rows if r["task_code"] == "X")
+
+        ax_row = next(r for r in tp.rows if r["pred_task_id"] == "101" and r["task_id"] == x_task_id)
+        xb_row = next(r for r in tp.rows if r["pred_task_id"] == x_task_id and r["task_id"] == "102")
+
+        new_ids = {ax_row["task_pred_id"], xb_row["task_pred_id"]}
+        self.assertIn("6", new_ids)
+        self.assertIn("7", new_ids)
+
+    # ---- Test 16: TASK and TASKPRED row counts --------------------------------
+
+    def test_task_and_taskpred_row_counts(self):
+        """Pre: TASK=2 (A, B), TASKPRED=1 (A→B).
+        Post: TASK=3 (A, X, B), TASKPRED=2 (A→X, X→B)."""
+        doc = self._two_task_doc_with_edge()
+        pre_task_count = len(doc.section("TASK").rows)
+        pre_tp_count = len(doc.section("TASKPRED").rows)
+        self.assertEqual(pre_task_count, 2)
+        self.assertEqual(pre_tp_count, 1)
+
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", code="X")],
+            strict=False,
+            dry_run=False,
+        )
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+
+        self.assertEqual(len(task.rows), 3)
+        self.assertEqual(len(tp.rows), 2)
