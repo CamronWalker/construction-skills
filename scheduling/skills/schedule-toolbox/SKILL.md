@@ -41,6 +41,11 @@ EXCEPTION: Explicit user instruction to generate or modify a specific file.
 | Weekly update review (composition) | `weekly_update_review` — bundles compare + activity lists + DCMA delta |
 | Proposal schedule health (composition) | `proposal_schedule_health` — bundles score + missing logic + high float + anchor conflicts |
 | Health check | `ping` |
+| Check if an XER will import cleanly (P6 / Procore) | `validate_xer_structure` — file-integrity gate; returns `import_ready`, issues by category and severity |
+| Fix duplicate activity IDs | `fix_duplicate_activity_ids(strategy="renumber"\|"report_only"\|"merge_consolidate")` |
+| Modify an existing XER (add/remove activities, logic, WBS, etc.) | `apply_xer_changes(xer_path, changes=[...])` — writes a new file, never overwrites; see `references/xer-modify.md` |
+| Generate a new XER from the Westland skeleton | `create_xer_from_template(skeleton_name, metadata)` — canonical entry point; see `references/xer-generation.md` |
+| Drop the cached parse for a path (after external edit) | `invalidate_cache_for(xer_path)` |
 
 ### Concept references (read-only docs, NOT code)
 
@@ -49,8 +54,8 @@ These live in `references/*.md` and describe the underlying concepts the MCP too
 | Concept | Doc |
 |---------|-----|
 | XER file format primer | `references/xer-format.md` |
-| XER modification rules (when allowed; how a new versioned file is named) | `references/xer-modify.md` |
-| XER generation patterns | `references/xer-generation.md` |
+| XER modification rules — `apply_xer_changes` change-type catalog | `references/xer-modify.md` |
+| XER generation — `create_xer_from_template` and skeleton flow | `references/xer-generation.md` |
 | XER table / field definitions | `references/xer-tables.md` (grep by table name) |
 | Quality check semantics | `references/quality-checks.md` |
 | Update review semantics | `references/update-review.md` |
@@ -64,6 +69,28 @@ These live in `references/*.md` and describe the underlying concepts the MCP too
 ## Milestone disambiguation
 
 Several tools accept an optional `milestone_id` argument (`score_schedule`, `compare_milestone_slip`, `get_milestone_path_coverage`, `get_delay_impacts`, `proposal_schedule_health`). When the schedule has multiple terminal milestones — common on phased work — these tools raise `MilestoneAmbiguousError` with the candidate list if `milestone_id` is omitted. The clean pattern: call `get_milestones` first, present the candidates to the user (or pick by code/name yourself), then call the downstream tool with the resolved `task_id`.
+
+## Modifying and generating XER files
+
+All XER writes go through two tools:
+
+- **`apply_xer_changes`** — modify an existing XER. Accepts a list of change records (add/remove activities, logic, WBS; dissolve; set duration/calendar; etc.) and writes a new file. Default output: `<input>-modified.xer`. Never overwrites the input.
+- **`create_xer_from_template`** — generate a new XER. Instantiates the `westland-skeleton-v1` skeleton (canonical Westland WBS tree + NTP and SC milestones) stamped with project metadata, then returns the path. Project-specific structure is added in a subsequent `apply_xer_changes` call.
+
+Both tools embody the never-overwrite rule at the top of this file: every write produces a new versioned path. The tools will return an error (with a suggested `-v2`, `-v3` suffix) if the default output path already exists.
+
+**`validate_xer_structure` vs `score_schedule` — these are different checks.** `validate_xer_structure` is the file-import gate: it answers "will P6 or Procore accept this file?" (duplicate IDs, dangling references, circular logic, bad enums, orphans). `score_schedule` is the schedule-health grade: it answers "is this schedule well-built?" (DCMA metrics, float distribution, missing logic, open ends). Run `validate_xer_structure` after any write operation. Run `score_schedule` to evaluate planning quality.
+
+**Compositional flow:**
+
+1. `create_xer_from_template("westland-skeleton-v1", { project_name, project_id, planned_start, ... })` — skeleton on disk, NTP and SC milestone IDs returned.
+2. `apply_xer_changes(output_path, [add_wbs, add_activity, add_logic, ...])` — build project-specific structure via change records.
+3. `validate_xer_structure(result_path)` — confirm `import_ready: true` before handing off to P6 or Procore.
+
+For the complete change-type catalog (all 14 record shapes with examples): `references/xer-modify.md`.
+For the template flow and skeleton details: `references/xer-generation.md`.
+
+**`fix_duplicate_activity_ids`** handles the single most common XER bug — duplicate `task_code` values — in one call. Use before `validate_xer_structure` if the file came from a third-party export and you expect collision issues.
 
 ## When the MCP tools aren't there
 
