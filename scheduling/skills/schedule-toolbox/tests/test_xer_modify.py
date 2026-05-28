@@ -6697,12 +6697,10 @@ class TestFixDuplicateIds(unittest.TestCase):
 
     def test_renumber_round_trip(self):
         """renumber -> xer_io.write -> re-parse -> renamed codes present."""
-        import io
         import tempfile
         import os
         from xer_io import parse_for_writing, write
 
-        from xer_io import parse_for_writing
         doc = parse_for_writing(str(_DUP_FIXTURE))
 
         mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")

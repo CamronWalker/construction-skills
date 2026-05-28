@@ -2460,9 +2460,10 @@ def _fix_merge_consolidate(
         rows_in_group = [task_section.rows[i] for i in indices]
 
         # Sub-group by (target_drtn_hr_cnt, wbs_id)
-        sub_key = lambda r: (r.get("target_drtn_hr_cnt", ""), r.get("wbs_id", ""))  # noqa: E731
-        first_key = sub_key(rows_in_group[0])
-        all_same = all(sub_key(r) == first_key for r in rows_in_group)
+        def _sub_key(r):
+            return (r.get("target_drtn_hr_cnt", ""), r.get("wbs_id", ""))
+        first_key = _sub_key(rows_in_group[0])
+        all_same = all(_sub_key(r) == first_key for r in rows_in_group)
 
         if not all_same:
             unresolved.append({
@@ -2502,7 +2503,8 @@ def _fix_merge_consolidate(
         # We start with the existing non-rerouted edges.
         existing_pairs: set[tuple[str, str, str]] = set()
 
-        # First pass: collect pairs that will NOT be rerouted, to seed the dup set
+        # First pass: apply the reroute mapping speculatively to every edge,
+        # flagging self-loops (drop) and post-reroute duplicates (drop).
         for i, row in enumerate(taskpred.rows):
             p = row.get("pred_task_id", "")
             s = row.get("task_id", "")
