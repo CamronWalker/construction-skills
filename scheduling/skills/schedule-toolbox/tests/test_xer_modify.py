@@ -3455,3 +3455,434 @@ class TestAddWbs(unittest.TestCase):
         )
         new_id = feedback["new_wbs_id"]
         self.assertIn(new_id, state.new_wbs_ids)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestRemoveWbs
+# ---------------------------------------------------------------------------
+
+def _make_doc_with_wbs_tree(extra_task_rows=None):
+    """Build a doc with PROJWBS (root + 2 children + 1 grandchild) and TASK rows.
+
+    WBS layout:
+        wbs_id="10"  parent=""    → project root (no parent)
+        wbs_id="20"  parent="10"  → child-A
+        wbs_id="30"  parent="10"  → child-B
+        wbs_id="40"  parent="20"  → grandchild-of-child-A
+
+    TASK rows (all assigned to child-B unless extra_task_rows overrides):
+        task_id="101" wbs_id="30"  task_code="T101"
+        task_id="102" wbs_id="30"  task_code="T102"
+
+    Callers may supply extra_task_rows to override or extend the task list.
+    """
+    from xer_io import XerDoc, XerSection
+
+    wbs_field_order = [
+        "wbs_id", "proj_id", "wbs_short_name", "wbs_name",
+        "parent_wbs_id", "status_code",
+    ]
+    wbs_rows = [
+        {"wbs_id": "10", "proj_id": "1", "wbs_short_name": "ROOT",
+         "wbs_name": "Root", "parent_wbs_id": "", "status_code": "WS_Open"},
+        {"wbs_id": "20", "proj_id": "1", "wbs_short_name": "CA",
+         "wbs_name": "Child A", "parent_wbs_id": "10", "status_code": "WS_Open"},
+        {"wbs_id": "30", "proj_id": "1", "wbs_short_name": "CB",
+         "wbs_name": "Child B", "parent_wbs_id": "10", "status_code": "WS_Open"},
+        {"wbs_id": "40", "proj_id": "1", "wbs_short_name": "GC",
+         "wbs_name": "Grandchild", "parent_wbs_id": "20", "status_code": "WS_Open"},
+    ]
+
+    def _raw_wbs(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in wbs_field_order)
+
+    wbs_section = XerSection(
+        name="PROJWBS",
+        field_order=wbs_field_order,
+        rows=wbs_rows,
+        raw_lines=[_raw_wbs(r) for r in wbs_rows],
+        e_line=None,
+    )
+
+    task_field_order = [
+        "task_id", "proj_id", "wbs_id", "task_code",
+        "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+    ]
+    if extra_task_rows is None:
+        task_rows = [
+            {"task_id": "101", "proj_id": "1", "wbs_id": "30",
+             "task_code": "T101",
+             "target_drtn_hr_cnt": "8", "remain_drtn_hr_cnt": "8"},
+            {"task_id": "102", "proj_id": "1", "wbs_id": "30",
+             "task_code": "T102",
+             "target_drtn_hr_cnt": "8", "remain_drtn_hr_cnt": "8"},
+        ]
+    else:
+        task_rows = extra_task_rows
+
+    def _raw_task(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in task_field_order)
+
+    task_section = XerSection(
+        name="TASK",
+        field_order=task_field_order,
+        rows=task_rows,
+        raw_lines=[_raw_task(r) for r in task_rows],
+        e_line=None,
+    )
+
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=[wbs_section, task_section],
+    )
+
+
+def _remove_wbs_change(wbs_id: str, cascade: str):
+    return {"type": "remove_wbs", "wbs_id": wbs_id, "cascade": cascade}
+
+
+class TestRemoveWbs(unittest.TestCase):
+    """Tests for the remove_wbs change handler (D12)."""
+
+    # ---- Test 1: fail_if_used, no references — succeeds ----------------------
+
+    def test_fail_if_used_no_references_succeeds(self):
+        """WBS has no activities and no children; removed; state.removed_wbs_ids populated."""
+        # child-A (wbs_id="20") has one child (wbs_id="40") but no tasks directly
+        # We target grandchild "40" — it has no children and no tasks.
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("40", "fail_if_used")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        projwbs = result.doc.section("PROJWBS")
+        wbs_ids = {r["wbs_id"] for r in projwbs.rows}
+        self.assertNotIn("40", wbs_ids)
+        self.assertEqual(len(projwbs.rows), 3)
+
+        # Confirm state via direct handler call
+        from xer_modify import _HANDLERS, ChangeState
+        doc2 = _make_doc_with_wbs_tree()
+        state = ChangeState()
+        _HANDLERS["remove_wbs"](doc2, _remove_wbs_change("40", "fail_if_used"), state)
+        self.assertIn("40", state.removed_wbs_ids)
+
+    # ---- Test 2: fail_if_used, has activity reference → ValidationFailure ----
+
+    def test_fail_if_used_has_activity_reference_raises(self):
+        """WBS has TASK rows assigned → ValidationFailure naming the activity id(s)."""
+        # child-B (wbs_id="30") has tasks T101 and T102
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_remove_wbs_change("30", "fail_if_used")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        # Should mention at least one of the blocking task codes or the wbs_id
+        self.assertTrue("T101" in err or "T102" in err or "30" in err)
+
+    # ---- Test 3: fail_if_used, has child WBS → ValidationFailure -------------
+
+    def test_fail_if_used_has_child_wbs_raises(self):
+        """WBS has child PROJWBS rows → ValidationFailure naming the child wbs_id(s)."""
+        # child-A (wbs_id="20") has grandchild wbs_id="40" as child, no tasks directly
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_remove_wbs_change("20", "fail_if_used")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("40", err)
+
+    # ---- Test 4: move_to_parent, no references — succeeds --------------------
+
+    def test_move_to_parent_no_references_succeeds(self):
+        """WBS has no activities and no children; removed cleanly."""
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("40", "move_to_parent")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        projwbs = result.doc.section("PROJWBS")
+        wbs_ids = {r["wbs_id"] for r in projwbs.rows}
+        self.assertNotIn("40", wbs_ids)
+        self.assertEqual(len(projwbs.rows), 3)
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["reparented_task_count"], 0)
+        self.assertEqual(fb["reparented_wbs_count"], 0)
+
+    # ---- Test 5: move_to_parent, with activity references --------------------
+
+    def test_move_to_parent_with_activity_references(self):
+        """Tasks assigned to removed WBS are reparented to its parent."""
+        # child-B (wbs_id="30") parent is root (wbs_id="10"); tasks T101 and T102
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("30", "move_to_parent")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        task_section = result.doc.section("TASK")
+        for row in task_section.rows:
+            self.assertEqual(row["wbs_id"], "10",
+                             f"task {row['task_code']} should be reparented to '10'")
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["reparented_task_count"], 2)
+        self.assertEqual(fb["reparented_wbs_count"], 0)
+
+        # Verify TASK rows are marked dirty
+        for i in range(len(task_section.rows)):
+            self.assertTrue(task_section.is_dirty(i),
+                            f"task row {i} should be dirty after reparenting")
+
+    # ---- Test 6: move_to_parent, with child WBS ------------------------------
+
+    def test_move_to_parent_with_child_wbs(self):
+        """Child WBS of removed WBS is reparented to removed WBS's parent."""
+        # child-A (wbs_id="20") parent is root (wbs_id="10"); grandchild (wbs_id="40") points to "20"
+        doc = _make_doc_with_wbs_tree()
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("20", "move_to_parent")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        projwbs = result.doc.section("PROJWBS")
+        wbs_ids = {r["wbs_id"] for r in projwbs.rows}
+        self.assertNotIn("20", wbs_ids)
+
+        # grandchild "40" should now point to root "10"
+        gc_row = next(r for r in projwbs.rows if r["wbs_id"] == "40")
+        self.assertEqual(gc_row["parent_wbs_id"], "10")
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["reparented_wbs_count"], 1)
+        self.assertEqual(fb["reparented_task_count"], 0)
+
+    # ---- Test 7: move_to_parent, both activities and child WBS ---------------
+
+    def test_move_to_parent_with_both_activities_and_child_wbs(self):
+        """WBS has both task references and child WBS; both reparented."""
+        # Build a doc where wbs_id="20" has one task AND one child WBS
+        task_rows = [
+            {"task_id": "101", "proj_id": "1", "wbs_id": "20",
+             "task_code": "T101",
+             "target_drtn_hr_cnt": "8", "remain_drtn_hr_cnt": "8"},
+        ]
+        doc = _make_doc_with_wbs_tree(extra_task_rows=task_rows)
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("20", "move_to_parent")],
+            strict=False,
+            dry_run=False,
+        )
+        projwbs = result.doc.section("PROJWBS")
+        task_section = result.doc.section("TASK")
+
+        # "20" removed
+        self.assertNotIn("20", {r["wbs_id"] for r in projwbs.rows})
+
+        # grandchild "40" reparented to root "10"
+        gc_row = next(r for r in projwbs.rows if r["wbs_id"] == "40")
+        self.assertEqual(gc_row["parent_wbs_id"], "10")
+
+        # task T101 reparented to root "10"
+        self.assertEqual(task_section.rows[0]["wbs_id"], "10")
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["reparented_task_count"], 1)
+        self.assertEqual(fb["reparented_wbs_count"], 1)
+
+    # ---- Test 8: remove root WBS → ValidationFailure (any cascade) -----------
+
+    def test_remove_root_wbs_raises_regardless_of_cascade(self):
+        """Root WBS (parent_wbs_id empty) removal always fails."""
+        for cascade in ("fail_if_used", "move_to_parent"):
+            with self.subTest(cascade=cascade):
+                doc = _make_doc_with_wbs_tree()
+                with self.assertRaises(ValidationFailure) as ctx:
+                    apply_changes(
+                        doc,
+                        [_remove_wbs_change("10", cascade)],
+                        strict=False,
+                        dry_run=False,
+                    )
+                err = str(ctx.exception)
+                self.assertIn("root", err.lower())
+
+    # ---- Test 9: WBS not found → ValidationFailure ---------------------------
+
+    def test_wbs_not_found_raises(self):
+        """Removing a wbs_id that does not exist raises ValidationFailure naming the id."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_remove_wbs_change("9999", "fail_if_used")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("9999", str(ctx.exception))
+
+    # ---- Test 10: bad cascade enum → ValidationFailure ----------------------
+
+    def test_bad_cascade_enum_raises(self):
+        """cascade='delete_all' is not a valid value → ValidationFailure."""
+        doc = _make_doc_with_wbs_tree()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_remove_wbs_change("40", "delete_all")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("delete_all", err)
+
+    # ---- Test 11: state.removed_wbs_ids populated ----------------------------
+
+    def test_state_removed_wbs_ids_populated(self):
+        """After removal, state.removed_wbs_ids contains the removed wbs_id."""
+        from xer_modify import _HANDLERS, ChangeState
+        doc = _make_doc_with_wbs_tree()
+        state = ChangeState()
+        _HANDLERS["remove_wbs"](doc, _remove_wbs_change("40", "fail_if_used"), state)
+        self.assertIn("40", state.removed_wbs_ids)
+
+    # ---- Test 12: PROJWBS _dirty re-indexed correctly after row removal ------
+
+    def test_projwbs_dirty_reindex_after_removal(self):
+        """Pre: rows[0] and rows[2] dirty; remove rows[1]; _dirty == {0, 1}."""
+        from xer_io import XerDoc, XerSection
+
+        wbs_field_order = [
+            "wbs_id", "proj_id", "wbs_short_name", "wbs_name",
+            "parent_wbs_id", "status_code",
+        ]
+        wbs_rows = [
+            {"wbs_id": "10", "proj_id": "1", "wbs_short_name": "R",
+             "wbs_name": "Root", "parent_wbs_id": "", "status_code": "WS_Open"},
+            {"wbs_id": "20", "proj_id": "1", "wbs_short_name": "A",
+             "wbs_name": "ChildA", "parent_wbs_id": "10", "status_code": "WS_Open"},
+            {"wbs_id": "30", "proj_id": "1", "wbs_short_name": "B",
+             "wbs_name": "ChildB", "parent_wbs_id": "10", "status_code": "WS_Open"},
+        ]
+
+        def _raw(r):
+            return "%R\t" + "\t".join(r.get(f, "") for f in wbs_field_order)
+
+        wbs_section = XerSection(
+            name="PROJWBS",
+            field_order=wbs_field_order,
+            rows=wbs_rows,
+            raw_lines=[_raw(r) for r in wbs_rows],
+            e_line=None,
+        )
+        # Pre-seed dirty: rows[0] and rows[2]
+        wbs_section._dirty = {0, 2}
+
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[wbs_section],
+        )
+
+        # Remove rows[1] = wbs_id="20" (no tasks, no children)
+        apply_changes(
+            doc,
+            [_remove_wbs_change("20", "fail_if_used")],
+            strict=False,
+            dry_run=False,
+        )
+
+        projwbs = doc.section("PROJWBS")
+        self.assertEqual(len(projwbs.rows), 2)
+        # Original index-0 stays at 0; original index-2 moves to 1.
+        self.assertEqual(projwbs._dirty, {0, 1})
+
+    # ---- Test 13: no PROJWBS section → ValidationFailure --------------------
+
+    def test_no_projwbs_section_raises(self):
+        """Doc with no PROJWBS section raises ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "task_code"],
+            rows=[{"task_id": "1", "task_code": "A1010"}],
+            raw_lines=["%R\t1\tA1010"],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_remove_wbs_change("10", "fail_if_used")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("PROJWBS", str(ctx.exception))
+
+    # ---- Test 14: no TASK section is fine — WBS removal proceeds -------------
+
+    def test_no_task_section_is_fine(self):
+        """Doc with no TASK section; WBS removal proceeds without error."""
+        from xer_io import XerDoc, XerSection
+
+        wbs_field_order = [
+            "wbs_id", "proj_id", "wbs_short_name", "wbs_name",
+            "parent_wbs_id", "status_code",
+        ]
+        wbs_rows = [
+            {"wbs_id": "10", "proj_id": "1", "wbs_short_name": "R",
+             "wbs_name": "Root", "parent_wbs_id": "", "status_code": "WS_Open"},
+            {"wbs_id": "20", "proj_id": "1", "wbs_short_name": "A",
+             "wbs_name": "Child", "parent_wbs_id": "10", "status_code": "WS_Open"},
+        ]
+
+        def _raw(r):
+            return "%R\t" + "\t".join(r.get(f, "") for f in wbs_field_order)
+
+        wbs_section = XerSection(
+            name="PROJWBS",
+            field_order=wbs_field_order,
+            rows=wbs_rows,
+            raw_lines=[_raw(r) for r in wbs_rows],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[wbs_section],
+        )
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("20", "fail_if_used")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        projwbs = result.doc.section("PROJWBS")
+        self.assertEqual(len(projwbs.rows), 1)
+        self.assertEqual(projwbs.rows[0]["wbs_id"], "10")

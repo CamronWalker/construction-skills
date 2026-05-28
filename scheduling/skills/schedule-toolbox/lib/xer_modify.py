@@ -1186,6 +1186,139 @@ def _handle_add_wbs(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
+_REMOVE_WBS_CASCADE_VALUES = frozenset({"fail_if_used", "move_to_parent"})
+
+
+@_register_handler("remove_wbs")
+def _handle_remove_wbs(doc, change: dict, state: ChangeState) -> dict:
+    """Remove a PROJWBS row, with optional reparenting of dependents.
+
+    cascade='fail_if_used'  — ValidationFailure if any TASK or child PROJWBS
+                              references the removed wbs_id.
+    cascade='move_to_parent' — reparent all referencing TASK rows and child
+                               PROJWBS rows to the removed WBS's own parent,
+                               then remove the row.
+
+    Always disallows removing the project root (parent_wbs_id empty/missing).
+    """
+    removed_wbs_id = change.get("wbs_id", "")
+    cascade = change.get("cascade")
+
+    # Validation 1: cascade enum
+    if cascade not in _REMOVE_WBS_CASCADE_VALUES:
+        raise ValidationFailure(
+            f"remove_wbs: cascade must be one of "
+            f"{sorted(_REMOVE_WBS_CASCADE_VALUES)}, got {cascade!r}"
+        )
+
+    # Validation 2: PROJWBS section must exist
+    projwbs = doc.section("PROJWBS")
+    if projwbs is None:
+        raise ValidationFailure(
+            "remove_wbs: PROJWBS section not found in XER document"
+        )
+
+    # Find the WBS row to remove
+    wbs_row_index = None
+    wbs_row = None
+    for i, row in enumerate(projwbs.rows):
+        if row.get("wbs_id") == removed_wbs_id:
+            wbs_row_index = i
+            wbs_row = row
+            break
+
+    if wbs_row_index is None:
+        raise ValidationFailure(
+            f"remove_wbs: wbs_id {removed_wbs_id!r} not found in PROJWBS section"
+        )
+
+    # Validation 3: disallow root removal (parent_wbs_id empty or missing)
+    parent_wbs_id = wbs_row.get("parent_wbs_id", "")
+    if not parent_wbs_id:
+        raise ValidationFailure(
+            f"remove_wbs: wbs_id {removed_wbs_id!r} is the project root "
+            f"(no parent_wbs_id) — root WBS cannot be removed"
+        )
+
+    # Collect referencing TASK rows and child PROJWBS rows
+    task_section = doc.section("TASK")
+    referencing_task_indices: list[int] = []
+    if task_section is not None:
+        for i, row in enumerate(task_section.rows):
+            if row.get("wbs_id") == removed_wbs_id:
+                referencing_task_indices.append(i)
+
+    child_wbs_indices: list[int] = []
+    for i, row in enumerate(projwbs.rows):
+        if row.get("parent_wbs_id") == removed_wbs_id:
+            child_wbs_indices.append(i)
+
+    if cascade == "fail_if_used":
+        # Validation: fail if any references exist
+        blocking_task_codes = []
+        if task_section is not None:
+            blocking_task_codes = [
+                task_section.rows[i].get("task_code", f"task_index={i}")
+                for i in referencing_task_indices
+            ]
+        blocking_child_wbs_ids = [
+            projwbs.rows[i].get("wbs_id", f"wbs_index={i}")
+            for i in child_wbs_indices
+        ]
+
+        if blocking_task_codes or blocking_child_wbs_ids:
+            parts = []
+            if blocking_task_codes:
+                parts.append(f"activities: {blocking_task_codes}")
+            if blocking_child_wbs_ids:
+                parts.append(f"child WBS: {blocking_child_wbs_ids}")
+            raise ValidationFailure(
+                f"remove_wbs: wbs_id {removed_wbs_id!r} is still referenced by "
+                + "; ".join(parts)
+            )
+
+    # cascade == "move_to_parent": reparent before removing
+    reparented_task_count = 0
+    reparented_wbs_count = 0
+
+    if cascade == "move_to_parent":
+        # Reparent TASK rows
+        for i in referencing_task_indices:
+            task_section.rows[i]["wbs_id"] = parent_wbs_id
+            task_section.mark_dirty(i)
+            reparented_task_count += 1
+
+        # Reparent child PROJWBS rows
+        # Note: these indices are relative to current projwbs.rows; we have not
+        # yet removed wbs_row_index, so indices are stable during this loop.
+        for i in child_wbs_indices:
+            projwbs.rows[i]["parent_wbs_id"] = parent_wbs_id
+            projwbs.mark_dirty(i)
+            reparented_wbs_count += 1
+
+    # Remove the PROJWBS row (single-row removal pattern from D5)
+    projwbs.rows.pop(wbs_row_index)
+    if projwbs.raw_lines is not None:
+        projwbs.raw_lines.pop(wbs_row_index)
+    # Re-index _dirty: entries at index > wbs_row_index shift down by 1;
+    # entry wbs_row_index itself is gone.
+    projwbs._dirty = {
+        d - 1 if d > wbs_row_index else d
+        for d in projwbs._dirty
+        if d != wbs_row_index
+    }
+
+    # Update state
+    state.removed_wbs_ids.add(removed_wbs_id)
+
+    return {
+        "removed_wbs_id": removed_wbs_id,
+        "cascade": cascade,
+        "reparented_task_count": reparented_task_count,
+        "reparented_wbs_count": reparented_wbs_count,
+    }
+
+
 @_register_handler("set_calendar")
 def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     activity_id = change["activity_id"]
