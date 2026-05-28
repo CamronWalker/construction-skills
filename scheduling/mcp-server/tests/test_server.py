@@ -37,6 +37,8 @@ class TestServer(unittest.TestCase):
             "delay_analysis": "compute_tia",                   # Plan 2
             "xer_validate_main": "validate_xer_structure",     # Plan 3
             "xer_modify": "apply_xer_changes",                  # Plan 3
+            "xer_modify_create": "create_xer_from_template",    # Plan 3 F3
+            "xer_modify_fixdup": "fix_duplicate_activity_ids",  # Plan 3 F3
         }
         missing = [
             name for name in expected_representatives.values()
