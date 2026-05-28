@@ -133,17 +133,96 @@ def _check_dangling_calendars(doc) -> list[ValidationIssue]:
     return issues
 
 
+def _check_circular_logic(doc) -> list[ValidationIssue]:
+    """DFS cycle detection on the TASKPRED graph.
+
+    Builds a predecessor->successor adjacency map, then runs a three-color
+    (white/gray/black) DFS.  Each detected cycle is reported once with the
+    cycle path as ``affected``.
+    """
+    pred_sec = doc.section("TASKPRED")
+    task_sec = doc.section("TASK")
+    if pred_sec is None or task_sec is None:
+        return []
+
+    # Build adjacency: node -> list of successors
+    adj: dict[str, list[str]] = {}
+    for r in pred_sec.rows:
+        p = r.get("pred_task_id", "")
+        s = r.get("task_id", "")
+        if p and s and p != s:
+            adj.setdefault(p, []).append(s)
+
+    all_nodes = {r.get("task_id", "") for r in task_sec.rows}
+
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = {n: WHITE for n in all_nodes}
+    stack_path: list[str] = []
+    issues: list[ValidationIssue] = []
+    reported_cycles: set[frozenset] = set()
+
+    def dfs(node: str) -> None:
+        color[node] = GRAY
+        stack_path.append(node)
+        for nbr in adj.get(node, []):
+            if color.get(nbr, WHITE) == GRAY:
+                # Found a back-edge: extract cycle from stack
+                idx = stack_path.index(nbr)
+                cycle = stack_path[idx:]
+                key = frozenset(cycle)
+                if key not in reported_cycles:
+                    reported_cycles.add(key)
+                    cycle_str = " -> ".join(cycle + [nbr])
+                    issues.append(ValidationIssue(
+                        severity="error",
+                        category="Logic",
+                        code="CIRCULAR_LOGIC",
+                        message=f"Circular relationship detected: {cycle_str}",
+                        affected=list(cycle),
+                    ))
+            elif color.get(nbr, WHITE) == WHITE:
+                dfs(nbr)
+        stack_path.pop()
+        color[node] = BLACK
+
+    for node in list(all_nodes):
+        if color.get(node, WHITE) == WHITE:
+            dfs(node)
+
+    return issues
+
+
+def _check_self_loops(doc) -> list[ValidationIssue]:
+    """TASKPRED rows where pred_task_id == task_id."""
+    pred_sec = doc.section("TASKPRED")
+    if pred_sec is None:
+        return []
+    issues = []
+    for r in pred_sec.rows:
+        tid = r.get("task_id", "")
+        pid = r.get("pred_task_id", "")
+        if tid and tid == pid:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Logic",
+                code="SELF_LOOP",
+                message=f"Task {tid!r} has a relationship to itself",
+                affected=[tid],
+            ))
+    return issues
+
+
 def validate(doc) -> ValidationReport:
     """Run all file-integrity checks. Returns a ValidationReport with
     all detected issues. import_ready = no error-severity issues.
-
-    Check functions to be added in C3: cycles, self-loops, dup relationships,
-    dup calendars, dup WBS codes, negative durations, invalid dates,
-    invalid enum values, orphan activities, orphan WBS branches, missing/
-    multiple project rows, status/date mismatches.
     """
     issues: list[ValidationIssue] = []
-    issues.extend(_check_duplicate_activity_ids(doc))
+    # Dangling refs
     issues.extend(_check_dangling_predecessors(doc))
     issues.extend(_check_dangling_calendars(doc))
+    # Duplicates
+    issues.extend(_check_duplicate_activity_ids(doc))
+    # Logic
+    issues.extend(_check_circular_logic(doc))
+    issues.extend(_check_self_loops(doc))
     return ValidationReport(issues=issues)
