@@ -59,3 +59,91 @@ class ValidationReport:
             else:
                 s["info"] += 1
         return s
+
+
+def _check_duplicate_activity_ids(doc) -> list[ValidationIssue]:
+    task = doc.section("TASK")
+    if task is None:
+        return []
+    issues = []
+    seen: dict[str, list[str]] = {}
+    for row in task.rows:
+        code = row.get("task_code", "")
+        seen.setdefault(code, []).append(row.get("task_id", ""))
+    for code, ids in seen.items():
+        if len(ids) > 1:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Duplicates",
+                code="DUPLICATE_ACTIVITY_ID",
+                message=f"Activity code {code!r} appears in {len(ids)} rows "
+                        f"(task_ids {', '.join(ids)})",
+                affected=ids,
+            ))
+    return issues
+
+
+def _check_dangling_predecessors(doc) -> list[ValidationIssue]:
+    task = doc.section("TASK")
+    pred = doc.section("TASKPRED")
+    if task is None or pred is None:
+        return []
+    valid_ids = {r.get("task_id") for r in task.rows}
+    issues = []
+    for r in pred.rows:
+        pid = r.get("pred_task_id")
+        sid = r.get("task_id")
+        if pid not in valid_ids:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Dangling refs",
+                code="DANGLING_PREDECESSOR",
+                message=f"TASKPRED row references non-existent pred_task_id {pid!r}",
+                affected=[pid],
+            ))
+        if sid not in valid_ids:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Dangling refs",
+                code="DANGLING_SUCCESSOR",
+                message=f"TASKPRED row references non-existent task_id {sid!r}",
+                affected=[sid],
+            ))
+    return issues
+
+
+def _check_dangling_calendars(doc) -> list[ValidationIssue]:
+    task = doc.section("TASK")
+    cal = doc.section("CALENDAR")
+    if task is None:
+        return []
+    valid_ids = {r.get("clndr_id") for r in cal.rows} if cal is not None else set()
+    issues = []
+    for r in task.rows:
+        cid = r.get("clndr_id")
+        if cid and cid not in valid_ids:
+            issues.append(ValidationIssue(
+                severity="error",
+                category="Dangling refs",
+                code="DANGLING_CALENDAR",
+                message=f"Task {r.get('task_id')!r} references non-existent "
+                        f"clndr_id {cid!r}",
+                affected=[r.get("task_id", "")],
+            ))
+    return issues
+
+
+def validate(doc) -> ValidationReport:
+    """Run all file-integrity checks. Returns a ValidationReport with
+    all detected issues. import_ready = no error-severity issues.
+
+    Check functions to be added in C3: cycles, self-loops, dup relationships,
+    dup calendars, dup WBS codes, negative durations, invalid dates,
+    invalid enum values, orphan activities, orphan WBS branches, missing/
+    multiple project rows, status/date mismatches.
+    """
+    issues: list[ValidationIssue] = []
+    issues.extend(_check_duplicate_activity_ids(doc))
+    issues.extend(_check_dangling_predecessors(doc))
+    issues.extend(_check_dangling_calendars(doc))
+    return ValidationReport(issues=issues)
