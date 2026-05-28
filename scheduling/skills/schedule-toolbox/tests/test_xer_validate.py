@@ -325,6 +325,105 @@ class TestSelfLoops(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Data category (C3 Group 3)
+# ---------------------------------------------------------------------------
+
+class TestNegativeDurations(unittest.TestCase):
+    def test_detects_negative_target_duration(self):
+        from xer_validate import _check_negative_durations
+        doc = _make_doc({"TASK": [_make_task("1", target_drtn="-8")]})
+        issues = _check_negative_durations(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "NEGATIVE_DURATION")
+
+    def test_detects_negative_remain_duration(self):
+        from xer_validate import _check_negative_durations
+        doc = _make_doc({"TASK": [_make_task("1", remain_drtn="-1")]})
+        issues = _check_negative_durations(doc)
+        self.assertEqual(len(issues), 1)
+
+    def test_zero_duration_ok(self):
+        from xer_validate import _check_negative_durations
+        doc = _make_doc({"TASK": [_make_task("1", target_drtn="0")]})
+        self.assertEqual(_check_negative_durations(doc), [])
+
+    def test_empty_duration_skipped(self):
+        from xer_validate import _check_negative_durations
+        doc = _make_doc({"TASK": [_make_task("1", target_drtn="")]})
+        self.assertEqual(_check_negative_durations(doc), [])
+
+
+class TestInvalidDates(unittest.TestCase):
+    def test_detects_bad_date_format(self):
+        from xer_validate import _check_invalid_dates
+        t = _make_task("1")
+        t["act_start_date"] = "25/05/2026"  # wrong format
+        doc = _make_doc({"TASK": [t]})
+        issues = _check_invalid_dates(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "INVALID_DATE")
+
+    def test_valid_datetime_ok(self):
+        from xer_validate import _check_invalid_dates
+        t = _make_task("1")
+        t["act_start_date"] = "2026-05-25 08:00"
+        doc = _make_doc({"TASK": [t]})
+        self.assertEqual(_check_invalid_dates(doc), [])
+
+    def test_valid_date_only_ok(self):
+        from xer_validate import _check_invalid_dates
+        t = _make_task("1")
+        t["act_start_date"] = "2026-05-25"
+        doc = _make_doc({"TASK": [t]})
+        self.assertEqual(_check_invalid_dates(doc), [])
+
+    def test_empty_date_skipped(self):
+        from xer_validate import _check_invalid_dates
+        doc = _make_doc({"TASK": [_make_task("1")]})
+        self.assertEqual(_check_invalid_dates(doc), [])
+
+
+class TestInvalidRelationshipTypes(unittest.TestCase):
+    def test_detects_invalid_type(self):
+        from xer_validate import _check_invalid_relationship_types
+        doc = _make_doc({
+            "TASK": [_make_task("1"), _make_task("2", task_code="A2000")],
+            "TASKPRED": [_make_pred("901", "1", "2", pred_type="PR_XY")],
+        })
+        issues = _check_invalid_relationship_types(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "INVALID_RELATIONSHIP_TYPE")
+
+    def test_all_valid_types(self):
+        from xer_validate import _check_invalid_relationship_types
+        rows = []
+        for i, ptype in enumerate(["PR_FS", "PR_SS", "PR_FF", "PR_SF"]):
+            rows.append(_make_pred(str(900 + i), str(i), str(i + 10), pred_type=ptype))
+        tasks = [_make_task(str(j), task_code=f"A{j}") for j in list(range(4)) + list(range(10, 14))]
+        doc = _make_doc({"TASK": tasks, "TASKPRED": rows})
+        self.assertEqual(_check_invalid_relationship_types(doc), [])
+
+
+class TestInvalidStatusCodes(unittest.TestCase):
+    def test_detects_invalid_status(self):
+        from xer_validate import _check_invalid_status_codes
+        doc = _make_doc({"TASK": [_make_task("1", status_code="TK_Unknown")]})
+        issues = _check_invalid_status_codes(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "INVALID_STATUS_CODE")
+
+    def test_valid_status_codes(self):
+        from xer_validate import _check_invalid_status_codes
+        tasks = [
+            _make_task("1", status_code="TK_NotStart"),
+            _make_task("2", task_code="A2000", status_code="TK_Active"),
+            _make_task("3", task_code="A3000", status_code="TK_Complete"),
+        ]
+        doc = _make_doc({"TASK": tasks})
+        self.assertEqual(_check_invalid_status_codes(doc), [])
+
+
+# ---------------------------------------------------------------------------
 # Integration: validate() orchestrator
 # ---------------------------------------------------------------------------
 
