@@ -1,5 +1,6 @@
 """Tests for the round-trip-safe XER I/O module."""
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -82,9 +83,6 @@ class TestParseForWriting(unittest.TestCase):
         self.assertEqual(len(task.raw_lines), len(task.rows))
 
 
-import tempfile
-
-
 class TestRoundTrip(unittest.TestCase):
     """Zero-mutation = zero-byte-change. Parse and rewrite each corpus
     XER, assert the bytes are byte-identical."""
@@ -116,6 +114,60 @@ class TestRoundTrip(unittest.TestCase):
 
     def test_tia_baseline_round_trip(self):
         self._round_trip("tia_baseline.xer")
+
+
+class TestMutation(unittest.TestCase):
+    def test_mutating_one_field_preserves_everything_else(self):
+        from xer_io import parse_for_writing, write
+        src = (
+            Path(__file__).parent.parent.parent.parent
+            / "mcp-server" / "tests" / "fixtures" / "minimal.xer"
+        )
+        doc1 = parse_for_writing(str(src))
+        # Mutate task_name of first task; mark dirty
+        task = doc1.section("TASK")
+        original_name = task.rows[0]["task_name"]
+        task.rows[0]["task_name"] = "MUTATED"
+        task.mark_dirty(0)
+
+        with tempfile.NamedTemporaryFile(suffix=".xer", delete=False) as tmp:
+            out = Path(tmp.name)
+        try:
+            write(doc1, str(out))
+            doc2 = parse_for_writing(str(out))
+            self.assertEqual(doc2.section("TASK").rows[0]["task_name"], "MUTATED")
+            # Every other row in TASK should be byte-identical to source
+            src_doc = parse_for_writing(str(src))
+            src_task = src_doc.section("TASK")
+            for i in range(1, len(task.rows)):
+                self.assertEqual(task.rows[i], src_task.rows[i],
+                                 f"row {i} was unexpectedly mutated")
+        finally:
+            out.unlink(missing_ok=True)
+
+    def test_appending_row_writes_back_correctly(self):
+        from xer_io import parse_for_writing, write
+        src = (
+            Path(__file__).parent.parent.parent.parent
+            / "mcp-server" / "tests" / "fixtures" / "minimal.xer"
+        )
+        doc1 = parse_for_writing(str(src))
+        task = doc1.section("TASK")
+        new_row = {f: "" for f in task.field_order}
+        new_row["task_id"] = "99999"
+        new_row["task_name"] = "Appended Task"
+        new_row["task_code"] = "A9999"
+        task.append_row(new_row)
+
+        with tempfile.NamedTemporaryFile(suffix=".xer", delete=False) as tmp:
+            out = Path(tmp.name)
+        try:
+            write(doc1, str(out))
+            doc2 = parse_for_writing(str(out))
+            ids = [r["task_id"] for r in doc2.section("TASK").rows]
+            self.assertIn("99999", ids)
+        finally:
+            out.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
