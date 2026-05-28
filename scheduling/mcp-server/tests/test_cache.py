@@ -92,7 +92,9 @@ class TestCpmCache(unittest.TestCase):
                 shutil.copy(FIXTURE, p)
                 paths.append(p)
 
-            cache = CpmCache(max_entries=2)
+            # recency_grace_seconds=0 disables the recency guard so this test
+            # exercises pure LRU eviction without the 30-minute grace window.
+            cache = CpmCache(max_entries=2, recency_grace_seconds=0)
 
             # Load 0 then 1. Cache: [0, 1].
             r0a = cache.get_parsed(str(paths[0]))

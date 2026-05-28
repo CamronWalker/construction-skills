@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from errors import XerLockedError
+from errors import CachePinExhaustedError, XerLockedError
 
 # sys.path injection into schedule-toolbox/lib so the parser + CPM engine
 # can be imported as top-level modules without packaging them.
@@ -55,6 +55,9 @@ def _project_to_lossy(doc: XerDoc) -> dict[str, list[dict]]:
 # still being written by P6 the size will keep growing across the interval.
 # 100ms is the value the spec calls out.
 _PARTIAL_READ_DELAY_S = 0.1
+
+# Default recency window (30 minutes), exposed for test override
+_DEFAULT_RECENCY_GRACE_SECONDS = 30 * 60
 
 
 @dataclass(frozen=True)
@@ -90,14 +93,21 @@ class CpmCache:
     single-threaded; if that changes, wrap method bodies in a lock.
     """
 
-    def __init__(self, max_entries: int = 8) -> None:
+    def __init__(
+        self,
+        max_entries: int = 16,
+        recency_grace_seconds: int = _DEFAULT_RECENCY_GRACE_SECONDS,
+    ) -> None:
         if max_entries < 1:
             raise ValueError(f"max_entries must be >= 1, got {max_entries}")
         self.max_entries = max_entries
+        self.recency_grace_seconds = recency_grace_seconds
         # OrderedDict preserves insertion order; move_to_end on access turns
         # it into an LRU. The key is the absolute path string (str), value is
         # (CacheKey, payload-dict).
         self._entries: "OrderedDict[str, tuple[CacheKey, dict[str, Any]]]" = OrderedDict()
+        self._pinned: set[str] = set()
+        self._last_access: dict[str, float] = {}
 
     # ---- public API -----------------------------------------------------
 
@@ -114,6 +124,7 @@ class CpmCache:
         if existing is not None and existing[0] == tentative:
             # Cache hit. Bump LRU.
             self._entries.move_to_end(str(xer_path))
+            self._touch(xer_path)
             return self._ensure_parsed_projection(existing[1])
 
         # Miss. Verify stability before parsing.
@@ -132,6 +143,7 @@ class CpmCache:
 
         if existing is not None and existing[0] == tentative:
             self._entries.move_to_end(str(xer_path))
+            self._touch(xer_path)
             payload = existing[1]
             if "cpm" in payload:
                 return payload["cpm"]
@@ -159,6 +171,7 @@ class CpmCache:
         existing = self._entries.get(str(xer_path))
         if existing is not None and existing[0] == tentative:
             self._entries.move_to_end(str(xer_path))
+            self._touch(xer_path)
             return existing[1]["doc"]
 
         key = self._safe_key(xer_path)
@@ -169,7 +182,38 @@ class CpmCache:
     def invalidate(self, xer_path: str) -> bool:
         """Drop the cache entry for this path. Returns True if an entry was
         removed, False if there was nothing to drop."""
+        self._pinned.discard(str(xer_path))
+        self._last_access.pop(str(xer_path), None)
         return self._entries.pop(str(xer_path), None) is not None
+
+    # ---- pin / recency API ----------------------------------------------
+
+    def pin(self, xer_path: str) -> None:
+        """Pin an entry against LRU eviction. Raises CachePinExhaustedError when
+        the cache already has max_entries pinned paths.
+
+        Idempotent: pinning an already-pinned path is a safe no-op.
+        """
+        key = str(xer_path)
+        if key in self._pinned:
+            return  # idempotent
+        if len(self._pinned) >= self.max_entries:
+            raise CachePinExhaustedError(
+                f"Cannot pin {xer_path!r}: {len(self._pinned)} entries already "
+                f"pinned (max_entries={self.max_entries}). Unpin something first."
+            )
+        # Ensure the path is actually in cache (force parse if not)
+        if key not in self._entries:
+            self.get_for_writing(xer_path)
+        self._pinned.add(key)
+
+    def unpin(self, xer_path: str) -> None:
+        """Release a pin. Safe no-op if the path was not pinned."""
+        self._pinned.discard(str(xer_path))
+
+    def is_pinned(self, xer_path: str) -> bool:
+        """Return True if the path is currently pinned."""
+        return str(xer_path) in self._pinned
 
     # ---- internals ------------------------------------------------------
 
@@ -229,15 +273,40 @@ class CpmCache:
             )
         return CacheKey(path=str(xer_path), size=st.st_size, mtime=st.st_mtime)
 
+    def _touch(self, xer_path: str) -> None:
+        """Record an access timestamp for recency tracking."""
+        self._last_access[str(xer_path)] = time.time()
+
+    def _is_recent(self, xer_path: str) -> bool:
+        """Return True iff the path was accessed within recency_grace_seconds."""
+        last = self._last_access.get(str(xer_path))
+        if last is None:
+            return False
+        return (time.time() - last) < self.recency_grace_seconds
+
     def _put(self, path: str, key: CacheKey, entry: dict[str, Any]) -> None:
-        """Insert (or replace) an entry, evicting the oldest if over capacity."""
-        # If the path is already there, pop it first so the new insert lands
-        # at the most-recently-used end.
+        """Insert (or replace) an entry, evicting per LRU + pin + recency rules."""
         self._entries.pop(str(path), None)
         self._entries[str(path)] = (key, entry)
+        self._touch(path)
+        # Evict from front (oldest) while over capacity, skipping pinned/recent
         while len(self._entries) > self.max_entries:
-            # popitem(last=False) -> oldest entry.
-            self._entries.popitem(last=False)
+            oldest_path = next(iter(self._entries))
+            if oldest_path in self._pinned or self._is_recent(oldest_path):
+                # Skip this one; rotate to back so we don't re-examine immediately.
+                self._entries.move_to_end(oldest_path)
+                # Safety: if every remaining entry is protected, stop trying.
+                # The pin count limit guarantees this terminates for purely-pinned
+                # case; recency-only case may briefly exceed capacity until
+                # entries age out, which is acceptable.
+                if all(
+                    p in self._pinned or self._is_recent(p)
+                    for p in self._entries
+                ):
+                    break
+                continue
+            self._entries.pop(oldest_path)
+            self._last_access.pop(oldest_path, None)
 
     def _ensure_parsed_projection(self, payload: dict) -> dict[str, list[dict]]:
         """Lazily compute the lossy projection and cache it in the payload."""
