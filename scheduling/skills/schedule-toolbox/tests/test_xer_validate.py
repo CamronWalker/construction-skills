@@ -424,6 +424,150 @@ class TestInvalidStatusCodes(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Network + Structure (C3 Group 4)
+# ---------------------------------------------------------------------------
+
+class TestOrphanActivities(unittest.TestCase):
+    def test_detects_activity_with_no_edges(self):
+        from xer_validate import _check_orphan_activities
+        doc = _make_doc({
+            "TASK": [_make_task("1"), _make_task("2", task_code="A2000")],
+            "TASKPRED": [],  # no relationships at all
+        })
+        issues = _check_orphan_activities(doc)
+        codes = [i.code for i in issues]
+        self.assertTrue(all(c == "ORPHAN_ACTIVITY" for c in codes))
+        self.assertTrue(len(issues) >= 1)
+
+    def test_wbs_summary_excluded(self):
+        from xer_validate import _check_orphan_activities
+        doc = _make_doc({
+            "TASK": [_make_task("1", task_type="TT_WBS")],
+            "TASKPRED": [],
+        })
+        self.assertEqual(_check_orphan_activities(doc), [])
+
+    def test_loe_excluded(self):
+        from xer_validate import _check_orphan_activities
+        doc = _make_doc({
+            "TASK": [_make_task("1", task_type="TT_LOE")],
+            "TASKPRED": [],
+        })
+        self.assertEqual(_check_orphan_activities(doc), [])
+
+    def test_connected_activity_not_flagged(self):
+        from xer_validate import _check_orphan_activities
+        doc = _make_doc({
+            "TASK": [_make_task("1"), _make_task("2", task_code="A2000")],
+            "TASKPRED": [_make_pred("901", "1", "2")],
+        })
+        issues = _check_orphan_activities(doc)
+        self.assertEqual(len(issues), 0)
+
+    def test_orphan_activity_is_warning(self):
+        from xer_validate import _check_orphan_activities
+        doc = _make_doc({
+            "TASK": [_make_task("1")],
+            "TASKPRED": [],
+        })
+        issues = _check_orphan_activities(doc)
+        if issues:
+            self.assertEqual(issues[0].severity, "warning")
+
+
+class TestOrphanedWbsBranches(unittest.TestCase):
+    def setUp(self):
+        from xer_io import parse_for_writing
+        self.orphan_doc = parse_for_writing(str(FIXTURES / "orphan_branch.xer"))
+
+    def test_detects_orphaned_wbs_in_fixture(self):
+        from xer_validate import validate
+        report = validate(self.orphan_doc)
+        codes = [i.code for i in report.issues]
+        self.assertIn("ORPHANED_WBS_BRANCH", codes)
+
+    def test_orphaned_wbs_is_warning(self):
+        from xer_validate import _check_orphaned_wbs_branches
+        doc = _make_doc({
+            "PROJWBS": [
+                _make_wbs("1000", proj_node="Y"),
+                _make_wbs("9001", "1000", "ORPHAN"),
+            ],
+            "TASK": [],
+        })
+        issues = _check_orphaned_wbs_branches(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "ORPHANED_WBS_BRANCH")
+        self.assertEqual(issues[0].severity, "warning")
+
+    def test_root_not_flagged(self):
+        from xer_validate import _check_orphaned_wbs_branches
+        doc = _make_doc({
+            "PROJWBS": [_make_wbs("1000", proj_node="Y")],
+            "TASK": [],
+        })
+        self.assertEqual(_check_orphaned_wbs_branches(doc), [])
+
+    def test_wbs_with_task_not_flagged(self):
+        from xer_validate import _check_orphaned_wbs_branches
+        doc = _make_doc({
+            "PROJWBS": [
+                _make_wbs("1000", proj_node="Y"),
+                _make_wbs("2001", "1000", "STRUCT"),
+            ],
+            "TASK": [_make_task("1", wbs_id="2001")],
+        })
+        self.assertEqual(_check_orphaned_wbs_branches(doc), [])
+
+    def test_wbs_with_children_not_flagged(self):
+        from xer_validate import _check_orphaned_wbs_branches
+        doc = _make_doc({
+            "PROJWBS": [
+                _make_wbs("1000", proj_node="Y"),
+                _make_wbs("2001", "1000", "PARENT"),
+                _make_wbs("3001", "2001", "CHILD"),
+            ],
+            "TASK": [],
+        })
+        issues = _check_orphaned_wbs_branches(doc)
+        affected = [i.affected[0] for i in issues]
+        self.assertIn("3001", affected)
+        self.assertNotIn("2001", affected)
+
+
+class TestMissingMultipleProjectRows(unittest.TestCase):
+    def test_missing_project_section_errors(self):
+        from xer_validate import _check_missing_or_multiple_project_rows
+        doc = _make_doc({"TASK": [_make_task("1")]})
+        issues = _check_missing_or_multiple_project_rows(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "MISSING_PROJECT_ROW")
+        self.assertEqual(issues[0].severity, "error")
+
+    def test_empty_project_section_errors(self):
+        from xer_validate import _check_missing_or_multiple_project_rows
+        doc = _make_doc({"PROJECT": []})
+        issues = _check_missing_or_multiple_project_rows(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "MISSING_PROJECT_ROW")
+
+    def test_multiple_project_rows_warns(self):
+        from xer_validate import _check_missing_or_multiple_project_rows
+        doc = _make_doc({
+            "PROJECT": [_make_project("1"), _make_project("2")],
+        })
+        issues = _check_missing_or_multiple_project_rows(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "MULTIPLE_PROJECT_ROWS")
+        self.assertEqual(issues[0].severity, "warning")
+
+    def test_single_project_ok(self):
+        from xer_validate import _check_missing_or_multiple_project_rows
+        doc = _make_doc({"PROJECT": [_make_project()]})
+        self.assertEqual(_check_missing_or_multiple_project_rows(doc), [])
+
+
+# ---------------------------------------------------------------------------
 # Integration: validate() orchestrator
 # ---------------------------------------------------------------------------
 
@@ -445,6 +589,18 @@ class TestValidateOrchestrator(unittest.TestCase):
         self.assertFalse(report.import_ready)
         codes = [i.code for i in report.issues]
         self.assertIn("CIRCULAR_LOGIC", codes)
+
+    def test_orphan_branch_fixture_import_ready_with_warning(self):
+        from xer_io import parse_for_writing
+        from xer_validate import validate
+        doc = parse_for_writing(str(FIXTURES / "orphan_branch.xer"))
+        report = validate(doc)
+        # Orphan WBS is a warning, not an error
+        self.assertTrue(report.import_ready,
+                        f"orphan_branch.xer should be import_ready but errors: "
+                        f"{[i for i in report.issues if i.severity == 'error']}")
+        codes = [i.code for i in report.issues]
+        self.assertIn("ORPHANED_WBS_BRANCH", codes)
 
     def test_validate_returns_report_instance(self):
         from xer_io import parse_for_writing

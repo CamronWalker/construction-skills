@@ -414,6 +414,120 @@ def _check_invalid_status_codes(doc) -> list[ValidationIssue]:
     return issues
 
 
+def _check_orphan_activities(doc) -> list[ValidationIssue]:
+    """TASK rows with no predecessor or successor edges.
+
+    Excludes WBS summary tasks (TT_WBS), LOE tasks (TT_LOE), and the
+    project-start milestone (TT_Mile with no edges is acceptable as a
+    project-open activity).  Everything else with zero edges is flagged
+    as a warning — it may still import fine, but it's almost certainly a
+    logic gap.
+    """
+    task = doc.section("TASK")
+    pred_sec = doc.section("TASKPRED")
+    if task is None:
+        return []
+
+    skip_types = {"TT_WBS", "TT_LOE"}
+    connected: set[str] = set()
+    if pred_sec is not None:
+        for r in pred_sec.rows:
+            connected.add(r.get("task_id", ""))
+            connected.add(r.get("pred_task_id", ""))
+
+    issues = []
+    for r in task.rows:
+        tid = r.get("task_id", "")
+        ttype = r.get("task_type", "")
+        if ttype in skip_types:
+            continue
+        if tid not in connected:
+            issues.append(ValidationIssue(
+                severity="warning",
+                category="Network",
+                code="ORPHAN_ACTIVITY",
+                message=(
+                    f"Task {tid!r} ({r.get('task_code','')}) has no "
+                    f"predecessor or successor relationships"
+                ),
+                affected=[tid],
+            ))
+    return issues
+
+
+def _check_orphaned_wbs_branches(doc) -> list[ValidationIssue]:
+    """PROJWBS nodes that have no child WBS rows and no tasks assigned.
+
+    The project root (proj_node_flag == 'Y') is excluded — a root with no
+    children is valid for a trivial project.
+    """
+    wbs = doc.section("PROJWBS")
+    task = doc.section("TASK")
+    if wbs is None:
+        return []
+
+    # Collect WBS ids that are parents of other WBS rows
+    has_children: set[str] = set()
+    for r in wbs.rows:
+        parent = r.get("parent_wbs_id", "")
+        if parent:
+            has_children.add(parent)
+
+    # Collect WBS ids that have tasks
+    has_tasks: set[str] = set()
+    if task is not None:
+        for r in task.rows:
+            wid = r.get("wbs_id", "")
+            if wid:
+                has_tasks.add(wid)
+
+    issues = []
+    for r in wbs.rows:
+        wid = r.get("wbs_id", "")
+        # Skip the project root node
+        if r.get("proj_node_flag", "N") == "Y":
+            continue
+        if wid not in has_children and wid not in has_tasks:
+            issues.append(ValidationIssue(
+                severity="warning",
+                category="Structure",
+                code="ORPHANED_WBS_BRANCH",
+                message=(
+                    f"WBS node {wid!r} ({r.get('wbs_short_name','')}) "
+                    f"has no child WBS rows and no tasks"
+                ),
+                affected=[wid],
+            ))
+    return issues
+
+
+def _check_missing_or_multiple_project_rows(doc) -> list[ValidationIssue]:
+    """Zero PROJECT rows -> error; more than one -> warning."""
+    proj = doc.section("PROJECT")
+    issues = []
+    if proj is None or len(proj.rows) == 0:
+        issues.append(ValidationIssue(
+            severity="error",
+            category="Structure",
+            code="MISSING_PROJECT_ROW",
+            message="No PROJECT row found in the XER — file cannot be imported",
+            affected=[],
+        ))
+    elif len(proj.rows) > 1:
+        ids = [r.get("proj_id", "") for r in proj.rows]
+        issues.append(ValidationIssue(
+            severity="warning",
+            category="Structure",
+            code="MULTIPLE_PROJECT_ROWS",
+            message=(
+                f"XER contains {len(proj.rows)} PROJECT rows "
+                f"(proj_ids {', '.join(ids)}); only one is expected"
+            ),
+            affected=ids,
+        ))
+    return issues
+
+
 def validate(doc) -> ValidationReport:
     """Run all file-integrity checks. Returns a ValidationReport with
     all detected issues. import_ready = no error-severity issues.
@@ -435,4 +549,8 @@ def validate(doc) -> ValidationReport:
     issues.extend(_check_invalid_dates(doc))
     issues.extend(_check_invalid_relationship_types(doc))
     issues.extend(_check_invalid_status_codes(doc))
+    # Network / Structure
+    issues.extend(_check_orphan_activities(doc))
+    issues.extend(_check_orphaned_wbs_branches(doc))
+    issues.extend(_check_missing_or_multiple_project_rows(doc))
     return ValidationReport(issues=issues)
