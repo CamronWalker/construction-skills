@@ -113,7 +113,18 @@ The "drive existing scripts, don't wrap them" rule extends to scripts in **sibli
 
 The recipe pattern in `phases/report.md` step 3b is the template. Apply it to any future cross-skill helper need.
 
-## Email JSON shape — single source of truth
+## Email JSON shape — fetch the live schema, don't trust this file
+
+**The Worker schema is the contract:**
+
+- Human-readable: <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema>
+- Machine: <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema.json>
+
+When you're about to build a seed, when you hit a 422, or whenever you're unsure of a field — WebFetch the schema. The Worker is the validator of record. The shape paraphrase below is for orientation; if it disagrees with the live schema, the schema wins.
+
+**Don't hand-construct the seed.** Use `build_seed_dict` in [skills/schedule-update/references/build_seed.py](skills/schedule-update/references/build_seed.py) — it is the single in-repo place that conforms to the schema. When the schema changes, update the helper; do not band-aid the seed shape in callers.
+
+### The shape, paraphrased
 
 The weekly schedule email pipeline (`schedule-update` skill) round-trips through one JSON artifact: `{dated_folder}/{YYYY-MM-DD}-email.json`. Three places handle that JSON:
 
@@ -123,12 +134,7 @@ The weekly schedule email pipeline (`schedule-update` skill) round-trips through
 | Read (local) | Python | [`email_draft_io.py`](skills/schedule-update/references/email_draft_io.py) `load_draft(path)` — validates top-level shape, raises `DraftError` on drift. |
 | Read (browser) | SPA + Trix editor | Hydrated server-side from the same JSON; mutates `this_week.*` via `PUT /editorial`. |
 
-**The Worker is the validator of record.** The canonical schema lives at:
-
-- Human: <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema>
-- Machine: <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema.json>
-
-The skill emits this shape into its seed; the Worker validates on `generate_weekly_schedule_update_email_draft` and on every `PUT /editorial`. **If a `generate_weekly_schedule_update_email_draft` call returns 422 with a `violations[]` array, refetch the live schema from the URL above — the Worker is authoritative and this CLAUDE.md may have drifted.** Violations include `fuzzyHint` suggestions for typo fixes; surface them literally to the colleague.
+The Worker validates on `generate_weekly_schedule_update_email_draft` and on every `PUT /editorial`. On 422, refetch the live schema (URLs at top of this section) and use the violation's `field` path + `fuzzyHint` to locate and fix the drift. Surface `fuzzyHint` suggestions literally to the colleague.
 
 ### The canonical shape (v2)
 
