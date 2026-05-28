@@ -26,7 +26,10 @@ class XerSection:
             unchanged rows (zero risk of format drift). None for new sections
             created by create_xer_from_template.
         e_line: Original %E line text (often just "%E" but P6 occasionally
-            adds whitespace).
+            adds whitespace). None when no %E was present in the source
+            (P6 omits %E between sections when a %T follows immediately).
+            The writer emits this verbatim when present, and omits it when
+            None — ensuring sections with no source %E are not given one.
         _dirty: Set of row indices that have been mutated; the writer
             reconstructs these from the dict and ignores raw_lines[i].
     """
@@ -35,7 +38,7 @@ class XerSection:
     field_order: list[str]
     rows: list[dict[str, str]]
     raw_lines: Optional[list[str]]
-    e_line: str
+    e_line: Optional[str]
     _dirty: set[int] = field(default_factory=set)
 
     def is_dirty(self, row_index: int) -> bool:
@@ -150,7 +153,7 @@ def parse_for_writing(xer_path: str) -> XerDoc:
                 field_order=[],
                 rows=[],
                 raw_lines=[],
-                e_line="%E",
+                e_line=None,
             )
             sections.append(current)
         elif marker == "%F" and current is not None:
@@ -167,3 +170,41 @@ def parse_for_writing(xer_path: str) -> XerDoc:
         encoding=encoding,
         sections=sections,
     )
+
+
+def _reconstruct_row(row: dict[str, str], field_order: list[str]) -> str:
+    """Build a %R line from a dict, in the section's canonical field order.
+
+    Missing fields are emitted as empty strings — matches how P6 represents
+    nulls in tab-delimited XER.
+    """
+    vals = [str(row.get(f, "")) for f in field_order]
+    return "%R\t" + "\t".join(vals)
+
+
+def write(doc: XerDoc, output_path: str) -> None:
+    """Serialize XerDoc to disk.
+
+    Strategy:
+      - For each section, for each row index i:
+          * if section.is_dirty(i): reconstruct the line from the dict.
+          * else: emit raw_lines[i] verbatim. Zero format drift.
+      - Sections are emitted in doc.sections order.
+      - Encoding matches doc.encoding (default cp1252).
+      - Line endings: CRLF. Single trailing "%E" then newline at EOF.
+    """
+    lines: list[str] = [doc.header_line]
+    for section in doc.sections:
+        lines.append(f"%T\t{section.name}")
+        lines.append("%F\t" + "\t".join(section.field_order))
+        for i, row in enumerate(section.rows):
+            if section.is_dirty(i):
+                lines.append(_reconstruct_row(row, section.field_order))
+            else:
+                lines.append(section.raw_lines[i])
+        if section.e_line is not None:
+            lines.append(section.e_line)
+    # Trailing newline after final %E -- P6 expects this.
+    text = "\r\n".join(lines) + "\r\n"
+    with open(output_path, "wb") as f:
+        f.write(text.encode(doc.encoding))

@@ -82,5 +82,41 @@ class TestParseForWriting(unittest.TestCase):
         self.assertEqual(len(task.raw_lines), len(task.rows))
 
 
+import tempfile
+
+
+class TestRoundTrip(unittest.TestCase):
+    """Zero-mutation = zero-byte-change. Parse and rewrite each corpus
+    XER, assert the bytes are byte-identical."""
+
+    def setUp(self):
+        self.fixture_root = (
+            Path(__file__).parent.parent.parent.parent
+            / "mcp-server" / "tests" / "fixtures"
+        )
+
+    def _round_trip(self, name: str):
+        from xer_io import parse_for_writing, write
+        src = self.fixture_root / name
+        doc = parse_for_writing(str(src))
+        with tempfile.NamedTemporaryFile(suffix=".xer", delete=False) as tmp:
+            out = Path(tmp.name)
+        try:
+            write(doc, str(out))
+            self.assertEqual(src.read_bytes(), out.read_bytes(),
+                             f"{name} did not round-trip byte-identical")
+        finally:
+            out.unlink(missing_ok=True)
+
+    def test_minimal_round_trip(self):
+        self._round_trip("minimal.xer")
+
+    def test_cp_baseline_round_trip(self):
+        self._round_trip("cp_baseline.xer")
+
+    def test_tia_baseline_round_trip(self):
+        self._round_trip("tia_baseline.xer")
+
+
 if __name__ == "__main__":
     unittest.main()
