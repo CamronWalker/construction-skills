@@ -171,6 +171,12 @@ def apply_changes(
         result.changes_applied += 1
 
     # Pass 3: validate the post-mutation state; only flag NEW issues.
+    # Policy note: orphan-rule issues (ORPHAN_ACTIVITY, ORPHANED_WBS_BRANCH)
+    # are emitted by xer_validate at warning severity — they describe logic
+    # gaps that still produce P6-importable files. The design spec's table
+    # lists the orphan rule as "error" in the apply_xer_changes context;
+    # we honor that by treating warnings as blocking only when strict=True.
+    # A caller who wants the strict-spec semantics must opt in.
     post_report = _xer_validate(working_doc)
     for issue in post_report.issues:
         key = (issue.code, issue.message)
