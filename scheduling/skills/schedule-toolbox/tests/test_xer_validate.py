@@ -610,5 +610,86 @@ class TestValidateOrchestrator(unittest.TestCase):
         self.assertIsInstance(report, ValidationReport)
 
 
+# ---------------------------------------------------------------------------
+# Status (C3 Group 5)
+# ---------------------------------------------------------------------------
+
+class TestStatusDateMismatch(unittest.TestCase):
+    def test_complete_without_act_end_date(self):
+        from xer_validate import _check_status_date_mismatch
+        t = _make_task("1", status_code="TK_Complete")
+        t["act_end_date"] = ""
+        doc = _make_doc({"TASK": [t]})
+        issues = _check_status_date_mismatch(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "STATUS_DATE_MISMATCH")
+        self.assertEqual(issues[0].severity, "warning")
+
+    def test_complete_with_act_end_date_ok(self):
+        from xer_validate import _check_status_date_mismatch
+        t = _make_task("1", status_code="TK_Complete")
+        t["act_end_date"] = "2026-05-20 17:00"
+        doc = _make_doc({"TASK": [t]})
+        self.assertEqual(_check_status_date_mismatch(doc), [])
+
+    def test_not_started_empty_end_ok(self):
+        from xer_validate import _check_status_date_mismatch
+        doc = _make_doc({"TASK": [_make_task("1", status_code="TK_NotStart")]})
+        self.assertEqual(_check_status_date_mismatch(doc), [])
+
+
+class TestActualAfterDataDate(unittest.TestCase):
+    def test_act_start_after_data_date(self):
+        from xer_validate import _check_actual_after_data_date
+        t = _make_task("1", status_code="TK_Active")
+        t["act_start_date"] = "2026-05-30 08:00"  # after data date 2026-05-25
+        doc = _make_doc({
+            "PROJECT": [_make_project(last_recalc_date="2026-05-25 08:00")],
+            "TASK": [t],
+        })
+        issues = _check_actual_after_data_date(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "ACTUAL_AFTER_DATA_DATE")
+        self.assertEqual(issues[0].severity, "warning")
+
+    def test_act_end_after_data_date(self):
+        from xer_validate import _check_actual_after_data_date
+        t = _make_task("1", status_code="TK_Complete")
+        t["act_start_date"] = "2026-05-20 08:00"
+        t["act_end_date"] = "2026-05-28 17:00"  # after data date
+        doc = _make_doc({
+            "PROJECT": [_make_project(last_recalc_date="2026-05-25 08:00")],
+            "TASK": [t],
+        })
+        issues = _check_actual_after_data_date(doc)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "ACTUAL_AFTER_DATA_DATE")
+
+    def test_act_on_data_date_ok(self):
+        from xer_validate import _check_actual_after_data_date
+        t = _make_task("1", status_code="TK_Active")
+        t["act_start_date"] = "2026-05-25 08:00"  # equal to data date
+        doc = _make_doc({
+            "PROJECT": [_make_project(last_recalc_date="2026-05-25 08:00")],
+            "TASK": [t],
+        })
+        self.assertEqual(_check_actual_after_data_date(doc), [])
+
+    def test_no_data_date_skips(self):
+        from xer_validate import _check_actual_after_data_date
+        t = _make_task("1")
+        t["act_start_date"] = "2026-05-30 08:00"
+        doc = _make_doc({
+            "PROJECT": [_make_project(last_recalc_date="")],
+            "TASK": [t],
+        })
+        self.assertEqual(_check_actual_after_data_date(doc), [])
+
+    def test_no_project_section_skips(self):
+        from xer_validate import _check_actual_after_data_date
+        doc = _make_doc({"TASK": [_make_task("1")]})
+        self.assertEqual(_check_actual_after_data_date(doc), [])
+
+
 if __name__ == "__main__":
     unittest.main()

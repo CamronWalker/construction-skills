@@ -528,6 +528,67 @@ def _check_missing_or_multiple_project_rows(doc) -> list[ValidationIssue]:
     return issues
 
 
+def _check_status_date_mismatch(doc) -> list[ValidationIssue]:
+    """TK_Complete tasks with no act_end_date."""
+    task = doc.section("TASK")
+    if task is None:
+        return []
+    issues = []
+    for r in task.rows:
+        if r.get("status_code", "") == "TK_Complete" and not r.get("act_end_date", "").strip():
+            tid = r.get("task_id", "")
+            issues.append(ValidationIssue(
+                severity="warning",
+                category="Status",
+                code="STATUS_DATE_MISMATCH",
+                message=(
+                    f"Task {tid!r} has status_code='TK_Complete' but no act_end_date"
+                ),
+                affected=[tid],
+            ))
+    return issues
+
+
+def _check_actual_after_data_date(doc) -> list[ValidationIssue]:
+    """Actual dates (act_start_date, act_end_date) after the PROJECT data date."""
+    proj = doc.section("PROJECT")
+    task = doc.section("TASK")
+    if proj is None or task is None or not proj.rows:
+        return []
+
+    dd_raw = proj.rows[0].get("last_recalc_date", "").strip()
+    if not dd_raw:
+        return []
+    try:
+        data_date = _parse_xer_date(dd_raw)
+    except ValueError:
+        return []
+
+    issues = []
+    for r in task.rows:
+        tid = r.get("task_id", "")
+        for field in ("act_start_date", "act_end_date"):
+            val = r.get(field, "").strip()
+            if not val:
+                continue
+            try:
+                dt = _parse_xer_date(val)
+            except ValueError:
+                continue  # will be caught by _check_invalid_dates
+            if dt and data_date and dt > data_date:
+                issues.append(ValidationIssue(
+                    severity="warning",
+                    category="Status",
+                    code="ACTUAL_AFTER_DATA_DATE",
+                    message=(
+                        f"Task {tid!r} has {field}={val!r} which is after "
+                        f"the data date {dd_raw!r}"
+                    ),
+                    affected=[tid],
+                ))
+    return issues
+
+
 def validate(doc) -> ValidationReport:
     """Run all file-integrity checks. Returns a ValidationReport with
     all detected issues. import_ready = no error-severity issues.
@@ -553,4 +614,7 @@ def validate(doc) -> ValidationReport:
     issues.extend(_check_orphan_activities(doc))
     issues.extend(_check_orphaned_wbs_branches(doc))
     issues.extend(_check_missing_or_multiple_project_rows(doc))
+    # Status
+    issues.extend(_check_status_date_mismatch(doc))
+    issues.extend(_check_actual_after_data_date(doc))
     return ValidationReport(issues=issues)
