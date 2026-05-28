@@ -2122,3 +2122,84 @@ def _handle_apply_anchor_absorption(doc, change: dict, state: ChangeState) -> di
         "milestone_impact_days": None,
         "now_on_critical_path": None,
     }
+
+
+# ---- public API: create_from_template ---------------------------------------
+
+
+def create_from_template(template_path: str, metadata: dict):
+    """Load the skeleton XER and stamp it with project metadata.
+
+    metadata keys (all optional except project_name + project_id):
+        project_name        -> PROJECT.proj_short_name
+        project_id          -> PROJECT.proj_id AND every proj_id field across
+                               all sections (referential consistency)
+        planned_start       -> PROJECT.plan_start_date (date string "YYYY-MM-DD"
+                               or "YYYY-MM-DD HH:MM"; normalize to "... 08:00"
+                               if no time component)
+        planned_data_date   -> PROJECT.last_recalc_date
+        task_code_prefix    -> PROJECT.task_code_prefix (optional)
+
+    Returns the mutated XerDoc. Caller (MCP wrapper) writes it via xer_io.write
+    and extracts NTP/SC milestone task_ids by task_code lookup.
+
+    Raises:
+        ValidationFailure: if project_name or project_id is missing from metadata.
+        FileNotFoundError / ValueError: propagated from parse_for_writing if the
+            template path is invalid or the file is malformed.
+    """
+    from xer_io import parse_for_writing  # noqa: PLC0415
+
+    # Validate required metadata fields before touching the file.
+    project_name = metadata.get("project_name")
+    project_id = metadata.get("project_id")
+
+    if not project_name:
+        raise ValidationFailure(
+            "create_from_template: metadata must include 'project_name'"
+        )
+    if not project_id:
+        raise ValidationFailure(
+            "create_from_template: metadata must include 'project_id'"
+        )
+
+    # Parse the template — propagate file/format errors to the caller.
+    doc = parse_for_writing(template_path)
+
+    # Normalize planned_start: append " 08:00" if only a date (10 chars).
+    planned_start = metadata.get("planned_start")
+    if planned_start is not None and len(planned_start) == 10:
+        planned_start = planned_start + " 08:00"
+
+    planned_data_date = metadata.get("planned_data_date")
+    task_code_prefix = metadata.get("task_code_prefix")
+
+    # Stamp the PROJECT row.
+    project_section = doc.section("PROJECT")
+    if project_section is not None and project_section.rows:
+        proj_row = project_section.rows[0]
+        proj_row["proj_short_name"] = project_name
+        proj_row["proj_id"] = project_id
+        if planned_start is not None:
+            proj_row["plan_start_date"] = planned_start
+        if planned_data_date is not None:
+            proj_row["last_recalc_date"] = planned_data_date
+        if task_code_prefix is not None:
+            proj_row["task_code_prefix"] = task_code_prefix
+        project_section.mark_dirty(0)
+
+    # Propagate proj_id to every row in every section that carries the field.
+    # Also propagate pred_proj_id in TASKPRED.
+    for section in doc.sections:
+        for i, row in enumerate(section.rows):
+            mutated = False
+            if "proj_id" in row:
+                row["proj_id"] = project_id
+                mutated = True
+            if "pred_proj_id" in row:
+                row["pred_proj_id"] = project_id
+                mutated = True
+            if mutated:
+                section.mark_dirty(i)
+
+    return doc

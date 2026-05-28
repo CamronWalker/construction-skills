@@ -8,6 +8,7 @@ sys.path.insert(0, str(LIB))
 
 from xer_modify import (  # noqa: E402
     apply_changes, ApplyResult, ChangeRecord, ValidationFailure,
+    create_from_template,
 )
 
 
@@ -6100,3 +6101,243 @@ class TestD17PostCpmFeedback(unittest.TestCase):
         self.assertIsNotNone(s)
         # 7 activities changed CP status (T0001 off + T0002..T0007 on) → > 5
         self.assertTrue(s["substantial_cp_change"])
+
+
+# ---------------------------------------------------------------------------
+# Task F1: create_from_template
+# ---------------------------------------------------------------------------
+
+_SKELETON = (
+    Path(__file__).parent.parent.parent.parent
+    / "mcp-server" / "templates" / "westland-skeleton-v1.xer"
+)
+
+_BASE_METADATA = {
+    "project_name": "Test Project",
+    "project_id":   "TEST-001",
+    "planned_start": "2026-06-01",
+    "planned_data_date": "2026-06-01 08:00",
+}
+
+
+class TestCreateFromTemplate(unittest.TestCase):
+    """Task F1 — create_from_template TDD suite."""
+
+    # ------------------------------------------------------------------
+    # Test 1 (verbatim plan test)
+    # ------------------------------------------------------------------
+
+    def test_loads_skeleton_and_sets_metadata(self):
+        """Verbatim plan test: loads skeleton XER and stamps project_name."""
+        skeleton = (Path(__file__).parent.parent.parent.parent
+                    / "mcp-server" / "templates" / "westland-skeleton-v1.xer")
+        metadata = {
+            "project_name": "Test Project",
+            "project_id":   "TEST-001",
+            "planned_start": "2026-06-01",
+            "planned_data_date": "2026-06-01 08:00",
+        }
+        doc = create_from_template(str(skeleton), metadata)
+        project_row = doc.section("PROJECT").rows[0]
+        self.assertEqual(project_row["proj_short_name"], "Test Project")
+
+    # ------------------------------------------------------------------
+    # Test 2 — proj_id propagation: no lingering "TEMPLATE" tokens
+    # ------------------------------------------------------------------
+
+    def test_proj_id_propagated_to_all_sections(self):
+        """Every proj_id field across all sections must equal the new project_id."""
+        doc = create_from_template(str(_SKELETON), _BASE_METADATA)
+
+        # PROJECT
+        project_row = doc.section("PROJECT").rows[0]
+        self.assertEqual(project_row["proj_id"], "TEST-001")
+
+        # SCHEDOPTIONS
+        sched = doc.section("SCHEDOPTIONS")
+        self.assertIsNotNone(sched)
+        for row in sched.rows:
+            if "proj_id" in row:
+                self.assertEqual(row["proj_id"], "TEST-001",
+                                 f"SCHEDOPTIONS row still has old proj_id: {row}")
+
+        # PROJWBS — all 21 rows
+        projwbs = doc.section("PROJWBS")
+        self.assertIsNotNone(projwbs)
+        for row in projwbs.rows:
+            if "proj_id" in row:
+                self.assertEqual(row["proj_id"], "TEST-001",
+                                 f"PROJWBS row still has old proj_id: {row.get('wbs_id')}")
+
+        # TASK
+        task = doc.section("TASK")
+        self.assertIsNotNone(task)
+        for row in task.rows:
+            if "proj_id" in row:
+                self.assertEqual(row["proj_id"], "TEST-001",
+                                 f"TASK row still has old proj_id: {row.get('task_code')}")
+
+        # TASKPRED — proj_id AND pred_proj_id
+        taskpred = doc.section("TASKPRED")
+        self.assertIsNotNone(taskpred)
+        for row in taskpred.rows:
+            if "proj_id" in row:
+                self.assertEqual(row["proj_id"], "TEST-001",
+                                 f"TASKPRED row proj_id still old: {row}")
+            if "pred_proj_id" in row:
+                self.assertEqual(row["pred_proj_id"], "TEST-001",
+                                 f"TASKPRED row pred_proj_id still old: {row}")
+
+        # CALENDAR
+        calendar = doc.section("CALENDAR")
+        self.assertIsNotNone(calendar)
+        for row in calendar.rows:
+            if "proj_id" in row:
+                self.assertEqual(row["proj_id"], "TEST-001",
+                                 f"CALENDAR row still has old proj_id: {row}")
+
+        # Confirm nothing in the entire doc still has "TEMPLATE" as a proj_id value
+        for section in doc.sections:
+            for row in section.rows:
+                if row.get("proj_id") == "TEMPLATE":
+                    self.fail(
+                        f"Lingering 'TEMPLATE' proj_id in section {section.name}: {row}"
+                    )
+                if row.get("pred_proj_id") == "TEMPLATE":
+                    self.fail(
+                        f"Lingering 'TEMPLATE' pred_proj_id in section {section.name}: {row}"
+                    )
+
+    # ------------------------------------------------------------------
+    # Test 3 — planned_start normalization
+    # ------------------------------------------------------------------
+
+    def test_planned_start_no_time_appends_0800(self):
+        """Date-only string "YYYY-MM-DD" is normalized to "YYYY-MM-DD 08:00"."""
+        meta = dict(_BASE_METADATA, planned_start="2026-06-01")
+        doc = create_from_template(str(_SKELETON), meta)
+        project_row = doc.section("PROJECT").rows[0]
+        self.assertEqual(project_row["plan_start_date"], "2026-06-01 08:00")
+
+    def test_planned_start_with_time_preserved_as_is(self):
+        """Datetime string "YYYY-MM-DD HH:MM" is used verbatim."""
+        meta = dict(_BASE_METADATA, planned_start="2026-06-01 09:30")
+        doc = create_from_template(str(_SKELETON), meta)
+        project_row = doc.section("PROJECT").rows[0]
+        self.assertEqual(project_row["plan_start_date"], "2026-06-01 09:30")
+
+    # ------------------------------------------------------------------
+    # Test 4 — planned_data_date
+    # ------------------------------------------------------------------
+
+    def test_planned_data_date_sets_last_recalc_date(self):
+        """planned_data_date is written to PROJECT.last_recalc_date."""
+        meta = dict(_BASE_METADATA, planned_data_date="2026-06-15 08:00")
+        doc = create_from_template(str(_SKELETON), meta)
+        project_row = doc.section("PROJECT").rows[0]
+        self.assertEqual(project_row["last_recalc_date"], "2026-06-15 08:00")
+
+    # ------------------------------------------------------------------
+    # Test 5 — missing project_name raises ValidationFailure
+    # ------------------------------------------------------------------
+
+    def test_missing_project_name_raises(self):
+        """Omitting project_name raises ValidationFailure."""
+        meta = {"project_id": "TEST-001"}
+        with self.assertRaises(ValidationFailure) as ctx:
+            create_from_template(str(_SKELETON), meta)
+        self.assertIn("project_name", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # Test 6 — missing project_id raises ValidationFailure
+    # ------------------------------------------------------------------
+
+    def test_missing_project_id_raises(self):
+        """Omitting project_id raises ValidationFailure."""
+        meta = {"project_name": "Test Project"}
+        with self.assertRaises(ValidationFailure) as ctx:
+            create_from_template(str(_SKELETON), meta)
+        self.assertIn("project_id", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # Test 7 — round-trip: write to temp file, re-parse, assert persistence
+    # ------------------------------------------------------------------
+
+    def test_round_trip_dirty_marking(self):
+        """write() + re-parse preserves proj_short_name — proves dirty marking worked."""
+        import tempfile
+        import os
+        from xer_io import write, parse_for_writing
+
+        doc = create_from_template(str(_SKELETON), _BASE_METADATA)
+
+        with tempfile.NamedTemporaryFile(suffix=".xer", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            write(doc, tmp_path)
+            reparsed = parse_for_writing(tmp_path)
+            project_row = reparsed.section("PROJECT").rows[0]
+            self.assertEqual(project_row["proj_short_name"], "Test Project")
+            # Also verify proj_id propagated through the round-trip
+            self.assertEqual(project_row["proj_id"], "TEST-001")
+        finally:
+            os.unlink(tmp_path)
+
+    # ------------------------------------------------------------------
+    # Test 8 — validate clean: import_ready True after stamping
+    # ------------------------------------------------------------------
+
+    def test_validate_clean(self):
+        """xer_validate.validate on the stamped doc yields import_ready=True."""
+        # xer_validate is in the lib directory, which is already on sys.path via
+        # the LIB insert at the top of this test module.
+        from xer_validate import validate  # noqa: PLC0415
+
+        doc = create_from_template(str(_SKELETON), _BASE_METADATA)
+        report = validate(doc)
+        errors = [i for i in report.issues if i.severity == "error"]
+        self.assertTrue(
+            report.import_ready,
+            f"Expected import_ready=True but got errors: {[i.message for i in errors]}"
+        )
+
+    # ------------------------------------------------------------------
+    # Test 9 — task_code_prefix optional
+    # ------------------------------------------------------------------
+
+    def test_task_code_prefix_omitted_leaves_skeleton_value(self):
+        """Omitting task_code_prefix leaves whatever the skeleton had in that field."""
+        doc_without = create_from_template(str(_SKELETON), _BASE_METADATA)
+        skeleton_doc = __import__("xer_io").parse_for_writing(str(_SKELETON))
+        skeleton_prefix = skeleton_doc.section("PROJECT").rows[0].get("task_code_prefix", "")
+        stamped_prefix = doc_without.section("PROJECT").rows[0].get("task_code_prefix", "")
+        self.assertEqual(stamped_prefix, skeleton_prefix)
+
+    def test_task_code_prefix_provided_is_set(self):
+        """Providing task_code_prefix writes it to PROJECT.task_code_prefix."""
+        meta = dict(_BASE_METADATA, task_code_prefix="A")
+        doc = create_from_template(str(_SKELETON), meta)
+        project_row = doc.section("PROJECT").rows[0]
+        self.assertEqual(project_row["task_code_prefix"], "A")
+
+    # ------------------------------------------------------------------
+    # Test 10 — milestones intact after stamping
+    # ------------------------------------------------------------------
+
+    def test_milestones_intact_after_stamping(self):
+        """TASK still has MILESTONE-NTP and MILESTONE-SC; TASKPRED has the FS edge."""
+        doc = create_from_template(str(_SKELETON), _BASE_METADATA)
+
+        task = doc.section("TASK")
+        codes = {row["task_code"] for row in task.rows}
+        self.assertIn("MILESTONE-NTP", codes,
+                      "MILESTONE-NTP missing from TASK after stamping")
+        self.assertIn("MILESTONE-SC", codes,
+                      "MILESTONE-SC missing from TASK after stamping")
+
+        taskpred = doc.section("TASKPRED")
+        self.assertEqual(len(taskpred.rows), 1,
+                         f"Expected 1 TASKPRED row, got {len(taskpred.rows)}")
+        edge = taskpred.rows[0]
+        self.assertEqual(edge["pred_type"], "PR_FS")
