@@ -77,12 +77,20 @@ class CacheKey:
 
 
 class CpmCache:
-    """LRU cache of parsed XER + CPM results, keyed by (path, size, mtime).
+    """LRU cache of parsed XerDocs + CPM results, keyed by (path, size, mtime).
 
     Entries are ``(CacheKey, payload)`` where payload is a dict with slots:
       - ``doc``    — XerDoc (always present after first parse)
       - ``parsed`` — lossy dict projection (lazily computed on first access)
       - ``cpm``    — CPM result tuple (lazily computed on first get_cpm call)
+
+    Eviction is LRU with two guards:
+      1. Pinned entries (via cache.pin(path)) are never evicted.
+      2. Entries accessed within recency_grace_seconds are also exempt.
+
+    When every entry in the cache is protected (pinned or recent), the cache
+    briefly accepts more than max_entries entries — that's expected. Capacity
+    returns to nominal once entries age out of the recency window or get unpinned.
 
     Read-only tools call ``get_parsed()`` to get the ``{table: [dict]}`` shape.
     Write-path tools call ``get_for_writing()`` to get the rich ``XerDoc``.
@@ -289,18 +297,25 @@ class CpmCache:
         self._entries.pop(str(path), None)
         self._entries[str(path)] = (key, entry)
         self._touch(path)
-        # Evict from front (oldest) while over capacity, skipping pinned/recent
+        # Evict from front (oldest) while over capacity, skipping pinned/recent.
+        # The just-inserted entry (str(path)) is also never a candidate — evicting
+        # it would cause the caller's subsequent self._entries[str(path)] lookup
+        # to KeyError.
         while len(self._entries) > self.max_entries:
             oldest_path = next(iter(self._entries))
+            if oldest_path == str(path):
+                # We've wrapped all the way around to the entry we just inserted.
+                # Every other entry is pinned or recent — accept temporary overflow.
+                break
             if oldest_path in self._pinned or self._is_recent(oldest_path):
                 # Skip this one; rotate to back so we don't re-examine immediately.
                 self._entries.move_to_end(oldest_path)
-                # Safety: if every remaining entry is protected, stop trying.
-                # The pin count limit guarantees this terminates for purely-pinned
-                # case; recency-only case may briefly exceed capacity until
-                # entries age out, which is acceptable.
+                # Safety: if every remaining entry is protected (including the
+                # newly inserted path), stop trying.  The p == str(path) clause
+                # is needed so the all() check terminates when the inserted entry
+                # is the only non-pinned/non-recent one left.
                 if all(
-                    p in self._pinned or self._is_recent(p)
+                    p in self._pinned or self._is_recent(p) or p == str(path)
                     for p in self._entries
                 ):
                     break

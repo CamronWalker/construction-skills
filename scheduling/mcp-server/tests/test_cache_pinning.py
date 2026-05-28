@@ -70,6 +70,23 @@ class TestPinning(unittest.TestCase):
         cache.pin(a)  # second pin should be safe no-op
         self.assertTrue(cache.is_pinned(a))
 
+    def test_put_never_evicts_self_when_all_others_pinned(self):
+        """get_parsed must not KeyError when all existing entries are pinned and grace=0."""
+        cache = CpmCache(max_entries=2, recency_grace_seconds=0)
+        a = str(FIXTURES / "minimal.xer")
+        b = str(FIXTURES / "cp_baseline.xer")
+        c = str(FIXTURES / "tia_baseline.xer")
+
+        cache.get_parsed(a)
+        cache.get_parsed(b)
+        cache.pin(a)
+        cache.pin(b)
+        # All slots pinned; adding c would overflow. _put should NOT evict c.
+        result = cache.get_parsed(c)
+        self.assertIsInstance(result, dict)
+        # And c should be present in the cache (temporary overflow)
+        self.assertIn(c, cache._entries)
+
 
 class TestRecency(unittest.TestCase):
     def test_recently_accessed_survives_eviction(self):
