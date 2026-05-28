@@ -8,7 +8,7 @@ sys.path.insert(0, str(LIB))
 
 from xer_modify import (  # noqa: E402
     apply_changes, ApplyResult, ChangeRecord, ValidationFailure,
-    create_from_template,
+    create_from_template, fix_duplicate_ids,
 )
 
 
@@ -6341,3 +6341,412 @@ class TestCreateFromTemplate(unittest.TestCase):
                          f"Expected 1 TASKPRED row, got {len(taskpred.rows)}")
         edge = taskpred.rows[0]
         self.assertEqual(edge["pred_type"], "PR_FS")
+
+
+# ---------------------------------------------------------------------------
+# TestFixDuplicateIds — tests for fix_duplicate_ids (F2)
+# ---------------------------------------------------------------------------
+
+_DUP_FIXTURE = (
+    Path(__file__).parent.parent.parent.parent
+    / "mcp-server" / "tests" / "fixtures" / "duplicate_ids.xer"
+)
+
+
+def _make_dup_doc(task_rows, taskpred_rows=None):
+    """Build an in-memory XerDoc with TASK (and optionally TASKPRED) sections.
+
+    task_rows: list of dicts with at least:
+        {"task_id", "task_code", "target_drtn_hr_cnt", "wbs_id"}
+    Minimal fields only — enough for fix_duplicate_ids.
+    """
+    from xer_io import XerDoc, XerSection
+
+    task_field_order = [
+        "task_id", "proj_id", "wbs_id", "task_code",
+        "task_name", "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+    ]
+    task_section = XerSection(
+        name="TASK",
+        field_order=task_field_order,
+        rows=list(task_rows),
+        raw_lines=[
+            "%R\t{task_id}\t{proj_id}\t{wbs_id}\t{task_code}\t{task_name}"
+            "\t{target_drtn_hr_cnt}\t{remain_drtn_hr_cnt}".format(**r)
+            for r in task_rows
+        ],
+        e_line=None,
+    )
+    sections = [task_section]
+
+    if taskpred_rows is not None:
+        taskpred_field_order = [
+            "task_pred_id", "task_id", "pred_task_id",
+            "proj_id", "pred_proj_id", "pred_type", "lag_hr_cnt",
+        ]
+        taskpred_section = XerSection(
+            name="TASKPRED",
+            field_order=taskpred_field_order,
+            rows=list(taskpred_rows),
+            raw_lines=[
+                "%R\t{task_pred_id}\t{task_id}\t{pred_task_id}"
+                "\t{proj_id}\t{pred_proj_id}\t{pred_type}\t{lag_hr_cnt}".format(**r)
+                for r in taskpred_rows
+            ],
+            e_line=None,
+        )
+        sections.append(taskpred_section)
+
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=sections,
+    )
+
+
+def _dup_task_row(task_id, task_code, target_drtn="40", wbs_id="1000",
+                  task_name=None):
+    if task_name is None:
+        task_name = f"Activity {task_code}"
+    return {
+        "task_id": str(task_id),
+        "proj_id": "1",
+        "wbs_id": str(wbs_id),
+        "task_code": task_code,
+        "task_name": task_name,
+        "target_drtn_hr_cnt": str(target_drtn),
+        "remain_drtn_hr_cnt": str(target_drtn),
+    }
+
+
+def _dup_tp_row(tpid, succ_id, pred_id):
+    return {
+        "task_pred_id": str(tpid),
+        "task_id": str(succ_id),
+        "pred_task_id": str(pred_id),
+        "proj_id": "1",
+        "pred_proj_id": "1",
+        "pred_type": "PR_FS",
+        "lag_hr_cnt": "0",
+    }
+
+
+class TestFixDuplicateIds(unittest.TestCase):
+    """Tests for fix_duplicate_ids (F2 spec)."""
+
+    # ------------------------------------------------------------------
+    # Test 1: report_only on fixture — duplicates detected, doc unmutated
+    # ------------------------------------------------------------------
+
+    def test_report_only_fixture_detects_duplicates(self):
+        """report_only on duplicate_ids.xer: 3-row A1010 group -> 2 renames proposed,
+        doc untouched."""
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(_DUP_FIXTURE))
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="report_only")
+
+        # 3 rows share A1010 -> 2 are duplicates (the second and third occurrences)
+        self.assertEqual(result["duplicates_found"], 2)
+        self.assertEqual(len(result["mapping"]), 2)
+        self.assertEqual(result["unresolved"], [])
+
+        # mapping entries have required keys
+        for entry in result["mapping"]:
+            self.assertIn("original_id", entry)
+            self.assertIn("new_id", entry)
+            self.assertIn("task_name", entry)
+            self.assertIn("reason", entry)
+            # original_id is A1010 for both
+            self.assertEqual(entry["original_id"], "A1010")
+            # proposed new_id must differ from A1010
+            self.assertNotEqual(entry["new_id"], "A1010")
+
+        # doc must be unmutated: all 3 task_codes still "A1010"
+        task = mutated_doc.section("TASK")
+        codes = [r["task_code"] for r in task.rows]
+        self.assertEqual(codes.count("A1010"), 3,
+                         "report_only must not mutate the document")
+
+        # no rows should be dirty
+        for i in range(len(task.rows)):
+            if task.raw_lines is not None and i < len(task.raw_lines):
+                self.assertNotIn(i, task._dirty,
+                                 f"Row {i} is dirty but report_only should not mutate")
+
+    # ------------------------------------------------------------------
+    # Test 2: renumber on fixture — first A1010 kept, others renamed
+    # ------------------------------------------------------------------
+
+    def test_renumber_fixture_resolves_all_duplicates(self):
+        """renumber on duplicate_ids.xer: first A1010 kept, 2 others renamed;
+        no duplicate codes remain; mapping records both renames."""
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(_DUP_FIXTURE))
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")
+
+        self.assertEqual(result["duplicates_found"], 2)
+        self.assertEqual(len(result["mapping"]), 2)
+        self.assertEqual(result["unresolved"], [])
+
+        # All mapping entries have required shape
+        for entry in result["mapping"]:
+            self.assertIn("original_id", entry)
+            self.assertIn("new_id", entry)
+            self.assertIn("task_name", entry)
+            self.assertIn("reason", entry)
+            self.assertEqual(entry["original_id"], "A1010")
+            self.assertNotEqual(entry["new_id"], "A1010")
+
+        # No duplicate task_codes remain in the mutated doc
+        task = mutated_doc.section("TASK")
+        all_codes = [r["task_code"] for r in task.rows]
+        self.assertEqual(len(all_codes), len(set(all_codes)),
+                         f"Duplicate codes remain after renumber: {all_codes}")
+
+        # First occurrence of A1010 (row 0) keeps its code
+        self.assertEqual(task.rows[0]["task_code"], "A1010")
+
+        # The renamed rows are marked dirty
+        # rows[1] and rows[2] were the duplicates — they should be dirty
+        self.assertTrue(task.is_dirty(1), "Row 1 (2nd A1010) should be dirty")
+        self.assertTrue(task.is_dirty(2), "Row 2 (3rd A1010) should be dirty")
+
+    # ------------------------------------------------------------------
+    # Test 3: renumber numeric-suffix policy
+    # ------------------------------------------------------------------
+
+    def test_renumber_numeric_suffix_policy(self):
+        """codes A1000, A1010, A1010(dup), A1020 -> dup renames to A1030."""
+        doc = _make_dup_doc([
+            _dup_task_row(1, "A1000"),
+            _dup_task_row(2, "A1010"),
+            _dup_task_row(3, "A1010"),   # duplicate
+            _dup_task_row(4, "A1020"),
+        ])
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")
+
+        self.assertEqual(result["duplicates_found"], 1)
+        task = mutated_doc.section("TASK")
+        all_codes = {r["task_code"] for r in task.rows}
+        # A1030 should be present (max existing numeric suffix is 20, +10 = 30)
+        self.assertIn("A1030", all_codes,
+                      f"Expected A1030 in renamed codes but got: {all_codes}")
+        # Original A1010 (first occurrence) is kept
+        self.assertIn("A1010", all_codes)
+        # No duplicate codes
+        codes_list = [r["task_code"] for r in task.rows]
+        self.assertEqual(len(codes_list), len(set(codes_list)))
+
+    # ------------------------------------------------------------------
+    # Test 4: renumber non-numeric code policy
+    # ------------------------------------------------------------------
+
+    def test_renumber_non_numeric_policy(self):
+        """Non-numeric codes: 'DEMO', 'DEMO'(dup) -> dup renames to 'DEMO-DUP1'."""
+        doc = _make_dup_doc([
+            _dup_task_row(1, "DEMO"),
+            _dup_task_row(2, "DEMO"),   # duplicate
+        ])
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")
+
+        self.assertEqual(result["duplicates_found"], 1)
+        task = mutated_doc.section("TASK")
+        all_codes = {r["task_code"] for r in task.rows}
+        self.assertIn("DEMO", all_codes)
+        self.assertIn("DEMO-DUP1", all_codes)
+
+    # ------------------------------------------------------------------
+    # Test 5: renumber collision avoidance
+    # ------------------------------------------------------------------
+
+    def test_renumber_collision_avoidance(self):
+        """Two independent duplicate groups — no renamed code collides with
+        existing codes or with each other."""
+        doc = _make_dup_doc([
+            _dup_task_row(1, "A1010"),
+            _dup_task_row(2, "A1010"),   # dup -> would try A1020 (max+10) but A1020 exists
+            _dup_task_row(3, "A1020"),
+            _dup_task_row(4, "A1020"),   # dup -> would try A1030
+        ])
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")
+
+        self.assertEqual(result["duplicates_found"], 2)
+        task = mutated_doc.section("TASK")
+        codes_list = [r["task_code"] for r in task.rows]
+        # No duplicates at all
+        self.assertEqual(len(codes_list), len(set(codes_list)),
+                         f"Collision not avoided: {codes_list}")
+
+    # ------------------------------------------------------------------
+    # Test 6: no duplicates -> early return
+    # ------------------------------------------------------------------
+
+    def test_no_duplicates_returns_empty_result(self):
+        """Clean doc (no duplicate task_codes) returns duplicates_found=0."""
+        doc = _make_dup_doc([
+            _dup_task_row(1, "A1010"),
+            _dup_task_row(2, "A1020"),
+            _dup_task_row(3, "A1030"),
+        ])
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")
+
+        self.assertEqual(result["duplicates_found"], 0)
+        self.assertEqual(result["mapping"], [])
+        self.assertEqual(result["unresolved"], [])
+        # doc unchanged
+        task = mutated_doc.section("TASK")
+        codes = [r["task_code"] for r in task.rows]
+        self.assertEqual(codes, ["A1010", "A1020", "A1030"])
+
+    # ------------------------------------------------------------------
+    # Test 7: unknown strategy -> ValidationFailure
+    # ------------------------------------------------------------------
+
+    def test_unknown_strategy_raises(self):
+        """Unknown strategy raises ValidationFailure."""
+        doc = _make_dup_doc([_dup_task_row(1, "A1010")])
+        with self.assertRaises(ValidationFailure):
+            fix_duplicate_ids(doc, strategy="delete_all")
+
+    # ------------------------------------------------------------------
+    # Test 8: no TASK section -> ValidationFailure
+    # ------------------------------------------------------------------
+
+    def test_no_task_section_raises(self):
+        """Missing TASK section raises ValidationFailure."""
+        from xer_io import XerDoc
+        doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252", sections=[])
+        with self.assertRaises(ValidationFailure):
+            fix_duplicate_ids(doc, strategy="renumber")
+
+    # ------------------------------------------------------------------
+    # Test 9: merge_consolidate true duplicate -> kept + edge rerouted
+    # ------------------------------------------------------------------
+
+    def test_merge_consolidate_true_dup_reroutes_edge(self):
+        """Two rows same code, same duration, same wbs_id -> merge;
+        TASKPRED edge referencing deleted task_id rerouted to kept task_id."""
+        # task_id 10 and 20 both have code A1010, same duration, same wbs
+        # task_id 30 has code A1020
+        # edge: 30 (A1020) depends on 20 (A1010 dup) via FS
+        # After merge: row 20 deleted, edge rerouted to task_id 10
+        doc = _make_dup_doc(
+            task_rows=[
+                _dup_task_row(10, "A1010", target_drtn="40", wbs_id="1000"),
+                _dup_task_row(20, "A1010", target_drtn="40", wbs_id="1000"),  # true dup
+                _dup_task_row(30, "A1020", target_drtn="40", wbs_id="1000"),
+            ],
+            taskpred_rows=[
+                _dup_tp_row(1, succ_id=30, pred_id=20),   # A1020 depends on dup A1010
+            ],
+        )
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="merge_consolidate")
+
+        self.assertEqual(result["duplicates_found"], 1)
+        self.assertEqual(result["unresolved"], [])
+
+        task = mutated_doc.section("TASK")
+        # Only one A1010 row should remain
+        a1010_rows = [r for r in task.rows if r["task_code"] == "A1010"]
+        self.assertEqual(len(a1010_rows), 1, "Expected exactly one A1010 row after merge")
+        # It should be the FIRST occurrence (task_id "10")
+        self.assertEqual(a1010_rows[0]["task_id"], "10")
+
+        # The edge should now reference task_id "10" (the kept row), not "20"
+        tp = mutated_doc.section("TASKPRED")
+        self.assertIsNotNone(tp, "TASKPRED section should still exist")
+        self.assertEqual(len(tp.rows), 1)
+        self.assertEqual(tp.rows[0]["pred_task_id"], "10",
+                         "Edge must be rerouted from deleted task_id 20 to kept task_id 10")
+
+        # mapping reason mentions merge
+        self.assertTrue(any("merged" in e["reason"].lower() for e in result["mapping"]),
+                        f"Expected 'merged' in reason: {result['mapping']}")
+
+    # ------------------------------------------------------------------
+    # Test 10: merge_consolidate differing rows -> unresolved
+    # ------------------------------------------------------------------
+
+    def test_merge_consolidate_differing_rows_goes_to_unresolved(self):
+        """Two rows same code but different duration -> unresolved, both rows kept."""
+        doc = _make_dup_doc([
+            _dup_task_row(10, "A1010", target_drtn="40", wbs_id="1000"),
+            _dup_task_row(20, "A1010", target_drtn="80", wbs_id="1000"),   # different duration
+        ])
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="merge_consolidate")
+
+        # Should be unresolved
+        self.assertTrue(len(result["unresolved"]) > 0,
+                        "Expected unresolved entry for differing-duration group")
+        # Both rows should still be present (untouched)
+        task = mutated_doc.section("TASK")
+        a1010_rows = [r for r in task.rows if r["task_code"] == "A1010"]
+        self.assertEqual(len(a1010_rows), 2, "Both rows should be untouched")
+
+    # ------------------------------------------------------------------
+    # Test 11: renumber persists through round-trip (dirty-marking proof)
+    # ------------------------------------------------------------------
+
+    def test_renumber_round_trip(self):
+        """renumber -> xer_io.write -> re-parse -> renamed codes present."""
+        import io
+        import tempfile
+        import os
+        from xer_io import parse_for_writing, write
+
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(_DUP_FIXTURE))
+
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")
+
+        # Write to a temp file
+        with tempfile.NamedTemporaryFile(
+            suffix=".xer", delete=False, mode="wb"
+        ) as tmp:
+            tmp_path = tmp.name
+        try:
+            write(mutated_doc, tmp_path)
+            # Re-parse
+            reparsed = parse_for_writing(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+        task = reparsed.section("TASK")
+        all_codes = [r["task_code"] for r in task.rows]
+
+        # No duplicates in the round-tripped file
+        self.assertEqual(len(all_codes), len(set(all_codes)),
+                         f"Duplicate codes after round-trip: {all_codes}")
+
+        # The renamed codes from mapping are present
+        for entry in result["mapping"]:
+            self.assertIn(entry["new_id"], all_codes,
+                          f"Renamed code {entry['new_id']!r} missing after round-trip")
+
+    # ------------------------------------------------------------------
+    # Test 12: xer_validate clean after renumber
+    # ------------------------------------------------------------------
+
+    def test_validate_clean_after_renumber(self):
+        """xer_validate on the renumbered doc reports no DUPLICATE_ACTIVITY_ID error."""
+        from xer_io import parse_for_writing
+        from xer_validate import validate
+
+        doc = parse_for_writing(str(_DUP_FIXTURE))
+        mutated_doc, result = fix_duplicate_ids(doc, strategy="renumber")
+
+        report = validate(mutated_doc)
+        dup_errors = [
+            i for i in report.issues
+            if i.code == "DUPLICATE_ACTIVITY_ID"
+        ]
+        self.assertEqual(dup_errors, [],
+                         f"DUPLICATE_ACTIVITY_ID errors remain: {dup_errors}")

@@ -2203,3 +2203,371 @@ def create_from_template(template_path: str, metadata: dict):
                 section.mark_dirty(i)
 
     return doc
+
+
+# ---- public API: fix_duplicate_ids ------------------------------------------
+
+
+def _split_numeric_suffix(code: str) -> tuple[str, int | None]:
+    """Split 'A1010' -> ('A', 1010); 'DEMO' -> ('DEMO', None).
+
+    The trailing numeric part is a maximal run of decimal digits at the end of
+    the string.  If there are no trailing digits the suffix is None and the
+    prefix is the whole string.
+    """
+    m = re.search(r"^(.*?)(\d+)$", code)
+    if m:
+        return m.group(1), int(m.group(2))
+    return code, None
+
+
+def _next_unused_numeric_code(prefix: str, used_codes: set[str]) -> str:
+    """Return the lowest unused code with the given prefix and a numeric suffix.
+
+    Policy (P6 task_code_step = 10):
+        1. Collect all existing numeric suffixes for this prefix in used_codes.
+        2. Start at max(existing_suffixes) + 10 (or 10 if none).
+        3. Increment by 10 until we find a code not in used_codes.
+
+    This mirrors P6's own auto-numbering convention.
+    """
+    existing_suffixes = []
+    for code in used_codes:
+        p, n = _split_numeric_suffix(code)
+        if p == prefix and n is not None:
+            existing_suffixes.append(n)
+
+    candidate_suffix = (max(existing_suffixes) + 10) if existing_suffixes else 10
+    while True:
+        candidate = f"{prefix}{candidate_suffix}"
+        if candidate not in used_codes:
+            return candidate
+        candidate_suffix += 10
+
+
+def _next_unused_non_numeric_code(base: str, used_codes: set[str]) -> str:
+    """Return 'base-DUP1', 'base-DUP2', ... until an unused code is found."""
+    n = 1
+    while True:
+        candidate = f"{base}-DUP{n}"
+        if candidate not in used_codes:
+            return candidate
+        n += 1
+
+
+def _compute_rename(original_code: str, used_codes: set[str]) -> str:
+    """Compute the new code for a duplicate, following the renumber policy.
+
+    - Numeric-suffix codes: _next_unused_numeric_code
+    - Non-numeric codes: _next_unused_non_numeric_code
+    """
+    prefix, suffix = _split_numeric_suffix(original_code)
+    if suffix is not None:
+        return _next_unused_numeric_code(prefix, used_codes)
+    return _next_unused_non_numeric_code(original_code, used_codes)
+
+
+def _detect_duplicate_groups(task_rows: list[dict]) -> dict[str, list[int]]:
+    """Return a mapping code -> [row_indices] for groups with > 1 row.
+
+    Row indices are in original list order (stable).
+    """
+    groups: dict[str, list[int]] = {}
+    for i, row in enumerate(task_rows):
+        code = row.get("task_code", "")
+        groups.setdefault(code, []).append(i)
+    return {code: indices for code, indices in groups.items() if len(indices) > 1}
+
+
+def fix_duplicate_ids(doc, strategy: str = "renumber") -> tuple[object, dict]:
+    """Detect and resolve duplicate task_code values in the TASK table.
+
+    Strategies
+    ----------
+    renumber (default)
+        For each duplicate group (same task_code), keep the FIRST occurrence
+        and rename the rest to an unused task_code.  The task_id is unchanged
+        (logic edges reference task_id, so they are unaffected by a code rename).
+        Renaming policy:
+          - Numeric-suffix codes (e.g., "A1010"): find the next unused code
+            at prefix + (max_existing_suffix + 10), incrementing by 10 until
+            an unused slot is found.
+          - Non-numeric codes (e.g., "DEMO"): append "-DUP1", "-DUP2", ...
+        A live "used codes" set prevents the generated code from colliding with
+        any other existing code or with codes assigned earlier in this same run.
+
+    report_only
+        Run duplicate detection and compute proposed new codes using the same
+        renumber policy.  DO NOT mutate any rows.  Return the mapping of what
+        WOULD change (each entry's new_id is the proposed code).
+
+    merge_consolidate
+        For TRUE duplicates (same task_code AND same target_drtn_hr_cnt AND same
+        wbs_id — likely an XER-export bug that double-emitted a row), keep the
+        FIRST row, DELETE the rest, and reroute every TASKPRED edge that
+        referenced a deleted row's task_id to the kept row's task_id.
+        Self-loops and duplicate edges created by rerouting are dropped.
+        Groups where rows differ on duration or WBS are placed in 'unresolved'
+        with an explanatory reason and left untouched.
+
+    Parameters
+    ----------
+    doc : XerDoc
+        Parsed XER document (from xer_io.parse_for_writing).
+    strategy : str
+        One of "renumber", "report_only", "merge_consolidate".
+
+    Returns
+    -------
+    (XerDoc, dict)
+        The (possibly mutated) doc and a result dict:
+        {
+            "duplicates_found": int,
+            "mapping":    [{"original_id", "new_id", "task_name", "reason"}, ...],
+            "unresolved": [{"original_id", "reason"}, ...]
+        }
+
+    Raises
+    ------
+    ValidationFailure
+        If strategy is unknown, or if no TASK section exists in the document.
+    """
+    _valid_strategies = {"renumber", "report_only", "merge_consolidate"}
+    if strategy not in _valid_strategies:
+        raise ValidationFailure(
+            f"fix_duplicate_ids: unknown strategy {strategy!r} — "
+            f"must be one of {sorted(_valid_strategies)}"
+        )
+
+    task_section = doc.section("TASK")
+    if task_section is None:
+        raise ValidationFailure(
+            "fix_duplicate_ids: no TASK section found in the XER document"
+        )
+
+    dup_groups = _detect_duplicate_groups(task_section.rows)
+
+    empty_result: dict = {"duplicates_found": 0, "mapping": [], "unresolved": []}
+    if not dup_groups:
+        return doc, empty_result
+
+    if strategy == "report_only":
+        return _fix_report_only(doc, task_section, dup_groups)
+
+    if strategy == "renumber":
+        return _fix_renumber(doc, task_section, dup_groups)
+
+    # strategy == "merge_consolidate"
+    return _fix_merge_consolidate(doc, task_section, dup_groups)
+
+
+def _fix_report_only(
+    doc,
+    task_section,
+    dup_groups: dict[str, list[int]],
+) -> tuple[object, dict]:
+    """report_only: compute proposed renames without mutating the doc."""
+    # Build the live used-codes set from the full TASK table (read-only snapshot).
+    used_codes: set[str] = {r.get("task_code", "") for r in task_section.rows}
+
+    mapping = []
+    duplicates_found = 0
+
+    for code, indices in dup_groups.items():
+        # Keep indices[0]; propose renames for indices[1:]
+        for idx in indices[1:]:
+            row = task_section.rows[idx]
+            proposed_new = _compute_rename(code, used_codes)
+            # Reserve the proposed code so later iterations don't collide with it
+            used_codes.add(proposed_new)
+            mapping.append({
+                "original_id": code,
+                "new_id": proposed_new,
+                "task_name": row.get("task_name", ""),
+                "reason": f"renumbered duplicate of task_code {code!r}",
+            })
+            duplicates_found += 1
+
+    return doc, {
+        "duplicates_found": duplicates_found,
+        "mapping": mapping,
+        "unresolved": [],
+    }
+
+
+def _fix_renumber(
+    doc,
+    task_section,
+    dup_groups: dict[str, list[int]],
+) -> tuple[object, dict]:
+    """renumber: rename all duplicate occurrences (2nd, 3rd, …) in-place."""
+    # Live used-codes set includes ALL codes currently in the TASK table.
+    # This prevents a renamed code from colliding with any existing code,
+    # including codes generated by earlier iterations of this loop.
+    used_codes: set[str] = {r.get("task_code", "") for r in task_section.rows}
+
+    mapping = []
+    duplicates_found = 0
+
+    for code, indices in dup_groups.items():
+        # Keep indices[0] unchanged; rename indices[1:]
+        for idx in indices[1:]:
+            row = task_section.rows[idx]
+            new_code = _compute_rename(code, used_codes)
+            used_codes.add(new_code)  # reserve immediately
+
+            # Mutate the row in-place
+            row["task_code"] = new_code
+            task_section.mark_dirty(idx)
+
+            mapping.append({
+                "original_id": code,
+                "new_id": new_code,
+                "task_name": row.get("task_name", ""),
+                "reason": f"renumbered duplicate of task_code {code!r}",
+            })
+            duplicates_found += 1
+
+    return doc, {
+        "duplicates_found": duplicates_found,
+        "mapping": mapping,
+        "unresolved": [],
+    }
+
+
+def _fix_merge_consolidate(
+    doc,
+    task_section,
+    dup_groups: dict[str, list[int]],
+) -> tuple[object, dict]:
+    """merge_consolidate: delete true-duplicate rows and reroute TASKPRED edges.
+
+    True duplicate: same task_code AND same target_drtn_hr_cnt AND same wbs_id.
+    Groups that split on those fields go to unresolved (untouched).
+    """
+    taskpred = doc.section("TASKPRED")
+
+    mapping = []
+    unresolved = []
+    duplicates_found = 0
+
+    # Collect indices to delete across all groups (for reverse-sorted batch removal)
+    task_indices_to_delete: list[int] = []
+    # Map deleted task_id -> kept task_id (for TASKPRED rerouting)
+    reroute_map: dict[str, str] = {}
+
+    for code, indices in dup_groups.items():
+        rows_in_group = [task_section.rows[i] for i in indices]
+
+        # Sub-group by (target_drtn_hr_cnt, wbs_id)
+        sub_key = lambda r: (r.get("target_drtn_hr_cnt", ""), r.get("wbs_id", ""))  # noqa: E731
+        first_key = sub_key(rows_in_group[0])
+        all_same = all(sub_key(r) == first_key for r in rows_in_group)
+
+        if not all_same:
+            unresolved.append({
+                "original_id": code,
+                "reason": (
+                    f"code {code!r} has rows with differing duration/WBS; "
+                    "manual review needed"
+                ),
+            })
+            continue
+
+        # True duplicates — keep indices[0], delete indices[1:]
+        kept_row = task_section.rows[indices[0]]
+        kept_task_id = kept_row.get("task_id", "")
+
+        for idx in indices[1:]:
+            deleted_row = task_section.rows[idx]
+            deleted_task_id = deleted_row.get("task_id", "")
+            task_indices_to_delete.append(idx)
+            reroute_map[deleted_task_id] = kept_task_id
+            mapping.append({
+                "original_id": code,
+                "new_id": code,  # code does not change; the row is removed
+                "task_name": deleted_row.get("task_name", ""),
+                "reason": (
+                    f"merged into task_id {kept_task_id} "
+                    f"(identical duration+WBS)"
+                ),
+            })
+            duplicates_found += 1
+
+    # --- Reroute TASKPRED edges before removing rows (indices are still valid) -
+    if taskpred is not None and reroute_map:
+        edges_to_drop: list[int] = []  # self-loops or exact duplicates after reroute
+
+        # Build a set of (pred_task_id, task_id) pairs for post-reroute dup check
+        # We start with the existing non-rerouted edges.
+        existing_pairs: set[tuple[str, str, str]] = set()
+
+        # First pass: collect pairs that will NOT be rerouted, to seed the dup set
+        for i, row in enumerate(taskpred.rows):
+            p = row.get("pred_task_id", "")
+            s = row.get("task_id", "")
+            t = row.get("pred_type", "")
+            # Apply reroute to see what these will become
+            final_p = reroute_map.get(p, p)
+            final_s = reroute_map.get(s, s)
+            # Self-loop after reroute?
+            if final_p == final_s:
+                edges_to_drop.append(i)
+                continue
+            triple = (final_p, final_s, t)
+            if triple in existing_pairs:
+                edges_to_drop.append(i)
+            else:
+                existing_pairs.add(triple)
+
+        # Second pass: apply rerouting mutations (only on rows not being dropped)
+        drop_set = set(edges_to_drop)
+        for i, row in enumerate(taskpred.rows):
+            if i in drop_set:
+                continue
+            p = row.get("pred_task_id", "")
+            s = row.get("task_id", "")
+            new_p = reroute_map.get(p, p)
+            new_s = reroute_map.get(s, s)
+            if new_p != p or new_s != s:
+                row["pred_task_id"] = new_p
+                row["task_id"] = new_s
+                taskpred.mark_dirty(i)
+
+        # Remove dropped edges in reverse order
+        for i in sorted(drop_set, reverse=True):
+            taskpred.rows.pop(i)
+            if taskpred.raw_lines is not None:
+                taskpred.raw_lines.pop(i)
+
+        # Re-index _dirty for TASKPRED
+        removed_set = drop_set
+        new_dirty: set[int] = set()
+        for d in taskpred._dirty:
+            if d in removed_set:
+                continue
+            shift = sum(1 for r in removed_set if r < d)
+            new_dirty.add(d - shift)
+        taskpred._dirty = new_dirty
+
+    # --- Remove deleted TASK rows in reverse order ----------------------------
+    for idx in sorted(task_indices_to_delete, reverse=True):
+        task_section.rows.pop(idx)
+        if task_section.raw_lines is not None:
+            task_section.raw_lines.pop(idx)
+
+    # Re-index _dirty for TASK
+    removed_task_set = set(task_indices_to_delete)
+    new_task_dirty: set[int] = set()
+    for d in task_section._dirty:
+        if d in removed_task_set:
+            continue
+        shift = sum(1 for r in removed_task_set if r < d)
+        new_task_dirty.add(d - shift)
+    task_section._dirty = new_task_dirty
+
+    return doc, {
+        "duplicates_found": duplicates_found,
+        "mapping": mapping,
+        "unresolved": unresolved,
+    }
