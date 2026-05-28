@@ -1,4 +1,5 @@
 """Tests for the round-trip-safe XER I/O module."""
+import os
 import sys
 import tempfile
 import unittest
@@ -168,6 +169,38 @@ class TestMutation(unittest.TestCase):
             self.assertIn("99999", ids)
         finally:
             out.unlink(missing_ok=True)
+
+
+class TestCorpusRoundTrip(unittest.TestCase):
+    """Round-trips every proposal corpus XER. Skipped in CI; runs locally
+    when WESTLAND_CORPUS env var points at the corpus root."""
+
+    CORPUS_FILES = [
+        "BTLP.xer", "CVTH.xer", "MMHS.xer", "NSD-WE.xer",
+        "NSSD-HS-AC.xer", "RCSP.xer", "TES-BESD.xer",
+    ]
+
+    @unittest.skipUnless(
+        os.environ.get("WESTLAND_CORPUS"),
+        "Set WESTLAND_CORPUS to corpus root to run corpus round-trip tests"
+    )
+    def test_all_corpus_files_round_trip(self):
+        from xer_io import parse_for_writing, write
+        corpus_root = Path(os.environ["WESTLAND_CORPUS"]) / "Proposal Schedules"
+        for name in self.CORPUS_FILES:
+            with self.subTest(file=name):
+                src = corpus_root / name
+                if not src.exists():
+                    self.skipTest(f"{name} not in corpus")
+                doc = parse_for_writing(str(src))
+                with tempfile.NamedTemporaryFile(suffix=".xer", delete=False) as tmp:
+                    out = Path(tmp.name)
+                try:
+                    write(doc, str(out))
+                    self.assertEqual(src.read_bytes(), out.read_bytes(),
+                                     f"{name} did not round-trip byte-identical")
+                finally:
+                    out.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
