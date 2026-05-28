@@ -3032,3 +3032,426 @@ class TestPopActivity(unittest.TestCase):
 
         self.assertEqual(len(task.rows), 3)
         self.assertEqual(len(tp.rows), 2)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestAddWbs
+# ---------------------------------------------------------------------------
+
+def _make_doc_with_projwbs(wbs_rows=None):
+    """Build a minimal in-memory XerDoc containing a PROJWBS section.
+
+    Uses the real field_order observed from minimal.xer.  Defaults to a
+    single root WBS row (wbs_id='1000', proj_id='1').
+    """
+    from xer_io import XerDoc, XerSection
+
+    wbs_field_order = [
+        "wbs_id", "proj_id", "obs_id", "seq_num", "est_wt",
+        "proj_node_flag", "sum_data_flag", "status_code",
+        "wbs_short_name", "wbs_name", "phase_id", "parent_wbs_id",
+        "ev_user_pct", "ev_etc_user_value", "orig_cost",
+        "indep_remain_total_cost", "ann_dscnt_rate_pct",
+        "dscnt_period_type", "indep_remain_work_qty",
+        "anticip_start_date", "anticip_end_date",
+        "ev_compute_type", "ev_etc_compute_type",
+        "guid", "tmpl_guid", "plan_open_state",
+    ]
+
+    if wbs_rows is None:
+        wbs_rows = [
+            {
+                "wbs_id": "1000",
+                "proj_id": "1",
+                "obs_id": "",
+                "seq_num": "1",
+                "est_wt": "1",
+                "proj_node_flag": "Y",
+                "sum_data_flag": "N",
+                "status_code": "WS_Open",
+                "wbs_short_name": "ROOT",
+                "wbs_name": "Root WBS Node",
+                "phase_id": "",
+                "parent_wbs_id": "",
+                "ev_user_pct": "",
+                "ev_etc_user_value": "0.0000",
+                "orig_cost": "0.0000",
+                "indep_remain_total_cost": "",
+                "ann_dscnt_rate_pct": "",
+                "dscnt_period_type": "",
+                "indep_remain_work_qty": "",
+                "anticip_start_date": "",
+                "anticip_end_date": "",
+                "ev_compute_type": "EC_Cmp_pct",
+                "ev_etc_compute_type": "EE_PF_cpi",
+                "guid": "TEST-WBS-GUID-001",
+                "tmpl_guid": "",
+                "plan_open_state": "",
+            }
+        ]
+
+    def _raw(r):
+        return "%R\t" + "\t".join(r.get(f, "") for f in wbs_field_order)
+
+    wbs_section = XerSection(
+        name="PROJWBS",
+        field_order=wbs_field_order,
+        rows=wbs_rows,
+        raw_lines=[_raw(r) for r in wbs_rows],
+        e_line=None,
+    )
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=[wbs_section],
+    )
+
+
+def _add_wbs_change(**spec_kwargs):
+    """Return a minimal add_wbs change record.
+
+    Defaults: wbs_code='WBS-CHILD', wbs_name='Building Enclosure',
+    parent_wbs_id='1000'.  No wbs_short_name (derived by handler).
+    """
+    spec = {
+        "wbs_code": "WBS-CHILD",
+        "wbs_name": "Building Enclosure",
+        "parent_wbs_id": "1000",
+    }
+    spec.update(spec_kwargs)
+    return {"type": "add_wbs", "spec": spec}
+
+
+class TestAddWbs(unittest.TestCase):
+    """Tests for the add_wbs change handler (D11)."""
+
+    # ---- Test 1: happy path with explicit wbs_short_name ---------------------
+
+    def test_happy_path_explicit_short_name(self):
+        """All fields provided including wbs_short_name; row appended correctly."""
+        doc = _make_doc_with_projwbs()
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_short_name="BE")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        projwbs = result.doc.section("PROJWBS")
+        self.assertEqual(len(projwbs.rows), 2)
+
+        new_row = projwbs.rows[1]
+        self.assertEqual(new_row["wbs_id"], "1001")          # max(1000)+1
+        self.assertEqual(new_row["wbs_code"], "WBS-CHILD")
+        self.assertEqual(new_row["wbs_name"], "Building Enclosure")
+        self.assertEqual(new_row["wbs_short_name"], "BE")
+        self.assertEqual(new_row["parent_wbs_id"], "1000")
+        self.assertEqual(new_row["proj_id"], "1")            # copied from existing row
+
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_wbs_id"], "1001")
+        self.assertFalse(fb["derived_short_name"])
+        self.assertEqual(fb["wbs_short_name"], "BE")
+
+    # ---- Test 2: derived wbs_short_name — two-word name ----------------------
+
+    def test_derived_short_name_two_words(self):
+        """wbs_name='Building Enclosure' without short_name → 'BE'; derived_short_name=True."""
+        doc = _make_doc_with_projwbs()
+        result = apply_changes(
+            doc,
+            [_add_wbs_change()],   # default name is 'Building Enclosure'
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["wbs_short_name"], "BE")
+        self.assertTrue(fb["derived_short_name"])
+        projwbs = result.doc.section("PROJWBS")
+        self.assertEqual(projwbs.rows[1]["wbs_short_name"], "BE")
+
+    # ---- Test 3: derived — stop-words filtered --------------------------------
+
+    def test_derived_short_name_stop_words_filtered(self):
+        """'Permitting and Approvals' → 'PA' (skips 'and')."""
+        doc = _make_doc_with_projwbs()
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_name="Permitting and Approvals")],
+            strict=False,
+            dry_run=False,
+        )
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["wbs_short_name"], "PA")
+        self.assertTrue(fb["derived_short_name"])
+
+    # ---- Test 4: derived — hyphens treated as word separators ----------------
+
+    def test_derived_short_name_hyphens_as_separators(self):
+        """'MEP Rough-In' splits to ['MEP','Rough','In']; 'In' is stop-word → 'MR'."""
+        doc = _make_doc_with_projwbs()
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_name="MEP Rough-In")],
+            strict=False,
+            dry_run=False,
+        )
+        fb = result.per_change_feedback[0].feedback
+        # 'In' is a stop-word → filtered out → "MEP" → 'M', "Rough" → 'R' → "MR"
+        self.assertEqual(fb["wbs_short_name"], "MR")
+        self.assertTrue(fb["derived_short_name"])
+
+    # ---- Test 5: derived fails — single significant word → 1 char -----------
+
+    def test_derived_short_name_single_word_raises(self):
+        """'Closeout' → initials='C' → 1 char → ValidationFailure."""
+        doc = _make_doc_with_projwbs()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_wbs_change(wbs_name="Closeout")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("wbs_short_name", err)
+
+    # ---- Test 6: derived fails — all stop-words → 0 chars -------------------
+
+    def test_derived_short_name_all_stop_words_raises(self):
+        """'the and of' → 0 initials → ValidationFailure."""
+        doc = _make_doc_with_projwbs()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_wbs_change(wbs_name="the and of")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("wbs_short_name", err)
+
+    # ---- Test 7: caller-provided short_name too short → ValidationFailure ----
+
+    def test_explicit_short_name_too_short_raises(self):
+        """Caller provides wbs_short_name='X' (1 char) → ValidationFailure."""
+        doc = _make_doc_with_projwbs()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_wbs_change(wbs_short_name="X")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("wbs_short_name", err)
+
+    # ---- Test 8: missing wbs_code → ValidationFailure ------------------------
+
+    def test_missing_wbs_code_raises(self):
+        """Spec without 'wbs_code' raises ValidationFailure naming the missing field."""
+        doc = _make_doc_with_projwbs()
+        change = {"type": "add_wbs", "spec": {
+            "wbs_name": "Site Work",
+            "parent_wbs_id": "1000",
+        }}
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIn("wbs_code", str(ctx.exception))
+
+    # ---- Test 9: missing wbs_name → ValidationFailure ------------------------
+
+    def test_missing_wbs_name_raises(self):
+        """Spec without 'wbs_name' raises ValidationFailure naming the missing field."""
+        doc = _make_doc_with_projwbs()
+        change = {"type": "add_wbs", "spec": {
+            "wbs_code": "WBS-SW",
+            "parent_wbs_id": "1000",
+        }}
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIn("wbs_name", str(ctx.exception))
+
+    # ---- Test 10: missing parent_wbs_id → ValidationFailure -----------------
+
+    def test_missing_parent_wbs_id_raises(self):
+        """Spec without 'parent_wbs_id' raises ValidationFailure naming the missing field."""
+        doc = _make_doc_with_projwbs()
+        change = {"type": "add_wbs", "spec": {
+            "wbs_code": "WBS-SW",
+            "wbs_name": "Site Work",
+        }}
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIn("parent_wbs_id", str(ctx.exception))
+
+    # ---- Test 11: duplicate wbs_code → ValidationFailure --------------------
+
+    def test_duplicate_wbs_code_raises(self):
+        """wbs_code already exists in PROJWBS → ValidationFailure naming the code."""
+        wbs_rows = [
+            {
+                "wbs_id": "1000", "proj_id": "1", "obs_id": "", "seq_num": "1",
+                "est_wt": "1", "proj_node_flag": "Y", "sum_data_flag": "N",
+                "status_code": "WS_Open", "wbs_short_name": "ROOT",
+                "wbs_name": "Root", "phase_id": "", "parent_wbs_id": "",
+                "ev_user_pct": "", "ev_etc_user_value": "0.0000",
+                "orig_cost": "0.0000", "indep_remain_total_cost": "",
+                "ann_dscnt_rate_pct": "", "dscnt_period_type": "",
+                "indep_remain_work_qty": "", "anticip_start_date": "",
+                "anticip_end_date": "", "ev_compute_type": "EC_Cmp_pct",
+                "ev_etc_compute_type": "EE_PF_cpi", "guid": "G1",
+                "tmpl_guid": "", "plan_open_state": "",
+            },
+            {
+                "wbs_id": "1001", "proj_id": "1", "obs_id": "", "seq_num": "2",
+                "est_wt": "1", "proj_node_flag": "N", "sum_data_flag": "N",
+                "status_code": "WS_Open", "wbs_short_name": "EX",
+                "wbs_name": "Existing Child", "phase_id": "", "parent_wbs_id": "1000",
+                "ev_user_pct": "", "ev_etc_user_value": "0.0000",
+                "orig_cost": "0.0000", "indep_remain_total_cost": "",
+                "ann_dscnt_rate_pct": "", "dscnt_period_type": "",
+                "indep_remain_work_qty": "", "anticip_start_date": "",
+                "anticip_end_date": "", "ev_compute_type": "EC_Cmp_pct",
+                "ev_etc_compute_type": "EE_PF_cpi", "guid": "G2",
+                "tmpl_guid": "", "plan_open_state": "",
+                "wbs_code": "WBS-DUP",
+            },
+        ]
+        # Patch wbs_code into row[0] too so the field is available
+        wbs_rows[0]["wbs_code"] = "WBS-ROOT"
+        doc = _make_doc_with_projwbs(wbs_rows=wbs_rows)
+        # Add wbs_code to the section's field_order for this test
+        doc.section("PROJWBS").field_order.append("wbs_code")
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_wbs_change(wbs_code="WBS-DUP", wbs_short_name="WD")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("WBS-DUP", err)
+
+    # ---- Test 12: parent wbs_id not found → ValidationFailure ---------------
+
+    def test_parent_wbs_id_not_found_raises(self):
+        """parent_wbs_id='9999' not in PROJWBS and not in state → ValidationFailure."""
+        doc = _make_doc_with_projwbs()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_wbs_change(parent_wbs_id="9999", wbs_short_name="SW")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("9999", err)
+
+    # ---- Test 13: parent satisfied by state.new_wbs_ids ---------------------
+
+    def test_parent_satisfied_by_state_new_wbs_ids(self):
+        """parent_wbs_id='999' pre-seeded in state.new_wbs_ids → handler succeeds."""
+        from xer_modify import _HANDLERS, ChangeState
+        doc = _make_doc_with_projwbs()
+        state = ChangeState(new_wbs_ids={"999"})
+        feedback = _HANDLERS["add_wbs"](
+            doc,
+            _add_wbs_change(parent_wbs_id="999", wbs_short_name="SW"),
+            state,
+        )
+        projwbs = doc.section("PROJWBS")
+        self.assertEqual(len(projwbs.rows), 2)
+        self.assertEqual(projwbs.rows[1]["parent_wbs_id"], "999")
+        self.assertIn("new_wbs_id", feedback)
+
+    # ---- Test 14: no PROJWBS section → ValidationFailure --------------------
+
+    def test_no_projwbs_section_raises(self):
+        """Doc with no PROJWBS section raises ValidationFailure."""
+        from xer_io import XerDoc, XerSection
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "task_code"],
+            rows=[{"task_id": "1", "task_code": "A1010"}],
+            raw_lines=["%R\t1\tA1010"],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section],
+        )
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_add_wbs_change(wbs_short_name="SW")],
+                strict=False,
+                dry_run=False,
+            )
+        err = str(ctx.exception)
+        self.assertIn("PROJWBS", err)
+
+    # ---- Test 15: wbs_id generation from non-contiguous ids -----------------
+
+    def test_wbs_id_generation_non_contiguous(self):
+        """PROJWBS has wbs_ids {1, 5, 3}; new wbs_id = '6'."""
+        wbs_field_order = [
+            "wbs_id", "proj_id", "obs_id", "seq_num", "est_wt",
+            "proj_node_flag", "sum_data_flag", "status_code",
+            "wbs_short_name", "wbs_name", "phase_id", "parent_wbs_id",
+            "ev_user_pct", "ev_etc_user_value", "orig_cost",
+            "indep_remain_total_cost", "ann_dscnt_rate_pct",
+            "dscnt_period_type", "indep_remain_work_qty",
+            "anticip_start_date", "anticip_end_date",
+            "ev_compute_type", "ev_etc_compute_type",
+            "guid", "tmpl_guid", "plan_open_state",
+        ]
+
+        def _row(wid, parent=""):
+            return {f: "" for f in wbs_field_order} | {
+                "wbs_id": str(wid), "proj_id": "1", "wbs_short_name": "XX",
+                "wbs_name": "X", "parent_wbs_id": parent,
+                "status_code": "WS_Open",
+            }
+
+        from xer_io import XerDoc, XerSection
+        wbs_section = XerSection(
+            name="PROJWBS",
+            field_order=wbs_field_order,
+            rows=[_row(1), _row(5, "1"), _row(3, "1")],
+            raw_lines=["%R\t" + "\t".join(_row(wid).get(f, "") for f in wbs_field_order)
+                       for wid in [1, 5, 3]],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[wbs_section],
+        )
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(parent_wbs_id="1", wbs_short_name="SW")],
+            strict=False,
+            dry_run=False,
+        )
+        projwbs = result.doc.section("PROJWBS")
+        new_row = projwbs.rows[-1]
+        self.assertEqual(new_row["wbs_id"], "6")   # max(1,5,3)+1
+
+    # ---- Test 16: state.new_wbs_ids populated after handler ------------------
+
+    def test_state_new_wbs_ids_populated(self):
+        """After add_wbs, state.new_wbs_ids contains the new wbs_id string."""
+        from xer_modify import _HANDLERS, ChangeState
+        doc = _make_doc_with_projwbs()
+        state = ChangeState()
+        feedback = _HANDLERS["add_wbs"](
+            doc,
+            _add_wbs_change(wbs_short_name="BE"),
+            state,
+        )
+        new_id = feedback["new_wbs_id"]
+        self.assertIn(new_id, state.new_wbs_ids)

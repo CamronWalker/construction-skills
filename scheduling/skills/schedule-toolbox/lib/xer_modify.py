@@ -15,6 +15,7 @@ the return value populates per_change_feedback.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -1059,6 +1060,129 @@ def _handle_pop_activity(doc, change: dict, state: ChangeState) -> dict:
         "activity_end_after": None,
         "milestone_impact_days": None,
         "now_on_critical_path": None,
+    }
+
+
+_WBS_STOP_WORDS = frozenset({
+    "the", "a", "an", "of", "and", "or", "for", "to", "in", "on", "at",
+})
+
+
+def _derive_wbs_short_name(wbs_name: str) -> str:
+    """Derive a WBS short name from the full WBS name.
+
+    Split on whitespace and hyphens; filter empty tokens and stop-words
+    (case-insensitive); take the first letter (uppercased) of each
+    remaining word; concatenate.
+
+    Raises ValidationFailure if the result is fewer than 2 characters.
+    """
+    tokens = re.split(r"[\s\-]+", wbs_name)
+    initials = [
+        t[0].upper()
+        for t in tokens
+        if t and t.lower() not in _WBS_STOP_WORDS
+    ]
+    result = "".join(initials)
+    if len(result) < 2:
+        raise ValidationFailure(
+            f"add_wbs: cannot derive wbs_short_name from {wbs_name!r} — "
+            f"only {len(result)} significant initial(s) found (minimum 2 required). "
+            f"Provide wbs_short_name explicitly."
+        )
+    return result
+
+
+@_register_handler("add_wbs")
+def _handle_add_wbs(doc, change: dict, state: ChangeState) -> dict:
+    """Append a new PROJWBS row.
+
+    Spec keys:
+        wbs_code (required)
+        wbs_name (required)
+        parent_wbs_id (required)
+        wbs_short_name (optional — derived from wbs_name if omitted)
+
+    Validations:
+      1. PROJWBS section must exist.
+      2. Required spec fields must all be present.
+      3. wbs_code must not already exist in PROJWBS.
+      4. parent_wbs_id must exist in PROJWBS or state.new_wbs_ids.
+      5. wbs_short_name must be >= 2 chars (derived or provided).
+    """
+    spec = change.get("spec", {})
+
+    # Validation 1: PROJWBS section must exist
+    projwbs = doc.section("PROJWBS")
+    if projwbs is None:
+        raise ValidationFailure(
+            "add_wbs: PROJWBS section not found in XER document"
+        )
+
+    # Validation 2: required fields
+    required_fields = ("wbs_code", "wbs_name", "parent_wbs_id")
+    missing = [f for f in required_fields if f not in spec]
+    if missing:
+        raise ValidationFailure(
+            f"add_wbs: missing required spec field(s): {', '.join(missing)}"
+        )
+
+    wbs_code = spec["wbs_code"]
+    wbs_name = spec["wbs_name"]
+    parent_wbs_id = spec["parent_wbs_id"]
+    provided_short_name = spec.get("wbs_short_name")
+
+    # Validation 3: wbs_code uniqueness against existing PROJWBS rows
+    existing_codes = {r.get("wbs_code") for r in projwbs.rows}
+    if wbs_code in existing_codes:
+        raise ValidationFailure(
+            f"add_wbs: wbs_code {wbs_code!r} already exists in PROJWBS"
+        )
+
+    # Validation 4: parent_wbs_id must exist in PROJWBS or state
+    parent_in_doc = any(r.get("wbs_id") == parent_wbs_id for r in projwbs.rows)
+    if not parent_in_doc and parent_wbs_id not in state.new_wbs_ids:
+        raise ValidationFailure(
+            f"add_wbs: parent_wbs_id {parent_wbs_id!r} not found in PROJWBS section"
+        )
+
+    # Validation 5: resolve wbs_short_name
+    if provided_short_name is not None:
+        if len(provided_short_name) < 2:
+            raise ValidationFailure(
+                f"add_wbs: wbs_short_name {provided_short_name!r} is too short "
+                f"(minimum 2 characters required)"
+            )
+        short_name = provided_short_name
+        derived = False
+    else:
+        short_name = _derive_wbs_short_name(wbs_name)
+        derived = True
+
+    # Generate the new wbs_id: max(existing) + 1
+    new_wbs_id = str(
+        max((int(r["wbs_id"]) for r in projwbs.rows), default=0) + 1
+    )
+
+    # Build the new row — blank all fields from field_order, then populate
+    new_row = {f: "" for f in projwbs.field_order}
+    new_row["wbs_id"] = new_wbs_id
+    new_row["wbs_code"] = wbs_code
+    new_row["wbs_name"] = wbs_name
+    new_row["wbs_short_name"] = short_name
+    new_row["parent_wbs_id"] = parent_wbs_id
+    new_row["proj_id"] = projwbs.rows[0]["proj_id"] if projwbs.rows else ""
+    new_row["status_code"] = "WS_Open"
+
+    projwbs.append_row(new_row)
+
+    # Update state
+    state.new_wbs_ids.add(new_wbs_id)
+
+    return {
+        "new_wbs_id": new_wbs_id,
+        "derived_short_name": derived,
+        "wbs_short_name": short_name,
     }
 
 
