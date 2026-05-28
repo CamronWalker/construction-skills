@@ -2,12 +2,19 @@
 
 The cache keys on (path, size, mtime) so any modification to the file -- even
 one that preserves mtime due to FAT-precision rounding -- still invalidates.
-Eviction is strict LRU at ``max_entries``. Parsed tables and CPM results are
-stored together under one entry; CPM is computed lazily on the first
-``get_cpm`` call and reused thereafter.
+Eviction is strict LRU at ``max_entries``. The payload stores a rich ``XerDoc``
+in the ``doc`` slot; the lossy ``{table: [{field: value}, ...]}`` projection used
+by read-only tools is derived lazily and stored in ``parsed``. CPM is computed
+lazily on the first ``get_cpm`` call and reused thereafter.
 
-The cache imports the existing parser and CPM engine from the schedule-toolbox
-skill's ``lib/`` directory via ``sys.path`` injection.
+Write-path tools (apply_xer_changes, fix_duplicate_activity_ids,
+create_xer_from_template) access the rich form via ``get_for_writing()``.
+Read-only tools access the projected form via ``get_parsed()`` -- same dict
+shape as the old ``_parse_xer`` produced.
+
+The cache imports the CPM engine from the schedule-toolbox skill's ``lib/``
+directory via ``sys.path`` injection. ``xer_io`` lives alongside ``cache.py``
+in the same ``lib/`` tree and is imported directly.
 """
 from __future__ import annotations
 
@@ -26,10 +33,22 @@ LIB = Path(__file__).parent.parent / "skills" / "schedule-toolbox" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-# These imports trigger when the cache module loads. quality_checks owns the
-# XER parser (private name _parse_xer); cpm_engine owns schedule_forward_backward.
-from quality_checks import _parse_xer  # noqa: E402
+# These imports trigger when the cache module loads. xer_io provides the
+# round-trip-safe parser; cpm_engine owns schedule_forward_backward.
+# quality_checks._parse_xer is no longer used here but stays in quality_checks.py
+# for its own quality-check callers.
+from xer_io import parse_for_writing, XerDoc  # noqa: E402
 from cpm_engine import schedule_forward_backward  # noqa: E402
+
+
+def _project_to_lossy(doc: XerDoc) -> dict[str, list[dict]]:
+    """Project a rich XerDoc down to the {table: [{field: value}, ...]} shape
+    the existing read-only tools expect. Returns copies of row dicts so callers
+    can't accidentally mutate cached state."""
+    return {
+        section.name: [dict(row) for row in section.rows]
+        for section in doc.sections
+    }
 
 
 # Partial-read guard: two stat reads separated by this delay. If the file is
@@ -57,9 +76,15 @@ class CacheKey:
 class CpmCache:
     """LRU cache of parsed XER + CPM results, keyed by (path, size, mtime).
 
-    Entries are ``(CacheKey, payload)`` where payload is a dict with optional
-    ``parsed`` and ``cpm`` slots. CPM is only computed on first ``get_cpm``;
-    callers that only need parsed tables don't pay for the CPM pass.
+    Entries are ``(CacheKey, payload)`` where payload is a dict with slots:
+      - ``doc``    — XerDoc (always present after first parse)
+      - ``parsed`` — lossy dict projection (lazily computed on first access)
+      - ``cpm``    — CPM result tuple (lazily computed on first get_cpm call)
+
+    Read-only tools call ``get_parsed()`` to get the ``{table: [dict]}`` shape.
+    Write-path tools call ``get_for_writing()`` to get the rich ``XerDoc``.
+    CPM is only computed on first ``get_cpm``; callers that only need parsed
+    tables don't pay for the CPM pass.
 
     Thread-safety: not safe for concurrent access. The MCP server is
     single-threaded; if that changes, wrap method bodies in a lock.
@@ -77,7 +102,7 @@ class CpmCache:
     # ---- public API -----------------------------------------------------
 
     def get_parsed(self, xer_path: str) -> dict[str, list[dict]]:
-        """Return parsed XER tables. Parses on miss.
+        """Return parsed XER tables (lossy dict shape). Parses on miss.
 
         Cache hits skip the partial-read guard: we take a single quick stat,
         compare against the stored key, and return the cached payload
@@ -87,28 +112,18 @@ class CpmCache:
         tentative = self._tentative_key(xer_path)
         existing = self._entries.get(str(xer_path))
         if existing is not None and existing[0] == tentative:
-            # Cache hit. Bump to most-recently-used.
+            # Cache hit. Bump LRU.
             self._entries.move_to_end(str(xer_path))
-            payload = existing[1]
-            if "parsed" in payload:
-                return payload["parsed"]
-            # Same key but parsed slot got dropped somehow -- re-parse and
-            # update in place. This is a miss-for-parsed inside a hit-for-key,
-            # so verify stability before reading.
-            self._verify_stable(xer_path, tentative)
-            payload["parsed"] = self._parse(xer_path)
-            return payload["parsed"]
+            return self._ensure_parsed_projection(existing[1])
 
-        # Miss (no entry, or key mismatch -> file changed). Verify stability
-        # before parsing.
+        # Miss. Verify stability before parsing.
         key = self._safe_key(xer_path)
-        parsed = self._parse(xer_path)
-        self._put(xer_path, key, {"parsed": parsed})
-        return parsed
+        doc = self._parse(xer_path)
+        self._put(xer_path, key, {"doc": doc})
+        return self._ensure_parsed_projection(self._entries[str(xer_path)][1])
 
     def get_cpm(self, xer_path: str) -> tuple[list[dict], dict]:
-        """Return CPM ``(results, metadata)`` for this XER. Computes on miss,
-        which implicitly populates the parsed slot if it isn't already there.
+        """Return CPM ``(results, metadata)`` for this XER. Computes on miss.
 
         Cache hits skip the partial-read guard (see ``get_parsed`` for why).
         """
@@ -120,21 +135,36 @@ class CpmCache:
             payload = existing[1]
             if "cpm" in payload:
                 return payload["cpm"]
-            # Have parsed but not CPM (or neither). Verify stability before
-            # any fresh disk read, then compute.
-            if "parsed" not in payload:
-                self._verify_stable(xer_path, tentative)
-                payload["parsed"] = self._parse(xer_path)
-            cpm_result = self._run_cpm(payload["parsed"])
+            # CPM not yet computed; need lossy projection for the CPM engine.
+            parsed = self._ensure_parsed_projection(payload)
+            cpm_result = self._run_cpm(parsed)
             payload["cpm"] = cpm_result
             return cpm_result
 
         # Miss.
         key = self._safe_key(xer_path)
-        parsed = self._parse(xer_path)
+        doc = self._parse(xer_path)
+        self._put(xer_path, key, {"doc": doc})
+        payload = self._entries[str(xer_path)][1]
+        parsed = self._ensure_parsed_projection(payload)
         cpm_result = self._run_cpm(parsed)
-        self._put(xer_path, key, {"parsed": parsed, "cpm": cpm_result})
+        payload["cpm"] = cpm_result
         return cpm_result
+
+    def get_for_writing(self, xer_path: str) -> XerDoc:
+        """Return the rich XerDoc form. Used by write-path tools that need
+        full byte-fidelity (apply_xer_changes, fix_duplicate_activity_ids,
+        create_xer_from_template)."""
+        tentative = self._tentative_key(xer_path)
+        existing = self._entries.get(str(xer_path))
+        if existing is not None and existing[0] == tentative:
+            self._entries.move_to_end(str(xer_path))
+            return existing[1]["doc"]
+
+        key = self._safe_key(xer_path)
+        doc = self._parse(xer_path)
+        self._put(xer_path, key, {"doc": doc})
+        return doc
 
     def invalidate(self, xer_path: str) -> bool:
         """Drop the cache entry for this path. Returns True if an entry was
@@ -209,10 +239,16 @@ class CpmCache:
             # popitem(last=False) -> oldest entry.
             self._entries.popitem(last=False)
 
-    def _parse(self, xer_path: str) -> dict[str, list[dict]]:
-        """Parse an XER file to the table dict. Wraps the existing parser
-        so call sites can be retargeted in one place if the parser moves."""
-        return _parse_xer(str(xer_path))
+    def _ensure_parsed_projection(self, payload: dict) -> dict[str, list[dict]]:
+        """Lazily compute the lossy projection and cache it in the payload."""
+        if "parsed" not in payload:
+            payload["parsed"] = _project_to_lossy(payload["doc"])
+        return payload["parsed"]
+
+    def _parse(self, xer_path: str) -> XerDoc:
+        """Parse an XER to the rich XerDoc form. Cache stores XerDoc; the
+        lossy dict shape is derived on demand via _project_to_lossy."""
+        return parse_for_writing(str(xer_path))
 
     def _run_cpm(self, parsed: dict[str, list[dict]]) -> tuple[list[dict], dict]:
         """Run CPM forward+backward against parsed tables. Returns whatever
