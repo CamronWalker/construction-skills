@@ -232,9 +232,11 @@ Milestones already exist in the skeleton (NTP, SC). Wire them via `add_logic` in
 
 **2c. `add_logic` records for the logic network**
 
-One record per relationship edge (FS/SS/FF/SF with lags in days). Include:
-- Logic from the first activity into `ntp_milestone`
-- Logic from the last critical activity into `sc_milestone`
+One record per relationship edge (FS/SS/FF/SF with lags in days). Each
+`add_logic` record is directional -- `predecessor_id` drives `successor_id`.
+Include:
+- `ntp_milestone` as predecessor of the first activity (NTP -> first activity): work starts after Notice to Proceed
+- The last critical activity as predecessor of `sc_milestone` (last activity -> SC): Substantial Completion follows the final work
 - All internal logic derived from the construction sequence
 
 ### Step 3 — Apply all changes in one bulk call

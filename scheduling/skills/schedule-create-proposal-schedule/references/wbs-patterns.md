@@ -147,7 +147,7 @@ This was the SFJHS case. The skill originally missed it because the "add DEMOLIT
 
 ### MCP change records for Pattern B
 
-Pattern B adds DEMOLITION as a top-level branch (after CONSTRUCTION in display order, controlled by activity sequence rather than WBS order in P6) and nests FINAL SITEWORK under DEMOLITION with three children. The skeleton has no DEMOLITION branch, so all eight records below are new.
+Pattern B adds DEMOLITION as a top-level branch (after CONSTRUCTION in display order, controlled by activity sequence rather than WBS order in P6) and nests FINAL SITEWORK under DEMOLITION with three children. The skeleton has no DEMOLITION branch, so all nine records below are new.
 
 Full `add_wbs` list (run with `dry_run=True` first to capture ids; the sequence below illustrates the id progression assuming skeleton max wbs_id = 21):
 
