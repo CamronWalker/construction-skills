@@ -24,7 +24,7 @@ This skill operationalizes the Westland Scheduling Department Procedural Outline
 2. **Auto-Parse & Analyze** -- Parse XERs and read bid docs to extract all knowable information
 3. **Present Recommendations** -- Propose complete schedule structure based on findings
 4. **Ask 2-3 Targeted Questions** -- Only what the documents don't answer
-5. **Generate XER (v1)** -- Via `schedule-toolbox` skill
+5. **Generate XER (v1)** -- Via `create_xer_from_template` + `apply_xer_changes`
 6. **Iterate via Gantt Review HTML** -- Camron pastes back changes; agent runs `proposal_iterate.py`; loop until approved
 7. **Score & Iterate** -- Quality (DCMA / Westland rubric) iteration via the toolbox until target letter grade is reached
 8. **On Final Approval** -- Write the AI postmortem, then generate the Westland-branded Plan PDF (the PDF reflects the *final* schedule, not the v1 draft)
