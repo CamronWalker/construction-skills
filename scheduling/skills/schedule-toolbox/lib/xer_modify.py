@@ -1,7 +1,8 @@
 """Mutation engine for XerDoc.
 
 One handler function per change type plus an orchestrator that runs the
-3-pass validation and atomic write.
+4-pass validation (syntactic, handler-dispatch-on-deep-copy, xer_validate
+post-state, post-CPM feedback diff) and atomic write.
 
 Public API:
     apply_changes(doc, changes, *, strict, dry_run) -> ApplyResult
@@ -279,7 +280,7 @@ def _find_target_milestone(
     for task in pre_state_cpm:
         if task.get("task_type") != "TT_FinMile":
             continue
-        ef_str = task.get("early_end_date") or task.get("early_finish_date") or ""
+        ef_str = task.get("early_end_date") or ""
         if not ef_str:
             continue
         ef = ef_str[:10]

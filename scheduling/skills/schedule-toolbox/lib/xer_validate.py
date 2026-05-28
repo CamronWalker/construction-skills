@@ -165,7 +165,11 @@ def _check_circular_logic(doc) -> list[ValidationIssue]:
     # Iterative DFS using an explicit frame stack.
     # Each frame is (node, iterator-over-neighbours, path-snapshot-length).
     # We maintain a path list in parallel to detect back-edges.
-    for start in list(all_nodes):
+    # Sort the start-node order so the reported cycle path is deterministic —
+    # downstream diff logic in xer_modify keys on the issue message, and a
+    # stable cycle reported from a different start node would otherwise
+    # appear as a "new" issue between pre- and post-state.
+    for start in sorted(all_nodes):
         if color.get(start, WHITE) != WHITE:
             continue
 
