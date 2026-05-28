@@ -1487,3 +1487,428 @@ class TestModifyLogic(unittest.TestCase):
         self.assertEqual(row["lag_hr_cnt"], "80")   # 10 days * 8
         self.assertEqual(row["pred_type"], "PR_FS")
         self.assertEqual(result.changes_applied, 1)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestRemoveActivity
+# ---------------------------------------------------------------------------
+
+def _make_doc_with_two_tasks_and_edge():
+    """Three-activity doc (A1010, A1020, A1030) with one TASKPRED edge:
+    A1010 → A1020 (FS).  A1030 has no edges.
+    """
+    return _make_doc_with_task_and_taskpred(
+        task_rows=[
+            {"task_id": "101", "proj_id": "1", "task_code": "A1010",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            {"task_id": "102", "proj_id": "1", "task_code": "A1020",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            {"task_id": "103", "proj_id": "1", "task_code": "A1030",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+        ],
+        taskpred_rows=[
+            {
+                "task_pred_id": "5001",
+                "task_id": "102",       # A1020 (successor)
+                "pred_task_id": "101",  # A1010 (predecessor)
+                "proj_id": "1",
+                "pred_proj_id": "1",
+                "pred_type": "PR_FS",
+                "lag_hr_cnt": "0",
+                "comments": "",
+                "float_path": "",
+                "aref": "",
+                "arls": "",
+            },
+        ],
+    )
+
+
+def _remove_activity_change(activity_id: str):
+    return {"type": "remove_activity", "activity_id": activity_id}
+
+
+class TestRemoveActivity(unittest.TestCase):
+    """Tests for the remove_activity change handler (D8)."""
+
+    # ---- Test 1: happy path --------------------------------------------------
+
+    def test_happy_path_removes_task_and_edges(self):
+        """Remove A1010: TASK row count drops by 1, TASKPRED row drops by 1,
+        state.removed_activity_ids contains A1010."""
+        doc = _make_doc_with_two_tasks_and_edge()
+        result = apply_changes(
+            doc,
+            [_remove_activity_change("A1010")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+        # Three tasks → two remaining (A1020, A1030)
+        self.assertEqual(len(task.rows), 2)
+        remaining_codes = {r["task_code"] for r in task.rows}
+        self.assertNotIn("A1010", remaining_codes)
+        # One edge referencing A1010 removed
+        self.assertEqual(len(tp.rows), 0)
+
+        # Confirm state via direct handler call
+        from xer_modify import _HANDLERS, ChangeState
+        doc2 = _make_doc_with_two_tasks_and_edge()
+        state = ChangeState()
+        _HANDLERS["remove_activity"](doc2, _remove_activity_change("A1010"), state)
+        self.assertIn("A1010", state.removed_activity_ids)
+
+    # ---- Test 2: activity not found → ValidationFailure ----------------------
+
+    def test_activity_not_found_raises(self):
+        """remove_activity raises ValidationFailure naming the missing id."""
+        doc = _make_doc_with_two_tasks_and_edge()
+        with self.assertRaises(ValidationFailure) as ctx:
+            apply_changes(
+                doc,
+                [_remove_activity_change("ZZZZ")],
+                strict=False,
+                dry_run=False,
+            )
+        self.assertIn("ZZZZ", str(ctx.exception))
+
+    # ---- Test 3: no TASKPRED section → succeeds ------------------------------
+
+    def test_no_taskpred_section_succeeds(self):
+        """remove_activity succeeds when no TASKPRED section exists."""
+        from xer_io import XerDoc, XerSection
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "proj_id", "task_code",
+                         "target_drtn_hr_cnt", "remain_drtn_hr_cnt"],
+            rows=[
+                {"task_id": "101", "proj_id": "1", "task_code": "A1010",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+                {"task_id": "102", "proj_id": "1", "task_code": "A1020",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            ],
+            raw_lines=[
+                "%R\t101\t1\tA1010\t40\t40",
+                "%R\t102\t1\tA1020\t40\t40",
+            ],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section],
+        )
+
+        result = apply_changes(
+            doc,
+            [_remove_activity_change("A1010")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        task = result.doc.section("TASK")
+        self.assertEqual(len(task.rows), 1)
+        self.assertEqual(task.rows[0]["task_code"], "A1020")
+        self.assertIsNone(result.doc.section("TASKPRED"))
+
+    # ---- Test 4: no edges referencing the activity → TASKPRED untouched ------
+
+    def test_no_edges_referencing_activity_untouched(self):
+        """Remove A1030 (no edges); TASKPRED rows for other activities unchanged."""
+        doc = _make_doc_with_two_tasks_and_edge()
+        result = apply_changes(
+            doc,
+            [_remove_activity_change("A1030")],
+            strict=False,
+            dry_run=False,
+        )
+        task = result.doc.section("TASK")
+        tp = result.doc.section("TASKPRED")
+        # A1030 removed; A1010 and A1020 remain
+        self.assertEqual(len(task.rows), 2)
+        # The A1010→A1020 edge is untouched
+        self.assertEqual(len(tp.rows), 1)
+        self.assertEqual(tp.rows[0]["pred_task_id"], "101")
+
+    # ---- Test 5: multiple referencing edges all removed ----------------------
+
+    def test_multiple_referencing_edges_all_removed(self):
+        """A1010 is predecessor in 2 edges and successor in 1; all 3 removed."""
+        task_rows = [
+            {"task_id": "101", "proj_id": "1", "task_code": "A1010",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            {"task_id": "102", "proj_id": "1", "task_code": "A1020",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            {"task_id": "103", "proj_id": "1", "task_code": "A1030",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            {"task_id": "104", "proj_id": "1", "task_code": "A1040",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+        ]
+
+        def _tp_row(tpid, succ, pred, pred_type="PR_FS"):
+            return {
+                "task_pred_id": tpid,
+                "task_id": succ,
+                "pred_task_id": pred,
+                "proj_id": "1",
+                "pred_proj_id": "1",
+                "pred_type": pred_type,
+                "lag_hr_cnt": "0",
+                "comments": "",
+                "float_path": "",
+                "aref": "",
+                "arls": "",
+            }
+
+        taskpred_rows = [
+            _tp_row("1", "102", "101"),   # A1010 → A1020 FS
+            _tp_row("2", "103", "101"),   # A1010 → A1030 FS
+            _tp_row("3", "101", "104"),   # A1040 → A1010 FS  (A1010 as successor)
+            _tp_row("4", "103", "102"),   # A1020 → A1030 FS  (unrelated)
+        ]
+        doc = _make_doc_with_task_and_taskpred(
+            task_rows=task_rows,
+            taskpred_rows=taskpred_rows,
+        )
+
+        result = apply_changes(
+            doc,
+            [_remove_activity_change("A1010")],
+            strict=False,
+            dry_run=False,
+        )
+        tp = result.doc.section("TASKPRED")
+        # 3 edges referencing A1010 removed; 1 unrelated edge remains
+        self.assertEqual(len(tp.rows), 1)
+        self.assertEqual(tp.rows[0]["task_pred_id"], "4")
+
+        # Feedback should report removed_edges_count == 3
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["removed_edges_count"], 3)
+
+    # ---- Test 6: dirty re-indexing on TASK -----------------------------------
+
+    def test_dirty_reindex_on_task(self):
+        """TASK has 3 rows with rows[0] and rows[2] dirty; remove rows[1]; _dirty=={0, 1}."""
+        from xer_io import XerDoc, XerSection
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "proj_id", "task_code",
+                         "target_drtn_hr_cnt", "remain_drtn_hr_cnt"],
+            rows=[
+                {"task_id": "101", "proj_id": "1", "task_code": "A1010",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+                {"task_id": "102", "proj_id": "1", "task_code": "A1020",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+                {"task_id": "103", "proj_id": "1", "task_code": "A1030",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            ],
+            raw_lines=[
+                "%R\t101\t1\tA1010\t40\t40",
+                "%R\t102\t1\tA1020\t40\t40",
+                "%R\t103\t1\tA1030\t40\t40",
+            ],
+            e_line=None,
+        )
+        # Pre-seed dirty: rows[0] and rows[2] are dirty
+        task_section._dirty = {0, 2}
+
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section],
+        )
+
+        # Remove rows[1] (A1020)
+        apply_changes(
+            doc,
+            [_remove_activity_change("A1020")],
+            strict=False,
+            dry_run=False,
+        )
+
+        task = doc.section("TASK")
+        self.assertEqual(len(task.rows), 2)
+        # Original index-0 stays at 0; original index-2 moves to 1.
+        # _dirty should be {0, 1}
+        self.assertEqual(task._dirty, {0, 1})
+
+    # ---- Test 7: dirty re-indexing on TASKPRED with multiple removals --------
+
+    def test_dirty_reindex_on_taskpred_multi_removal(self):
+        """5 TASKPRED rows; rows[1] and rows[3] reference the target; rows[0] and rows[4]
+        are dirty.  After removal of indices {1,3}, remaining rows are originals
+        [0,2,4] at new indices [0,1,2]; original dirty {0,4} → new dirty {0,2}."""
+        from xer_io import XerDoc, XerSection
+
+        task_section = XerSection(
+            name="TASK",
+            field_order=["task_id", "proj_id", "task_code",
+                         "target_drtn_hr_cnt", "remain_drtn_hr_cnt"],
+            rows=[
+                {"task_id": "101", "proj_id": "1", "task_code": "TARGET",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+                {"task_id": "102", "proj_id": "1", "task_code": "OTHER1",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+                {"task_id": "103", "proj_id": "1", "task_code": "OTHER2",
+                 "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            ],
+            raw_lines=[
+                "%R\t101\t1\tTARGET\t40\t40",
+                "%R\t102\t1\tOTHER1\t40\t40",
+                "%R\t103\t1\tOTHER2\t40\t40",
+            ],
+            e_line=None,
+        )
+
+        def _tp(tpid, succ, pred):
+            return {
+                "task_pred_id": tpid,
+                "task_id": succ,
+                "pred_task_id": pred,
+                "proj_id": "1",
+                "pred_proj_id": "1",
+                "pred_type": "PR_FS",
+                "lag_hr_cnt": "0",
+                "comments": "",
+                "float_path": "",
+                "aref": "",
+                "arls": "",
+            }
+
+        # Build TASKPRED: indices 1 and 3 reference TARGET (task_id=101)
+        tp_rows = [
+            _tp("1", "102", "103"),   # index 0: OTHER2 → OTHER1 (unrelated)
+            _tp("2", "102", "101"),   # index 1: TARGET → OTHER1
+            _tp("3", "103", "102"),   # index 2: OTHER1 → OTHER2 (unrelated)
+            _tp("4", "103", "101"),   # index 3: TARGET → OTHER2
+            _tp("5", "102", "103"),   # index 4: OTHER2 → OTHER1 (unrelated)
+        ]
+        tp_raw = [
+            "%R\t1\t102\t103\t1\t1\tPR_FS\t0\t\t\t\t",
+            "%R\t2\t102\t101\t1\t1\tPR_FS\t0\t\t\t\t",
+            "%R\t3\t103\t102\t1\t1\tPR_FS\t0\t\t\t\t",
+            "%R\t4\t103\t101\t1\t1\tPR_FS\t0\t\t\t\t",
+            "%R\t5\t102\t103\t1\t1\tPR_FS\t0\t\t\t\t",
+        ]
+        taskpred_section = XerSection(
+            name="TASKPRED",
+            field_order=[
+                "task_pred_id", "task_id", "pred_task_id",
+                "proj_id", "pred_proj_id",
+                "pred_type", "lag_hr_cnt",
+                "comments", "float_path", "aref", "arls",
+            ],
+            rows=tp_rows,
+            raw_lines=tp_raw,
+            e_line=None,
+        )
+        # Pre-seed dirty: rows[0] and rows[4]
+        taskpred_section._dirty = {0, 4}
+
+        doc = XerDoc(
+            header_line="ERMHDR\t...",
+            encoding="cp1252",
+            sections=[task_section, taskpred_section],
+        )
+
+        apply_changes(
+            doc,
+            [_remove_activity_change("TARGET")],
+            strict=False,
+            dry_run=False,
+        )
+
+        tp = doc.section("TASKPRED")
+        # Rows at original indices 1 and 3 removed; 3 remain
+        self.assertEqual(len(tp.rows), 3)
+        # Remaining task_pred_ids: "1", "3", "5" (originals at 0, 2, 4)
+        remaining_ids = [r["task_pred_id"] for r in tp.rows]
+        self.assertEqual(remaining_ids, ["1", "3", "5"])
+        # Dirty re-indexing: original 0→0, original 4→2
+        self.assertEqual(tp._dirty, {0, 2})
+
+    # ---- Test 8: raw_lines stay aligned after removal ------------------------
+
+    def test_raw_lines_aligned_after_removal(self):
+        """len(taskpred.raw_lines) == len(taskpred.rows) after removal."""
+        doc = _make_doc_with_two_tasks_and_edge()
+        tp_before = doc.section("TASKPRED")
+        rows_before = len(tp_before.rows)
+        raw_before = len(tp_before.raw_lines)
+        self.assertEqual(rows_before, raw_before)
+
+        apply_changes(
+            doc,
+            [_remove_activity_change("A1010")],
+            strict=False,
+            dry_run=False,
+        )
+
+        tp = doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), len(tp.raw_lines))
+
+    # ---- Test 9: feedback shape ----------------------------------------------
+
+    def test_feedback_shape(self):
+        """Happy path returns dict with all 6 keys; CPM stubs are None."""
+        doc = _make_doc_with_two_tasks_and_edge()
+        result = apply_changes(
+            doc,
+            [_remove_activity_change("A1010")],
+            strict=False,
+            dry_run=False,
+        )
+        fb = result.per_change_feedback[0].feedback
+        self.assertIn("removed_task_id", fb)
+        self.assertIn("removed_edges_count", fb)
+        self.assertIn("activity_end_before", fb)
+        self.assertIn("activity_end_after", fb)
+        self.assertIn("milestone_impact_days", fb)
+        self.assertIn("now_on_critical_path", fb)
+
+        self.assertEqual(fb["removed_task_id"], "101")  # numeric id of A1010
+        self.assertEqual(fb["removed_edges_count"], 1)
+        self.assertIsNone(fb["activity_end_before"])
+        self.assertIsNone(fb["activity_end_after"])
+        self.assertIsNone(fb["milestone_impact_days"])
+        self.assertIsNone(fb["now_on_critical_path"])
+
+    # ---- Test 10: state.removed_activity_ids accumulates ---------------------
+
+    def test_state_accumulates_across_multiple_removals(self):
+        """Two remove_activity changes in one call; state.removed_activity_ids contains both."""
+        task_rows = [
+            {"task_id": "101", "proj_id": "1", "task_code": "A1010",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            {"task_id": "102", "proj_id": "1", "task_code": "A1020",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+            {"task_id": "103", "proj_id": "1", "task_code": "A1030",
+             "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40"},
+        ]
+        doc = _make_doc_with_task_and_taskpred(
+            task_rows=task_rows,
+            taskpred_rows=[],
+        )
+
+        from xer_modify import _HANDLERS, ChangeState
+        state = ChangeState()
+        _HANDLERS["remove_activity"](
+            doc,
+            _remove_activity_change("A1010"),
+            state,
+        )
+        _HANDLERS["remove_activity"](
+            doc,
+            _remove_activity_change("A1020"),
+            state,
+        )
+
+        self.assertIn("A1010", state.removed_activity_ids)
+        self.assertIn("A1020", state.removed_activity_ids)
+        # A1030 is untouched
+        self.assertNotIn("A1030", state.removed_activity_ids)

@@ -543,6 +543,86 @@ def _handle_add_activity(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
+@_register_handler("remove_activity")
+def _handle_remove_activity(doc, change: dict, state: ChangeState) -> dict:
+    activity_id = change["activity_id"]
+
+    # Validation 1: TASK section must exist
+    task = doc.section("TASK")
+    if task is None:
+        raise ValidationFailure(
+            "remove_activity: TASK section not found in XER document"
+        )
+
+    # Validation 2: the activity must exist in the TASK section
+    task_row_index = None
+    removed_task_id = None
+    for i, row in enumerate(task.rows):
+        if row.get("task_code") == activity_id:
+            task_row_index = i
+            removed_task_id = row["task_id"]
+            break
+
+    if task_row_index is None:
+        raise ValidationFailure(
+            f"remove_activity: activity_id {activity_id!r} not found in TASK section"
+        )
+
+    # Step 1: remove the TASK row
+    task.rows.pop(task_row_index)
+    if task.raw_lines is not None:
+        task.raw_lines.pop(task_row_index)
+    # Re-index _dirty for TASK: entries at index > task_row_index shift down by 1;
+    # entry task_row_index itself is gone
+    task._dirty = {
+        d - 1 if d > task_row_index else d
+        for d in task._dirty
+        if d != task_row_index
+    }
+
+    # Step 2: remove all TASKPRED rows referencing the removed activity
+    taskpred = doc.section("TASKPRED")
+    removed_edges_count = 0
+
+    if taskpred is not None:
+        # Collect indices of all rows where pred_task_id or task_id == removed_task_id
+        taskpred_indices_to_remove = [
+            i for i, row in enumerate(taskpred.rows)
+            if row.get("pred_task_id") == removed_task_id
+            or row.get("task_id") == removed_task_id
+        ]
+        removed_edges_count = len(taskpred_indices_to_remove)
+
+        # Remove in reverse order so earlier pops don't shift later indices
+        for i in sorted(taskpred_indices_to_remove, reverse=True):
+            taskpred.rows.pop(i)
+            if taskpred.raw_lines is not None:
+                taskpred.raw_lines.pop(i)
+
+        # Re-index _dirty for TASKPRED: subtract the count of removed indices
+        # that were less than each dirty index; drop dirty indices that were removed
+        removed_set = set(taskpred_indices_to_remove)
+        new_dirty: set[int] = set()
+        for d in taskpred._dirty:
+            if d in removed_set:
+                continue  # row is gone
+            shift = sum(1 for r in removed_set if r < d)
+            new_dirty.add(d - shift)
+        taskpred._dirty = new_dirty
+
+    # Step 3: record in state
+    state.removed_activity_ids.add(activity_id)
+
+    return {
+        "removed_task_id": removed_task_id,
+        "removed_edges_count": removed_edges_count,
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
 @_register_handler("set_calendar")
 def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     activity_id = change["activity_id"]
