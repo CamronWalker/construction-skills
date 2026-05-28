@@ -161,3 +161,48 @@ def _handle_set_duration(doc, change: dict, state: ChangeState) -> dict:
         "milestone_impact_days": None,
         "now_on_critical_path": None,
     }
+
+
+@_register_handler("set_calendar")
+def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
+    activity_id = change["activity_id"]
+    new_calendar_id = change["new_calendar_id"]
+
+    # Locate the TASK row
+    task_section = doc.section("TASK")
+    row_index = None
+    if task_section is not None:
+        for i, row in enumerate(task_section.rows):
+            if row.get("task_code") == activity_id:
+                row_index = i
+                break
+
+    if row_index is None:
+        raise ValidationFailure(
+            f"set_calendar: activity_id {activity_id!r} not found in TASK section"
+        )
+
+    # Validate the calendar exists in the doc or in state (order-aware pass)
+    calendar_section = doc.section("CALENDAR")
+    calendar_exists = new_calendar_id in state.new_calendar_ids or (
+        calendar_section is not None
+        and any(
+            row.get("clndr_id") == new_calendar_id
+            for row in calendar_section.rows
+        )
+    )
+
+    if not calendar_exists:
+        raise ValidationFailure(
+            f"set_calendar: calendar_id {new_calendar_id!r} not found in CALENDAR section"
+        )
+
+    task_section.rows[row_index]["clndr_id"] = new_calendar_id
+    task_section.mark_dirty(row_index)
+
+    return {
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
