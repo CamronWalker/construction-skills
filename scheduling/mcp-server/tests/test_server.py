@@ -27,6 +27,7 @@ class TestServer(unittest.TestCase):
         tool_names = self._list_tool_names(server.mcp)
         expected_representatives = {
             "structure": "get_milestones",
+            "structure_invalidate": "invalidate_cache_for",
             "cpm_path": "get_critical_path",
             "quality": "get_quality_check",
             "update_review": "get_activities_to_start",

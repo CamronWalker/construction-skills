@@ -76,5 +76,27 @@ class TestGetMilestonesTool(unittest.TestCase):
         self.assertFalse(ntp["is_terminal"])
 
 
+class TestInvalidateCacheFor(unittest.TestCase):
+    def test_invalidates_an_entry(self):
+        from cache import CpmCache
+        from tools.structure import invalidate_cache_for_impl
+
+        cache = CpmCache()
+        fixture = str(Path(__file__).parent / "fixtures" / "minimal.xer")
+        cache.get_parsed(fixture)
+        result = invalidate_cache_for_impl(fixture, cache)
+        self.assertEqual(result, {"invalidated": True})
+        self.assertNotIn(fixture, cache._entries)
+
+    def test_returns_false_when_nothing_to_invalidate(self):
+        from cache import CpmCache
+        from tools.structure import invalidate_cache_for_impl
+
+        cache = CpmCache()
+        fixture = str(Path(__file__).parent / "fixtures" / "minimal.xer")
+        result = invalidate_cache_for_impl(fixture, cache)
+        self.assertEqual(result, {"invalidated": False})
+
+
 if __name__ == "__main__":
     unittest.main()

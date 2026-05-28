@@ -78,6 +78,17 @@ def get_milestones_impl(xer_path: str, include_complete: bool, cache) -> dict:
     return {"milestones": milestones}
 
 
+def invalidate_cache_for_impl(xer_path: str, cache) -> dict:
+    """Drop the cache entry for xer_path. Returns {invalidated: bool}.
+
+    Used when an XER has been edited outside the MCP (e.g., directly in P6)
+    and the caller wants to force a fresh parse on the next tool call.
+    Schedulers normally don't need this — the cache's (path, size, mtime)
+    key catches every legitimate overwrite — but it's belt-and-suspenders.
+    """
+    return {"invalidated": cache.invalidate(str(xer_path))}
+
+
 def register(mcp, cache):
     """Register this module's tools on the given FastMCP instance."""
 
@@ -96,3 +107,23 @@ def register(mcp, cache):
             is_terminal }, ...] }``
         """
         return get_milestones_impl(xer_path, include_complete, cache)
+
+    @mcp.tool()
+    @wrap_tool_errors(
+        tool_name="invalidate_cache_for",
+        lib_script="scheduling/mcp-server/cache.py",
+    )
+    def invalidate_cache_for(xer_path: str) -> dict:
+        """Drop the cache entry for the given XER path.
+
+        Use when an XER has been edited outside the MCP (e.g., directly in P6)
+        and you want to force a fresh parse on the next tool call.
+
+        Args:
+            xer_path: Path to the .xer file whose cache entry should be dropped.
+
+        Returns:
+            ``{invalidated: bool}`` -- True if an entry was removed, False if
+            the path wasn't in the cache.
+        """
+        return invalidate_cache_for_impl(xer_path, cache)
