@@ -253,22 +253,6 @@ class CpmCache:
         st = Path(xer_path).stat()
         return CacheKey(path=str(xer_path), size=st.st_size, mtime=st.st_mtime)
 
-    def _verify_stable(self, xer_path: str, tentative: CacheKey) -> None:
-        """Sleep + re-stat to confirm a tentatively-keyed file isn't still
-        being written. Raises XerLockedError if the size advanced across the
-        interval. Doesn't return a key -- the caller already has ``tentative``,
-        which is the post-stable key once this returns successfully.
-        """
-        time.sleep(_PARTIAL_READ_DELAY_S)
-        st = Path(xer_path).stat()
-        if st.st_size != tentative.size:
-            raise XerLockedError(
-                f"XER appears mid-write: size changed from {tentative.size} "
-                f"to {st.st_size} across a "
-                f"{int(_PARTIAL_READ_DELAY_S * 1000)}ms interval "
-                f"({xer_path}). Wait for the writer to finish and retry."
-            )
-
     def _safe_key(self, xer_path: str) -> CacheKey:
         """Build a CacheKey, raising XerLockedError if the file's size changes
         between two reads 100ms apart.
