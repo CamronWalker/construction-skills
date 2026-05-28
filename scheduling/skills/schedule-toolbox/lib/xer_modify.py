@@ -15,6 +15,7 @@ the return value populates per_change_feedback.
 """
 from __future__ import annotations
 
+import copy
 import importlib.util
 import os
 import re
@@ -112,14 +113,24 @@ def apply_changes(
     Pass 1: syntactic check (per-record required fields, enum validity).
     Pass 2: order-aware reference resolution (apply changes against an
             in-memory copy; track new IDs).
-    Pass 3: post-state graph check (orphan rule, cycle check, dup-edge).
+    Pass 3: post-state graph check via xer_validate — any NEW error-severity
+            issue (not present before the mutations) blocks the apply.
 
-    On error: no mutation persisted, errors returned.
-    On success (or dry_run): mutations applied to doc; ApplyResult populated.
+    Atomicity: Pass 2 works on a deep copy of doc.  The original doc is never
+    mutated.  On success, result.doc is the mutated copy.  On any error,
+    result.doc is None.
+
+    strict=True treats post-state warnings as errors (Pass 3).
+    dry_run=True still runs all three passes and returns the mutated copy if
+    everything is clean, but the caller is expected to skip persisting the
+    result; errors still set result.doc=None.
     """
+    # Late import avoids an import-time circular dependency.
+    from xer_validate import validate as _xer_validate  # noqa: PLC0415
+
     result = ApplyResult(doc=None, changes_applied=0)
 
-    # Pass 1: syntactic
+    # Pass 1: syntactic — raise immediately on unknown type (caller bug).
     for i, change in enumerate(changes):
         ct = change.get("type")
         if ct not in _HANDLERS:
@@ -129,17 +140,65 @@ def apply_changes(
         result.doc = doc
         return result
 
-    # Pass 2+3: deferred to D-N tasks
+    # Work on a deep copy so the original doc is never partially mutated.
+    working_doc = copy.deepcopy(doc)
+
+    # Pass 3 baseline: capture error-severity issue codes BEFORE mutations so
+    # we can identify which errors (if any) are newly introduced.
+    pre_report = _xer_validate(working_doc)
+    pre_error_keys = frozenset(
+        (i.code, i.message) for i in pre_report.issues if i.severity == "error"
+    )
+
+    # Pass 2: handler loop — break on first ValidationFailure (partial mutation
+    # cannot be safely continued on the same working_doc).
     state = ChangeState()
     for i, change in enumerate(changes):
         handler = _HANDLERS[change["type"]]
-        feedback = handler(doc, change, state)
+        try:
+            feedback = handler(working_doc, change, state)
+        except ValidationFailure as exc:
+            result.validation_errors.append(ValidationIssueLite(
+                change_index=i,
+                code="HANDLER_ERROR",
+                message=str(exc),
+            ))
+            result.doc = None
+            return result
         result.per_change_feedback.append(PerChangeFeedback(
             change_index=i, type=change["type"], feedback=feedback,
         ))
         result.changes_applied += 1
 
-    result.doc = doc
+    # Pass 3: validate the post-mutation state; only flag NEW issues.
+    post_report = _xer_validate(working_doc)
+    for issue in post_report.issues:
+        key = (issue.code, issue.message)
+        if issue.severity == "error" and key not in pre_error_keys:
+            result.validation_errors.append(ValidationIssueLite(
+                change_index=None,
+                code=issue.code,
+                message=issue.message,
+            ))
+        elif issue.severity == "warning":
+            result.validation_warnings.append(ValidationIssueLite(
+                change_index=None,
+                code=issue.code,
+                message=issue.message,
+            ))
+            if strict:
+                result.validation_errors.append(ValidationIssueLite(
+                    change_index=None,
+                    code=issue.code,
+                    message=issue.message,
+                ))
+
+    if result.validation_errors:
+        result.doc = None
+        return result
+
+    # All passes clean — return the mutated copy.
+    result.doc = working_doc
     return result
 
 
@@ -231,7 +290,9 @@ def _handle_add_logic(doc, change: dict, state: ChangeState) -> dict:
         )
 
     # Resolve predecessor and successor task_codes to numeric task_ids.
-    # Forward-reference resolution (state.new_activity_ids) is D16's job.
+    # Order-aware: check the TASK section first, then fall back to
+    # state.new_activity_id_map so a later add_logic can reference an activity
+    # added by an earlier add_activity in the same apply_changes call.
     task_section = doc.section("TASK")
 
     pred_task_id = None
@@ -247,6 +308,18 @@ def _handle_add_logic(doc, change: dict, state: ChangeState) -> dict:
             if row.get("task_code") == successor_id:
                 succ_task_id = row["task_id"]
                 succ_proj_id = row.get("proj_id", "")
+
+    # Fall back to state for activities added earlier in the same call.
+    if pred_task_id is None and predecessor_id in state.new_activity_id_map:
+        pred_task_id = state.new_activity_id_map[predecessor_id]
+        # proj_id is not tracked in state; default to proj_id of first TASK row.
+        if task_section is not None and task_section.rows:
+            pred_proj_id = task_section.rows[0].get("proj_id", "")
+
+    if succ_task_id is None and successor_id in state.new_activity_id_map:
+        succ_task_id = state.new_activity_id_map[successor_id]
+        if task_section is not None and task_section.rows:
+            succ_proj_id = task_section.rows[0].get("proj_id", "")
 
     if pred_task_id is None:
         raise ValidationFailure(

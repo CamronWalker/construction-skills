@@ -91,7 +91,7 @@ class TestOrchestratorShell(unittest.TestCase):
             / "mcp-server" / "tests" / "fixtures" / "minimal.xer"
         ))
         with self.assertRaises(ValidationFailure):
-            apply_changes(doc, [{"type": "wat"}], strict=False, dry_run=False)
+            result = apply_changes(doc, [{"type": "wat"}], strict=False, dry_run=False)
 
 
 class TestSetDuration(unittest.TestCase):
@@ -113,26 +113,27 @@ class TestSetDuration(unittest.TestCase):
     def test_happy_path_row_marked_dirty(self):
         """The mutated row index is marked dirty after set_duration."""
         doc = _make_doc_with_task("A1010", target_drtn="40", remain_drtn="40")
-        apply_changes(
+        result = apply_changes(
             doc,
             [{"type": "set_duration", "activity_id": "A1010", "new_duration_days": 2}],
             strict=False,
             dry_run=False,
         )
-        task_section = doc.section("TASK")
+        task_section = result.doc.section("TASK")
         self.assertTrue(task_section.is_dirty(0))
 
     def test_activity_not_found_raises(self):
         """set_duration raises ValidationFailure when activity_id not in TASK rows."""
         doc = _make_doc_with_task("A1010", target_drtn="40", remain_drtn="40")
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "set_duration", "activity_id": "ZZZZ", "new_duration_days": 5}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZZ", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "ZZZZ", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZZ", result.validation_errors[0].message)
 
     def test_feedback_shape_all_none(self):
         """Feedback keys are present and all stubbed to None pending D17 CPM pass."""
@@ -248,38 +249,40 @@ class TestAddLogic(unittest.TestCase):
     def test_predecessor_not_found_raises(self):
         """ValidationFailure naming the missing predecessor activity_id."""
         doc = self._two_activity_doc()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "add_logic",
-                    "predecessor_id": "ZZZPRED",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                    "lag_days": 0,
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZPRED", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{
+                "type": "add_logic",
+                "predecessor_id": "ZZZPRED",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "lag_days": 0,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZPRED", result.validation_errors[0].message)
 
     def test_successor_not_found_raises(self):
         """ValidationFailure naming the missing successor activity_id."""
         doc = self._two_activity_doc()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "add_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "ZZZSUCC",
-                    "relationship": "FS",
-                    "lag_days": 0,
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZSUCC", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{
+                "type": "add_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "ZZZSUCC",
+                "relationship": "FS",
+                "lag_days": 0,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZSUCC", result.validation_errors[0].message)
 
     def test_duplicate_edge_raises(self):
         """TASKPRED already has (A1010→A1020, PR_FS); adding same triple raises."""
@@ -297,20 +300,21 @@ class TestAddLogic(unittest.TestCase):
             "arls": "",
         }
         doc = self._two_activity_doc(taskpred_rows=[existing_row])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "add_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                    "lag_days": 0,
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [{
+                "type": "add_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "lag_days": 0,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A1010", err)
         self.assertIn("A1020", err)
 
@@ -418,7 +422,7 @@ class TestAddLogic(unittest.TestCase):
     def test_new_row_is_dirty(self):
         """Appended row is always dirty (no raw_lines entry behind it)."""
         doc = self._two_activity_doc()
-        apply_changes(
+        result = apply_changes(
             doc,
             [{
                 "type": "add_logic",
@@ -430,7 +434,7 @@ class TestAddLogic(unittest.TestCase):
             strict=False,
             dry_run=False,
         )
-        tp = doc.section("TASKPRED")
+        tp = result.doc.section("TASKPRED")
         self.assertTrue(tp.is_dirty(0))
 
 
@@ -506,57 +510,60 @@ class TestRemoveLogic(unittest.TestCase):
     def test_predecessor_not_found_raises(self):
         """ValidationFailure naming the missing predecessor activity_id."""
         doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "remove_logic",
-                    "predecessor_id": "ZZZPRED",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZPRED", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{
+                "type": "remove_logic",
+                "predecessor_id": "ZZZPRED",
+                "successor_id": "A1020",
+                "relationship": "FS",
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZPRED", result.validation_errors[0].message)
 
     # ---- Test 3: successor not found ----------------------------------------
 
     def test_successor_not_found_raises(self):
         """ValidationFailure naming the missing successor activity_id."""
         doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "remove_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "ZZZSUCC",
-                    "relationship": "FS",
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZSUCC", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{
+                "type": "remove_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "ZZZSUCC",
+                "relationship": "FS",
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZSUCC", result.validation_errors[0].message)
 
     # ---- Test 4: edge not found (wrong type) ---------------------------------
 
     def test_edge_not_found_wrong_type_raises(self):
         """TASKPRED has (A1010→A1020, FS); removing SS raises with triple in message."""
         doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "remove_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "A1020",
-                    "relationship": "SS",
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [{
+                "type": "remove_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "SS",
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A1010", err)
         self.assertIn("A1020", err)
         self.assertIn("SS", err)
@@ -639,11 +646,11 @@ class TestRemoveLogic(unittest.TestCase):
         )
 
         # Pre-condition: 3 rows, 3 raw_lines
-        tp = doc.section("TASKPRED")
-        self.assertEqual(len(tp.rows), 3)
-        self.assertEqual(len(tp.raw_lines), 3)
+        tp_before = doc.section("TASKPRED")
+        self.assertEqual(len(tp_before.rows), 3)
+        self.assertEqual(len(tp_before.raw_lines), 3)
 
-        apply_changes(
+        result = apply_changes(
             doc,
             [{
                 "type": "remove_logic",
@@ -656,6 +663,7 @@ class TestRemoveLogic(unittest.TestCase):
         )
 
         # Post-condition: 2 rows, 2 raw_lines
+        tp = result.doc.section("TASKPRED")
         self.assertEqual(len(tp.rows), 2)
         self.assertEqual(len(tp.raw_lines), 2)
         # FS and FF remain; SS is gone
@@ -723,7 +731,7 @@ class TestRemoveLogic(unittest.TestCase):
         )
 
         # Remove middle row (index 1 = PR_SS)
-        apply_changes(
+        result = apply_changes(
             doc,
             [{
                 "type": "remove_logic",
@@ -735,7 +743,7 @@ class TestRemoveLogic(unittest.TestCase):
             dry_run=False,
         )
 
-        tp = doc.section("TASKPRED")
+        tp = result.doc.section("TASKPRED")
         self.assertEqual(len(tp.rows), 2)
         # Original index-0 (PR_FS) stays at 0; original index-2 (PR_FF) moves to 1.
         # _dirty should be {0, 1}: index-0 unchanged, index-2→1 decremented.
@@ -772,19 +780,20 @@ class TestRemoveLogic(unittest.TestCase):
             "arls": "",
         }
         doc = self._two_activity_doc(taskpred_rows=[dup_row_a, dup_row_b])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "remove_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [{
+                "type": "remove_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A1010", err)
         self.assertIn("A1020", err)
 
@@ -819,14 +828,15 @@ class TestSetCalendar(unittest.TestCase):
             remain_drtn="40",
             calendar_id="200",
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "set_calendar", "activity_id": "ZZZZ", "new_calendar_id": "200"}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZZ", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "set_calendar", "activity_id": "ZZZZ", "new_calendar_id": "200"}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZZ", result.validation_errors[0].message)
 
     def test_calendar_not_found_raises(self):
         """set_calendar raises ValidationFailure when calendar not in doc and not in state."""
@@ -836,14 +846,15 @@ class TestSetCalendar(unittest.TestCase):
             remain_drtn="40",
             calendar_id="200",
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "set_calendar", "activity_id": "A1010", "new_calendar_id": "999"}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("999", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "set_calendar", "activity_id": "A1010", "new_calendar_id": "999"}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("999", result.validation_errors[0].message)
 
     def test_calendar_in_state_succeeds(self):
         """set_calendar succeeds when calendar is in state.new_calendar_ids even if absent from doc."""
@@ -1052,9 +1063,10 @@ class TestAddActivity(unittest.TestCase):
             "wbs_id": "1000",
             "activity_type": "TT_Task",
         }}
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(doc, [change], strict=False, dry_run=False)
-        self.assertIn("name", str(ctx.exception))
+        result = apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("name", result.validation_errors[0].message)
 
     # ---- Test 3: duplicate task_code ----------------------------------------
 
@@ -1062,70 +1074,75 @@ class TestAddActivity(unittest.TestCase):
         """task_code already exists in TASK section; ValidationFailure names the code."""
         doc = _make_doc_with_task_wbs_calendar()
         # A1010 is the existing row's task_code
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_activity_change(code="A1010")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("A1010", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_add_activity_change(code="A1010")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("A1010", result.validation_errors[0].message)
 
     # ---- Test 4: unknown wbs_id ---------------------------------------------
 
     def test_unknown_wbs_id_raises(self):
         """wbs_id not in PROJWBS and not in state → ValidationFailure."""
         doc = _make_doc_with_task_wbs_calendar()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_activity_change(wbs_id="9999")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("9999", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_add_activity_change(wbs_id="9999")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("9999", result.validation_errors[0].message)
 
     # ---- Test 5: unknown calendar_id ----------------------------------------
 
     def test_unknown_calendar_id_raises(self):
         """calendar_id not in CALENDAR and not in state → ValidationFailure."""
         doc = _make_doc_with_task_wbs_calendar()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_activity_change(calendar_id="999")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("999", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_add_activity_change(calendar_id="999")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("999", result.validation_errors[0].message)
 
     # ---- Test 6: unknown activity_type --------------------------------------
 
     def test_unknown_activity_type_raises(self):
         """activity_type='TT_Bogus' raises ValidationFailure."""
         doc = _make_doc_with_task_wbs_calendar()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_activity_change(activity_type="TT_Bogus")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("TT_Bogus", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_add_activity_change(activity_type="TT_Bogus")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("TT_Bogus", result.validation_errors[0].message)
 
     # ---- Test 7: negative duration ------------------------------------------
 
     def test_negative_duration_raises(self):
         """duration_days=-1 raises ValidationFailure."""
         doc = _make_doc_with_task_wbs_calendar()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_activity_change(duration_days=-1)],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("-1", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_add_activity_change(duration_days=-1)],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("-1", result.validation_errors[0].message)
 
     # ---- Test 8: zero-duration milestone ------------------------------------
 
@@ -1340,79 +1357,83 @@ class TestModifyLogic(unittest.TestCase):
     def test_neither_field_provided_raises(self):
         """No new_relationship and no new_lag_days → ValidationFailure (caller bug)."""
         doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "modify_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("modify_logic", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("modify_logic", result.validation_errors[0].message)
 
     # ---- Test 5: predecessor not found ---------------------------------------
 
     def test_predecessor_not_found_raises(self):
         """ValidationFailure naming the missing predecessor activity_id."""
         doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "modify_logic",
-                    "predecessor_id": "ZZZPRED",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                    "new_lag_days": 1,
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZPRED", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "ZZZPRED",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "new_lag_days": 1,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZPRED", result.validation_errors[0].message)
 
     # ---- Test 6: successor not found -----------------------------------------
 
     def test_successor_not_found_raises(self):
         """ValidationFailure naming the missing successor activity_id."""
         doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "modify_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "ZZZSUCC",
-                    "relationship": "FS",
-                    "new_lag_days": 1,
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZSUCC", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "ZZZSUCC",
+                "relationship": "FS",
+                "new_lag_days": 1,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZSUCC", result.validation_errors[0].message)
 
     # ---- Test 7: edge not found (wrong selector type) ------------------------
 
     def test_edge_not_found_raises(self):
         """TASKPRED has (A1010→A1020, FS); selecting SS raises ValidationFailure."""
         doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "modify_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "A1020",
-                    "relationship": "SS",       # selector, not the existing edge
-                    "new_lag_days": 1,
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "SS",       # selector, not the existing edge
+                "new_lag_days": 1,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A1010", err)
         self.assertIn("A1020", err)
 
@@ -1423,20 +1444,21 @@ class TestModifyLogic(unittest.TestCase):
         dup_a = self._fs_row(tpid="5001", lag="8")
         dup_b = self._fs_row(tpid="5002", lag="16")   # same triple, different lag
         doc = self._two_activity_doc(taskpred_rows=[dup_a, dup_b])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "modify_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                    "new_lag_days": 2,
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "new_lag_days": 2,
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A1010", err)
         self.assertIn("A1020", err)
 
@@ -1447,20 +1469,21 @@ class TestModifyLogic(unittest.TestCase):
         doc = self._two_activity_doc(
             taskpred_rows=[self._fs_row(tpid="5001"), self._ss_row(tpid="5002")]
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{
-                    "type": "modify_logic",
-                    "predecessor_id": "A1010",
-                    "successor_id": "A1020",
-                    "relationship": "FS",
-                    "new_relationship": "SS",   # would collide with existing SS row
-                }],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [{
+                "type": "modify_logic",
+                "predecessor_id": "A1010",
+                "successor_id": "A1020",
+                "relationship": "FS",
+                "new_relationship": "SS",   # would collide with existing SS row
+            }],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A1010", err)
         self.assertIn("A1020", err)
 
@@ -1565,14 +1588,15 @@ class TestRemoveActivity(unittest.TestCase):
     def test_activity_not_found_raises(self):
         """remove_activity raises ValidationFailure naming the missing id."""
         doc = _make_doc_with_two_tasks_and_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_remove_activity_change("ZZZZ")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZZ", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_remove_activity_change("ZZZZ")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZZ", result.validation_errors[0].message)
 
     # ---- Test 3: no TASKPRED section → succeeds ------------------------------
 
@@ -1724,14 +1748,14 @@ class TestRemoveActivity(unittest.TestCase):
         )
 
         # Remove rows[1] (A1020)
-        apply_changes(
+        result = apply_changes(
             doc,
             [_remove_activity_change("A1020")],
             strict=False,
             dry_run=False,
         )
 
-        task = doc.section("TASK")
+        task = result.doc.section("TASK")
         self.assertEqual(len(task.rows), 2)
         # Original index-0 stays at 0; original index-2 moves to 1.
         # _dirty should be {0, 1}
@@ -1816,14 +1840,14 @@ class TestRemoveActivity(unittest.TestCase):
             sections=[task_section, taskpred_section],
         )
 
-        apply_changes(
+        result = apply_changes(
             doc,
             [_remove_activity_change("TARGET")],
             strict=False,
             dry_run=False,
         )
 
-        tp = doc.section("TASKPRED")
+        tp = result.doc.section("TASKPRED")
         # Rows at original indices 1 and 3 removed; 3 remain
         self.assertEqual(len(tp.rows), 3)
         # Remaining task_pred_ids: "1", "3", "5" (originals at 0, 2, 4)
@@ -1842,14 +1866,14 @@ class TestRemoveActivity(unittest.TestCase):
         raw_before = len(tp_before.raw_lines)
         self.assertEqual(rows_before, raw_before)
 
-        apply_changes(
+        result = apply_changes(
             doc,
             [_remove_activity_change("A1010")],
             strict=False,
             dry_run=False,
         )
 
-        tp = doc.section("TASKPRED")
+        tp = result.doc.section("TASKPRED")
         self.assertEqual(len(tp.rows), len(tp.raw_lines))
 
     # ---- Test 9: feedback shape ----------------------------------------------
@@ -2241,14 +2265,15 @@ class TestDissolveActivity(unittest.TestCase):
             task_rows=[_task_row("101", "A")],
             taskpred_rows=[],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "dissolve_activity", "activity_id": "ZZZZ"}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZZ", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "ZZZZ"}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZZ", result.validation_errors[0].message)
 
     # ---- Test 9: duplicate edge → ValidationFailure --------------------------
 
@@ -2267,14 +2292,15 @@ class TestDissolveActivity(unittest.TestCase):
                 _tp_row("3", "103", "101", "PR_FS", "0"),  # A FS→B
             ],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "dissolve_activity", "activity_id": "D"}],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [{"type": "dissolve_activity", "activity_id": "D"}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A", err)
         self.assertIn("B", err)
 
@@ -2456,14 +2482,14 @@ class TestDissolveActivity(unittest.TestCase):
             sections=[task_section, taskpred_section],
         )
 
-        apply_changes(
+        result = apply_changes(
             doc,
             [{"type": "dissolve_activity", "activity_id": "D"}],
             strict=False,
             dry_run=False,
         )
 
-        tp = doc.section("TASKPRED")
+        tp = result.doc.section("TASKPRED")
         # Rows removed: idx 1 (A→D) and idx 2 (D→B); 1 new row appended (A→B FS).
         # Final rows: A→C(FS), A→B(SS), B→C, A→B(FS) — 4 rows total
         self.assertEqual(len(tp.rows), 4)
@@ -2772,28 +2798,30 @@ class TestPopActivity(unittest.TestCase):
     def test_predecessor_not_found_raises(self):
         """predecessor_id not in TASK → ValidationFailure naming the missing id."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="ZZZPRED", succ_id="B")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZPRED", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="ZZZPRED", succ_id="B")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZPRED", result.validation_errors[0].message)
 
     # ---- Test 6: successor not found → ValidationFailure ----------------------
 
     def test_successor_not_found_raises(self):
         """successor_id not in TASK → ValidationFailure naming the missing id."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="ZZZSUCC")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("ZZZSUCC", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="ZZZSUCC")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("ZZZSUCC", result.validation_errors[0].message)
 
     # ---- Test 7: edge not found → ValidationFailure ---------------------------
 
@@ -2810,14 +2838,15 @@ class TestPopActivity(unittest.TestCase):
                 _tp_row("1", "102", "103", "PR_FS", "0"),
             ],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="B")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A", err)
         self.assertIn("B", err)
 
@@ -2835,14 +2864,15 @@ class TestPopActivity(unittest.TestCase):
                 _tp_row("2", "102", "101", "PR_SS", "8"),
             ],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="B")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("A", err)
         self.assertIn("B", err)
 
@@ -2865,90 +2895,97 @@ class TestPopActivity(unittest.TestCase):
             },
             "split_lag": "preserve_total",
         }
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(doc, [change], strict=False, dry_run=False)
-        self.assertIn("code", str(ctx.exception))
+        result = apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("code", result.validation_errors[0].message)
 
     # ---- Test 10: duplicate X code → ValidationFailure -------------------------
 
     def test_duplicate_x_code_raises(self):
         """X's code already exists in TASK → ValidationFailure."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                # "A" already exists in TASK
-                [_pop_change(pred_id="A", succ_id="B", code="A")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("A", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            # "A" already exists in TASK
+            [_pop_change(pred_id="A", succ_id="B", code="A")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("A", result.validation_errors[0].message)
 
     # ---- Test 11: unknown wbs_id / calendar_id / activity_type ----------------
 
     def test_unknown_wbs_id_raises(self):
         """wbs_id not in PROJWBS → ValidationFailure."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="B", wbs_id="9999")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("9999", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", wbs_id="9999")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("9999", result.validation_errors[0].message)
 
     def test_unknown_calendar_id_raises(self):
         """calendar_id not in CALENDAR → ValidationFailure."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="B", calendar_id="999")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("999", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", calendar_id="999")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("999", result.validation_errors[0].message)
 
     def test_unknown_activity_type_raises(self):
         """activity_type not in _ACTIVITY_TYPES → ValidationFailure."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="B", activity_type="TT_Bogus")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("TT_Bogus", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", activity_type="TT_Bogus")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("TT_Bogus", result.validation_errors[0].message)
 
     # ---- Test 12: negative duration → ValidationFailure -----------------------
 
     def test_negative_duration_raises(self):
         """duration_days=-1 → ValidationFailure."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="B", duration_days=-1)],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("-1", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", duration_days=-1)],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("-1", result.validation_errors[0].message)
 
     # ---- Test 13: bad split_lag value → ValidationFailure ---------------------
 
     def test_bad_split_lag_raises(self):
         """split_lag='partial' (not a valid enum) → ValidationFailure."""
         doc = self._two_task_doc_with_edge()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_pop_change(pred_id="A", succ_id="B", split_lag="partial")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("partial", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_pop_change(pred_id="A", succ_id="B", split_lag="partial")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("partial", result.validation_errors[0].message)
 
     # ---- Test 14: state propagation -------------------------------------------
 
@@ -3207,14 +3244,15 @@ class TestAddWbs(unittest.TestCase):
     def test_derived_short_name_single_word_raises(self):
         """'Closeout' → initials='C' → 1 char → ValidationFailure."""
         doc = _make_doc_with_projwbs()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_wbs_change(wbs_name="Closeout")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_name="Closeout")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("wbs_short_name", err)
 
     # ---- Test 6: derived fails — all stop-words → 0 chars -------------------
@@ -3222,14 +3260,15 @@ class TestAddWbs(unittest.TestCase):
     def test_derived_short_name_all_stop_words_raises(self):
         """'the and of' → 0 initials → ValidationFailure."""
         doc = _make_doc_with_projwbs()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_wbs_change(wbs_name="the and of")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_name="the and of")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("wbs_short_name", err)
 
     # ---- Test 7: caller-provided short_name too short → ValidationFailure ----
@@ -3237,14 +3276,15 @@ class TestAddWbs(unittest.TestCase):
     def test_explicit_short_name_too_short_raises(self):
         """Caller provides wbs_short_name='X' (1 char) → ValidationFailure."""
         doc = _make_doc_with_projwbs()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_wbs_change(wbs_short_name="X")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_short_name="X")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("wbs_short_name", err)
 
     # ---- Test 8: missing wbs_code → ValidationFailure ------------------------
@@ -3256,9 +3296,10 @@ class TestAddWbs(unittest.TestCase):
             "wbs_name": "Site Work",
             "parent_wbs_id": "1000",
         }}
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(doc, [change], strict=False, dry_run=False)
-        self.assertIn("wbs_code", str(ctx.exception))
+        result = apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("wbs_code", result.validation_errors[0].message)
 
     # ---- Test 9: missing wbs_name → ValidationFailure ------------------------
 
@@ -3269,9 +3310,10 @@ class TestAddWbs(unittest.TestCase):
             "wbs_code": "WBS-SW",
             "parent_wbs_id": "1000",
         }}
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(doc, [change], strict=False, dry_run=False)
-        self.assertIn("wbs_name", str(ctx.exception))
+        result = apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("wbs_name", result.validation_errors[0].message)
 
     # ---- Test 10: missing parent_wbs_id → ValidationFailure -----------------
 
@@ -3282,9 +3324,10 @@ class TestAddWbs(unittest.TestCase):
             "wbs_code": "WBS-SW",
             "wbs_name": "Site Work",
         }}
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(doc, [change], strict=False, dry_run=False)
-        self.assertIn("parent_wbs_id", str(ctx.exception))
+        result = apply_changes(doc, [change], strict=False, dry_run=False)
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("parent_wbs_id", result.validation_errors[0].message)
 
     # ---- Test 11: duplicate wbs_code → ValidationFailure --------------------
 
@@ -3324,14 +3367,15 @@ class TestAddWbs(unittest.TestCase):
         doc = _make_doc_with_projwbs(wbs_rows=wbs_rows)
         # Add wbs_code to the section's field_order for this test
         doc.section("PROJWBS").field_order.append("wbs_code")
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_wbs_change(wbs_code="WBS-DUP", wbs_short_name="WD")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_code="WBS-DUP", wbs_short_name="WD")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("WBS-DUP", err)
 
     # ---- Test 12: parent wbs_id not found → ValidationFailure ---------------
@@ -3339,14 +3383,15 @@ class TestAddWbs(unittest.TestCase):
     def test_parent_wbs_id_not_found_raises(self):
         """parent_wbs_id='9999' not in PROJWBS and not in state → ValidationFailure."""
         doc = _make_doc_with_projwbs()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_wbs_change(parent_wbs_id="9999", wbs_short_name="SW")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(parent_wbs_id="9999", wbs_short_name="SW")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("9999", err)
 
     # ---- Test 13: parent satisfied by state.new_wbs_ids ---------------------
@@ -3384,14 +3429,15 @@ class TestAddWbs(unittest.TestCase):
             encoding="cp1252",
             sections=[task_section],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_add_wbs_change(wbs_short_name="SW")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_add_wbs_change(wbs_short_name="SW")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("PROJWBS", err)
 
     # ---- Test 15: wbs_id generation from non-contiguous ids -----------------
@@ -3577,14 +3623,15 @@ class TestRemoveWbs(unittest.TestCase):
         """WBS has TASK rows assigned → ValidationFailure naming the activity id(s)."""
         # child-B (wbs_id="30") has tasks T101 and T102
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_remove_wbs_change("30", "fail_if_used")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("30", "fail_if_used")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         # Should mention at least one of the blocking task codes or the wbs_id
         self.assertTrue("T101" in err or "T102" in err or "30" in err)
 
@@ -3594,14 +3641,15 @@ class TestRemoveWbs(unittest.TestCase):
         """WBS has child PROJWBS rows → ValidationFailure naming the child wbs_id(s)."""
         # child-A (wbs_id="20") has grandchild wbs_id="40" as child, no tasks directly
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_remove_wbs_change("20", "fail_if_used")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("20", "fail_if_used")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("40", err)
 
     # ---- Test 4: move_to_parent, no references — succeeds --------------------
@@ -3717,14 +3765,15 @@ class TestRemoveWbs(unittest.TestCase):
         for cascade in ("fail_if_used", "move_to_parent"):
             with self.subTest(cascade=cascade):
                 doc = _make_doc_with_wbs_tree()
-                with self.assertRaises(ValidationFailure) as ctx:
-                    apply_changes(
-                        doc,
-                        [_remove_wbs_change("10", cascade)],
-                        strict=False,
-                        dry_run=False,
-                    )
-                err = str(ctx.exception)
+                result = apply_changes(
+                    doc,
+                    [_remove_wbs_change("10", cascade)],
+                    strict=False,
+                    dry_run=False,
+                )
+                self.assertIsNone(result.doc)
+                self.assertTrue(result.validation_errors)
+                err = result.validation_errors[0].message
                 self.assertIn("root", err.lower())
 
     # ---- Test 9: WBS not found → ValidationFailure ---------------------------
@@ -3732,28 +3781,30 @@ class TestRemoveWbs(unittest.TestCase):
     def test_wbs_not_found_raises(self):
         """Removing a wbs_id that does not exist raises ValidationFailure naming the id."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_remove_wbs_change("9999", "fail_if_used")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("9999", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("9999", "fail_if_used")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("9999", result.validation_errors[0].message)
 
     # ---- Test 10: bad cascade enum → ValidationFailure ----------------------
 
     def test_bad_cascade_enum_raises(self):
         """cascade='delete_all' is not a valid value → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_remove_wbs_change("40", "delete_all")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("40", "delete_all")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("delete_all", err)
 
     # ---- Test 11: state.removed_wbs_ids populated ----------------------------
@@ -3805,14 +3856,14 @@ class TestRemoveWbs(unittest.TestCase):
         )
 
         # Remove rows[1] = wbs_id="20" (no tasks, no children)
-        apply_changes(
+        result = apply_changes(
             doc,
             [_remove_wbs_change("20", "fail_if_used")],
             strict=False,
             dry_run=False,
         )
 
-        projwbs = doc.section("PROJWBS")
+        projwbs = result.doc.section("PROJWBS")
         self.assertEqual(len(projwbs.rows), 2)
         # Original index-0 stays at 0; original index-2 moves to 1.
         self.assertEqual(projwbs._dirty, {0, 1})
@@ -3835,14 +3886,15 @@ class TestRemoveWbs(unittest.TestCase):
             encoding="cp1252",
             sections=[task_section],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_remove_wbs_change("10", "fail_if_used")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("PROJWBS", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_remove_wbs_change("10", "fail_if_used")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("PROJWBS", result.validation_errors[0].message)
 
     # ---- Test 14: no TASK section is fine — WBS removal proceeds -------------
 
@@ -4035,14 +4087,15 @@ class TestModifyWbs(unittest.TestCase):
     def test_no_fields_raises(self):
         """modify_wbs with no new_* fields is a caller bug → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_modify_wbs_change("20")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("modify_wbs", err)
 
     # ---- Test 7: wbs_id not found → ValidationFailure -----------------------
@@ -4050,14 +4103,15 @@ class TestModifyWbs(unittest.TestCase):
     def test_wbs_id_not_found_raises(self):
         """wbs_id that does not exist in PROJWBS → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_modify_wbs_change("9999", new_wbs_name="X")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("9999", new_wbs_name="X")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("9999", err)
 
     # ---- Test 8: new_wbs_code collides with another row → ValidationFailure --
@@ -4073,15 +4127,16 @@ class TestModifyWbs(unittest.TestCase):
         projwbs.rows[1]["wbs_code"] = "CODE-A"   # wbs_id="20"
         projwbs.rows[2]["wbs_code"] = "CODE-B"   # wbs_id="30"
 
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                # Try to rename "20" to use the code already belonging to "30"
-                [_modify_wbs_change("20", new_wbs_code="CODE-B")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            # Try to rename "20" to use the code already belonging to "30"
+            [_modify_wbs_change("20", new_wbs_code="CODE-B")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("CODE-B", err)
 
     # ---- Test 9: new_wbs_code same as existing — not a collision -------------
@@ -4110,14 +4165,15 @@ class TestModifyWbs(unittest.TestCase):
     def test_new_parent_wbs_id_not_found_raises(self):
         """new_parent_wbs_id not in PROJWBS and not in state.new_wbs_ids → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_modify_wbs_change("40", new_parent_wbs_id="8888")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("40", new_parent_wbs_id="8888")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("8888", err)
 
     # ---- Test 11: new_parent_wbs_id satisfied by state.new_wbs_ids ----------
@@ -4141,14 +4197,15 @@ class TestModifyWbs(unittest.TestCase):
     def test_cycle_self_loop_raises(self):
         """Setting new_parent_wbs_id to the node's own wbs_id → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_modify_wbs_change("20", new_parent_wbs_id="20")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20", new_parent_wbs_id="20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("cycle", err.lower())
 
     # ---- Test 13: cycle — direct child as new parent → ValidationFailure ----
@@ -4156,15 +4213,16 @@ class TestModifyWbs(unittest.TestCase):
     def test_cycle_direct_child_raises(self):
         """Reparenting root ("10") under its direct child ("20") → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                # "10" is parent of "20"; making "20" the parent of "10" = cycle
-                [_modify_wbs_change("10", new_parent_wbs_id="20")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            # "10" is parent of "20"; making "20" the parent of "10" = cycle
+            [_modify_wbs_change("10", new_parent_wbs_id="20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("cycle", err.lower())
 
     # ---- Test 14: cycle — grandchild as new parent → ValidationFailure ------
@@ -4173,14 +4231,15 @@ class TestModifyWbs(unittest.TestCase):
         """Reparenting root ("10") under its grandchild ("40") → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
         # Tree: 10→20→40; trying to make 40 the parent of 10 creates a cycle
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_modify_wbs_change("10", new_parent_wbs_id="40")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("10", new_parent_wbs_id="40")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("cycle", err.lower())
 
     # ---- Test 15: no cycle when new parent is sibling → succeeds -------------
@@ -4204,14 +4263,15 @@ class TestModifyWbs(unittest.TestCase):
     def test_short_name_too_short_raises(self):
         """new_wbs_short_name='X' (1 char) → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_modify_wbs_change("20", new_wbs_short_name="X")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("20", new_wbs_short_name="X")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("wbs_short_name", err)
 
     # ---- Test 17: missing PROJWBS section → ValidationFailure ---------------
@@ -4232,14 +4292,15 @@ class TestModifyWbs(unittest.TestCase):
             encoding="cp1252",
             sections=[task_section],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_modify_wbs_change("10", new_wbs_name="X")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("PROJWBS", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_modify_wbs_change("10", new_wbs_name="X")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("PROJWBS", result.validation_errors[0].message)
 
     # ---- Test 18: feedback shape — fields_changed exact match ---------------
 
@@ -4351,14 +4412,15 @@ class TestMoveActivitiesToWbs(unittest.TestCase):
     def test_empty_activity_ids_raises(self):
         """Empty activity_ids list is a caller bug → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_move_activities_change([], "20")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_move_activities_change([], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("move_activities_to_wbs", err)
 
     # ---- Test 5: one activity missing → ValidationFailure --------------------
@@ -4366,14 +4428,15 @@ class TestMoveActivitiesToWbs(unittest.TestCase):
     def test_one_activity_missing_raises(self):
         """One activity_id not found in TASK → ValidationFailure naming it."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_move_activities_change(["T101", "ZZZZ"], "20")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T101", "ZZZZ"], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("ZZZZ", err)
 
     # ---- Test 6: multiple activities missing → ValidationFailure listing all -
@@ -4381,14 +4444,15 @@ class TestMoveActivitiesToWbs(unittest.TestCase):
     def test_multiple_activities_missing_raises(self):
         """Multiple missing activity_ids all listed in ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_move_activities_change(["AAAA", "BBBB"], "20")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["AAAA", "BBBB"], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("AAAA", err)
         self.assertIn("BBBB", err)
 
@@ -4397,14 +4461,15 @@ class TestMoveActivitiesToWbs(unittest.TestCase):
     def test_new_wbs_id_missing_raises(self):
         """new_wbs_id not in PROJWBS and not in state.new_wbs_ids → ValidationFailure."""
         doc = _make_doc_with_wbs_tree()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_move_activities_change(["T101"], "9999")],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception)
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T101"], "9999")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message
         self.assertIn("9999", err)
 
     # ---- Test 8: new_wbs_id from state.new_wbs_ids → succeeds ---------------
@@ -4453,14 +4518,15 @@ class TestMoveActivitiesToWbs(unittest.TestCase):
             encoding="cp1252",
             sections=[wbs_section],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_move_activities_change(["T101"], "20")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("TASK", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T101"], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("TASK", result.validation_errors[0].message)
 
     # ---- Test 10: no PROJWBS section → ValidationFailure --------------------
 
@@ -4485,14 +4551,15 @@ class TestMoveActivitiesToWbs(unittest.TestCase):
             encoding="cp1252",
             sections=[task_section],
         )
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [_move_activities_change(["T101"], "20")],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("PROJWBS", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [_move_activities_change(["T101"], "20")],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("PROJWBS", result.validation_errors[0].message)
 
     # ---- Test 11: feedback shape ---------------------------------------------
 
@@ -4673,18 +4740,19 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         with the actual count of suggestions mentioned."""
         doc = _make_cpm_doc()
         anchor_slip = {"task_id": "3", "slip_days": 5}
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": anchor_slip,
-                  "suggestion_index": 99}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("99", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": anchor_slip,
+              "suggestion_index": 99}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("99", result.validation_errors[0].message)
         # The message should mention the actual count available
-        self.assertIn("suggestion", str(ctx.exception).lower())
+        self.assertIn("suggestion", result.validation_errors[0].message.lower())
 
     # ---- Test 3: empty suggestion list -----------------------------------
 
@@ -4698,16 +4766,17 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         # this fixture both tasks ARE critical. To force an empty list we
         # point at task_id='1' (A1000), which has no predecessors.
         anchor_slip = {"task_id": "1", "slip_days": 5}
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": anchor_slip,
-                  "suggestion_index": 0}],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception).lower()
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": anchor_slip,
+              "suggestion_index": 0}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message.lower()
         self.assertIn("no absorption suggestion", err)
 
     # ---- Test 4: anchor_slip missing task_id -----------------------------
@@ -4715,48 +4784,51 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
     def test_anchor_slip_missing_task_id(self):
         """anchor_slip without 'task_id' raises ValidationFailure."""
         doc = _make_cpm_doc()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"slip_days": 5},
-                  "suggestion_index": 0}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("task_id", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"slip_days": 5},
+              "suggestion_index": 0}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("task_id", result.validation_errors[0].message)
 
     # ---- Test 5: anchor_slip missing slip_days ---------------------------
 
     def test_anchor_slip_missing_slip_days(self):
         """anchor_slip without 'slip_days' raises ValidationFailure."""
         doc = _make_cpm_doc()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"task_id": "3"},
-                  "suggestion_index": 0}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("slip_days", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "3"},
+              "suggestion_index": 0}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("slip_days", result.validation_errors[0].message)
 
     # ---- Test 6: negative suggestion_index -------------------------------
 
     def test_negative_suggestion_index(self):
         """Negative suggestion_index raises ValidationFailure."""
         doc = _make_cpm_doc()
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"task_id": "3", "slip_days": 5},
-                  "suggestion_index": -1}],
-                strict=False,
-                dry_run=False,
-            )
-        self.assertIn("-1", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "3", "slip_days": 5},
+              "suggestion_index": -1}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("-1", result.validation_errors[0].message)
 
     # ---- Test 7: unknown suggestion kind ---------------------------------
     # Cannot be triggered by the current cpm_engine (only 'duration_cut' is
@@ -4854,16 +4926,17 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         )
 
         # A1000 is 1d, max_cut=1 → new_duration=0 → ValidationFailure
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"task_id": "2", "slip_days": 1},
-                  "suggestion_index": 0}],
-                strict=False,
-                dry_run=False,
-            )
-        err = str(ctx.exception).lower()
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "2", "slip_days": 1},
+              "suggestion_index": 0}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        err = result.validation_errors[0].message.lower()
         self.assertIn("duration", err)
 
     # ---- Test 9: missing required sections --------------------------------
@@ -4878,15 +4951,16 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         )
         doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
                      sections=[proj_section])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"task_id": "1", "slip_days": 5},
-                  "suggestion_index": 0}],
-                strict=False, dry_run=False,
-            )
-        self.assertIn("TASK", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "1", "slip_days": 5},
+              "suggestion_index": 0}],
+            strict=False, dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("TASK", result.validation_errors[0].message)
 
     def test_missing_taskpred_section_raises(self):
         """Missing TASKPRED section → ValidationFailure."""
@@ -4899,15 +4973,16 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         )
         doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
                      sections=[task_section])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"task_id": "1", "slip_days": 5},
-                  "suggestion_index": 0}],
-                strict=False, dry_run=False,
-            )
-        self.assertIn("TASKPRED", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "1", "slip_days": 5},
+              "suggestion_index": 0}],
+            strict=False, dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("TASKPRED", result.validation_errors[0].message)
 
     def test_missing_calendar_section_raises(self):
         """Missing CALENDAR section → ValidationFailure."""
@@ -4926,15 +5001,16 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         )
         doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
                      sections=[task_section, pred_section])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"task_id": "1", "slip_days": 5},
-                  "suggestion_index": 0}],
-                strict=False, dry_run=False,
-            )
-        self.assertIn("CALENDAR", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "1", "slip_days": 5},
+              "suggestion_index": 0}],
+            strict=False, dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("CALENDAR", result.validation_errors[0].message)
 
     def test_missing_project_section_raises(self):
         """Missing PROJECT section → ValidationFailure."""
@@ -4959,15 +5035,16 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         )
         doc = XerDoc(header_line="ERMHDR\t...", encoding="cp1252",
                      sections=[task_section, pred_section, cal_section])
-        with self.assertRaises(ValidationFailure) as ctx:
-            apply_changes(
-                doc,
-                [{"type": "apply_anchor_absorption",
-                  "anchor_slip": {"task_id": "1", "slip_days": 5},
-                  "suggestion_index": 0}],
-                strict=False, dry_run=False,
-            )
-        self.assertIn("PROJECT", str(ctx.exception))
+        result = apply_changes(
+            doc,
+            [{"type": "apply_anchor_absorption",
+              "anchor_slip": {"task_id": "1", "slip_days": 5},
+              "suggestion_index": 0}],
+            strict=False, dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertIn("PROJECT", result.validation_errors[0].message)
 
     # ---- Test 10: feedback shape ------------------------------------------
 
@@ -5001,3 +5078,478 @@ class TestApplyAnchorAbsorption(unittest.TestCase):
         self.assertIsNone(fb["activity_end_after"])
         self.assertIsNone(fb["milestone_impact_days"])
         self.assertIsNone(fb["now_on_critical_path"])
+
+
+# ---------------------------------------------------------------------------
+# D16: Pass 2 reference resolution + Pass 3 graph checks
+# ---------------------------------------------------------------------------
+
+def _make_d16_doc(extra_task_rows=None, extra_taskpred_rows=None):
+    """Build a valid two-activity XerDoc suitable for D16 orchestrator tests.
+
+    Contains TASK, TASKPRED, PROJWBS, and CALENDAR sections with proper
+    status_code values so xer_validate Pass 3 does not fire spurious errors
+    on the pre-existing rows.
+
+    Extra task_rows (dicts) and extra taskpred_rows (dicts) can be appended
+    to extend the base fixture.
+    """
+    from xer_io import XerDoc, XerSection
+
+    base_task_rows = [
+        {
+            "task_id": "101", "proj_id": "1", "wbs_id": "1000", "clndr_id": "100",
+            "task_code": "A1010", "task_name": "Activity A",
+            "task_type": "TT_Task", "duration_type": "DT_FixedDUR2",
+            "status_code": "TK_NotStart", "complete_pct_type": "CP_Drtn",
+            "phys_complete_pct": "0",
+            "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40",
+        },
+        {
+            "task_id": "102", "proj_id": "1", "wbs_id": "1000", "clndr_id": "100",
+            "task_code": "A1020", "task_name": "Activity B",
+            "task_type": "TT_Task", "duration_type": "DT_FixedDUR2",
+            "status_code": "TK_NotStart", "complete_pct_type": "CP_Drtn",
+            "phys_complete_pct": "0",
+            "target_drtn_hr_cnt": "40", "remain_drtn_hr_cnt": "40",
+        },
+    ]
+    if extra_task_rows:
+        base_task_rows.extend(extra_task_rows)
+
+    base_taskpred_rows = [
+        {
+            "task_pred_id": "1", "task_id": "102", "pred_task_id": "101",
+            "proj_id": "1", "pred_proj_id": "1",
+            "pred_type": "PR_FS", "lag_hr_cnt": "0",
+            "comments": "", "float_path": "", "aref": "", "arls": "",
+        },
+    ]
+    if extra_taskpred_rows:
+        base_taskpred_rows.extend(extra_taskpred_rows)
+
+    task_field_order = [
+        "task_id", "proj_id", "wbs_id", "clndr_id",
+        "task_code", "task_name", "task_type", "duration_type",
+        "status_code", "complete_pct_type", "phys_complete_pct",
+        "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+    ]
+    taskpred_field_order = [
+        "task_pred_id", "task_id", "pred_task_id",
+        "proj_id", "pred_proj_id", "pred_type", "lag_hr_cnt",
+        "comments", "float_path", "aref", "arls",
+    ]
+    wbs_field_order = ["wbs_id", "proj_id", "wbs_name"]
+    cal_field_order = ["clndr_id", "clndr_name"]
+
+    task_section = XerSection(
+        name="TASK",
+        field_order=task_field_order,
+        rows=base_task_rows,
+        raw_lines=["%R\t" + "\t".join(r.get(f, "") for f in task_field_order) for r in base_task_rows],
+        e_line=None,
+    )
+    taskpred_section = XerSection(
+        name="TASKPRED",
+        field_order=taskpred_field_order,
+        rows=base_taskpred_rows,
+        raw_lines=["%R\t" + "\t".join(r.get(f, "") for f in taskpred_field_order) for r in base_taskpred_rows],
+        e_line=None,
+    )
+    wbs_rows = [{"wbs_id": "1000", "proj_id": "1", "wbs_name": "Root"}]
+    wbs_section = XerSection(
+        name="PROJWBS",
+        field_order=wbs_field_order,
+        rows=wbs_rows,
+        raw_lines=["%R\t" + "\t".join(r.get(f, "") for f in wbs_field_order) for r in wbs_rows],
+        e_line=None,
+    )
+    cal_rows = [{"clndr_id": "100", "clndr_name": "Standard"}]
+    cal_section = XerSection(
+        name="CALENDAR",
+        field_order=cal_field_order,
+        rows=cal_rows,
+        raw_lines=["%R\t" + "\t".join(r.get(f, "") for f in cal_field_order) for r in cal_rows],
+        e_line=None,
+    )
+
+    return XerDoc(
+        header_line="ERMHDR\t...",
+        encoding="cp1252",
+        sections=[task_section, taskpred_section, wbs_section, cal_section],
+    )
+
+
+class TestD16Pass2Pass3(unittest.TestCase):
+    """D16: Pass 2 order-aware reference resolution and Pass 3 graph checks."""
+
+    # ---- (a) Order-aware reference resolution --------------------------------
+
+    def test_add_activity_then_add_logic_forward_ref(self):
+        """[add_activity X, add_logic A1020->X] succeeds via state.new_activity_id_map.
+
+        add_logic references X which was added by the preceding add_activity
+        in the same call.  Without state.new_activity_id_map propagation in
+        _handle_add_logic, this would raise 'not found in TASK section'.
+        """
+        doc = _make_d16_doc()
+        # The base doc has A1010 -> A1020 connected.
+        # We add a new activity X and wire A1020 -> X.
+        changes = [
+            {
+                "type": "add_activity",
+                "spec": {
+                    "code": "X1000",
+                    "name": "New Activity X",
+                    "duration_days": 3,
+                    "calendar_id": "100",
+                    "wbs_id": "1000",
+                    "activity_type": "TT_Task",
+                },
+            },
+            {
+                "type": "add_logic",
+                "predecessor_id": "A1020",
+                "successor_id": "X1000",
+                "relationship": "FS",
+                "lag_days": 0,
+            },
+        ]
+        result = apply_changes(doc, changes, strict=False, dry_run=False)
+        self.assertEqual(result.changes_applied, 2)
+        self.assertIsNotNone(result.doc)
+        self.assertEqual(result.validation_errors, [])
+
+        task_section = result.doc.section("TASK")
+        codes = {r["task_code"] for r in task_section.rows}
+        self.assertIn("X1000", codes)
+
+        tp = result.doc.section("TASKPRED")
+        # Original A1010->A1020 edge + new A1020->X1000 edge = 2 rows
+        self.assertEqual(len(tp.rows), 2)
+        new_edge = tp.rows[1]
+        # X1000 was added with task_id = "103" (max(101,102)+1)
+        self.assertEqual(new_edge["pred_task_id"], "102")  # A1020
+        self.assertEqual(new_edge["task_id"], "103")        # X1000
+
+    # ---- (b) Orphan rule via strict=True -------------------------------------
+
+    def test_add_activity_no_logic_strict_true_blocks(self):
+        """[add_activity X] with no logic, strict=True blocks via ORPHAN_ACTIVITY warning.
+
+        xer_validate reports ORPHAN_ACTIVITY as a warning.  With strict=True,
+        warnings are promoted to errors and block the apply.
+        """
+        doc = _make_d16_doc()
+        changes = [
+            {
+                "type": "add_activity",
+                "spec": {
+                    "code": "X1000",
+                    "name": "Orphaned Activity",
+                    "duration_days": 3,
+                    "calendar_id": "100",
+                    "wbs_id": "1000",
+                    "activity_type": "TT_Task",
+                },
+            },
+        ]
+        result = apply_changes(doc, changes, strict=True, dry_run=False)
+        self.assertIsNone(result.doc)
+        codes = [e.code for e in result.validation_errors]
+        self.assertIn("ORPHAN_ACTIVITY", codes)
+
+    def test_add_activity_no_logic_strict_false_passes_with_warning(self):
+        """[add_activity X] with no logic, strict=False — apply succeeds with warning."""
+        doc = _make_d16_doc()
+        changes = [
+            {
+                "type": "add_activity",
+                "spec": {
+                    "code": "X1000",
+                    "name": "Orphaned Activity",
+                    "duration_days": 3,
+                    "calendar_id": "100",
+                    "wbs_id": "1000",
+                    "activity_type": "TT_Task",
+                },
+            },
+        ]
+        result = apply_changes(doc, changes, strict=False, dry_run=False)
+        # Orphan is a warning; strict=False lets it through
+        self.assertIsNotNone(result.doc)
+        self.assertEqual(result.validation_errors, [])
+        warn_codes = [w.code for w in result.validation_warnings]
+        self.assertIn("ORPHAN_ACTIVITY", warn_codes)
+
+    # ---- (c) Cycle check via Pass 3 ------------------------------------------
+
+    def test_add_logic_creating_cycle_blocked_by_pass3(self):
+        """[add_logic A1020->A1010] creates cycle A1010->A1020->A1010.
+
+        Pass 3 detects CIRCULAR_LOGIC (error severity) and blocks the apply.
+        """
+        doc = _make_d16_doc()
+        # The base doc has A1010 -> A1020 (FS).
+        # Adding A1020 -> A1010 creates a cycle.
+        changes = [
+            {
+                "type": "add_logic",
+                "predecessor_id": "A1020",
+                "successor_id": "A1010",
+                "relationship": "FS",
+                "lag_days": 0,
+            },
+        ]
+        result = apply_changes(doc, changes, strict=False, dry_run=False)
+        self.assertIsNone(result.doc)
+        codes = [e.code for e in result.validation_errors]
+        self.assertIn("CIRCULAR_LOGIC", codes)
+
+    # ---- (d) dry_run path ----------------------------------------------------
+
+    def test_dry_run_success_returns_mutated_doc(self):
+        """dry_run=True on a valid change returns the mutated doc for inspection."""
+        doc = _make_d16_doc()
+        changes = [
+            {
+                "type": "set_duration",
+                "activity_id": "A1010",
+                "new_duration_days": 10,
+            }
+        ]
+        result = apply_changes(doc, changes, strict=False, dry_run=True)
+        # dry_run with no errors still returns the mutated copy
+        self.assertIsNotNone(result.doc)
+        self.assertEqual(result.changes_applied, 1)
+        task_row = next(
+            r for r in result.doc.section("TASK").rows
+            if r["task_code"] == "A1010"
+        )
+        self.assertEqual(task_row["target_drtn_hr_cnt"], "80")  # 10d * 8h
+
+    def test_dry_run_error_returns_none_doc(self):
+        """dry_run=True on an invalid change returns doc=None."""
+        doc = _make_d16_doc()
+        # Cycle: doc already has A1010->A1020, adding reverse creates cycle
+        changes = [
+            {
+                "type": "add_logic",
+                "predecessor_id": "A1020",
+                "successor_id": "A1010",
+                "relationship": "FS",
+                "lag_days": 0,
+            },
+        ]
+        result = apply_changes(doc, changes, strict=False, dry_run=True)
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+
+    # ---- (e) Original doc is unmodified even on success (deep-copy semantics) -
+
+    def test_original_doc_unmodified_on_success(self):
+        """result.doc is a deep copy; the original doc passed in is never mutated."""
+        doc = _make_d16_doc()
+        original_duration = doc.section("TASK").rows[0]["target_drtn_hr_cnt"]
+
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1010", "new_duration_days": 20}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNotNone(result.doc)
+        # result.doc reflects the change
+        mutated_row = next(
+            r for r in result.doc.section("TASK").rows if r["task_code"] == "A1010"
+        )
+        self.assertEqual(mutated_row["target_drtn_hr_cnt"], "160")  # 20d * 8h
+        # original doc is unchanged
+        orig_row = doc.section("TASK").rows[0]
+        self.assertEqual(orig_row["target_drtn_hr_cnt"], original_duration)
+
+    def test_original_doc_unmodified_on_error(self):
+        """On Pass 2 error, original doc is still unmodified."""
+        doc = _make_d16_doc()
+        task_count_before = len(doc.section("TASK").rows)
+
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "NOTHERE", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertEqual(len(doc.section("TASK").rows), task_count_before)
+
+    # ---- (f) Warning-only with strict=False succeeds -------------------------
+
+    def test_warning_only_strict_false_succeeds(self):
+        """ORPHAN_ACTIVITY warning with strict=False: result.doc set, no validation_errors."""
+        doc = _make_d16_doc()
+        result = apply_changes(
+            doc,
+            [
+                {
+                    "type": "add_activity",
+                    "spec": {
+                        "code": "Z9999",
+                        "name": "Isolated",
+                        "duration_days": 1,
+                        "calendar_id": "100",
+                        "wbs_id": "1000",
+                        "activity_type": "TT_Task",
+                    },
+                }
+            ],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNotNone(result.doc)
+        self.assertEqual(result.validation_errors, [])
+        warn_codes = [w.code for w in result.validation_warnings]
+        self.assertIn("ORPHAN_ACTIVITY", warn_codes)
+
+    # ---- (g) Warning-only with strict=True blocks ----------------------------
+
+    def test_warning_only_strict_true_blocks(self):
+        """ORPHAN_ACTIVITY warning with strict=True: result.doc is None."""
+        doc = _make_d16_doc()
+        result = apply_changes(
+            doc,
+            [
+                {
+                    "type": "add_activity",
+                    "spec": {
+                        "code": "Z9999",
+                        "name": "Isolated",
+                        "duration_days": 1,
+                        "calendar_id": "100",
+                        "wbs_id": "1000",
+                        "activity_type": "TT_Task",
+                    },
+                }
+            ],
+            strict=True,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        codes = [e.code for e in result.validation_errors]
+        self.assertIn("ORPHAN_ACTIVITY", codes)
+
+    # ---- (h) Multi-change call succeeds end-to-end ---------------------------
+
+    def test_multi_change_call_succeeds(self):
+        """Two changes in one call both applied; post-state is consistent."""
+        doc = _make_d16_doc()
+        changes = [
+            {
+                "type": "set_duration",
+                "activity_id": "A1010",
+                "new_duration_days": 7,
+            },
+            {
+                "type": "set_duration",
+                "activity_id": "A1020",
+                "new_duration_days": 3,
+            },
+        ]
+        result = apply_changes(doc, changes, strict=False, dry_run=False)
+        self.assertEqual(result.changes_applied, 2)
+        self.assertIsNotNone(result.doc)
+        task = result.doc.section("TASK")
+        a1010 = next(r for r in task.rows if r["task_code"] == "A1010")
+        a1020 = next(r for r in task.rows if r["task_code"] == "A1020")
+        self.assertEqual(a1010["target_drtn_hr_cnt"], "56")   # 7d * 8
+        self.assertEqual(a1020["target_drtn_hr_cnt"], "24")   # 3d * 8
+
+    # ---- (i) Pass 1 still raises on unknown type (not caught by Pass 2) ------
+
+    def test_pass1_unknown_type_still_raises(self):
+        """Unknown change type still raises ValidationFailure directly."""
+        doc = _make_d16_doc()
+        with self.assertRaises(ValidationFailure):
+            apply_changes(doc, [{"type": "no_such_type"}], strict=False, dry_run=False)
+
+    # ---- (k) result.doc is different object than original doc ----------------
+
+    def test_result_doc_is_different_object(self):
+        """On success, result.doc is not the same Python object as the input doc."""
+        doc = _make_d16_doc()
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1010", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNotNone(result.doc)
+        self.assertIsNot(result.doc, doc)
+
+    # ---- (l) result.doc is None on error; error has correct change_index -----
+
+    def test_result_doc_is_none_on_pass2_error(self):
+        """Pass 2 handler error → result.doc is None, validation_errors has change_index=0."""
+        doc = _make_d16_doc()
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "NO_SUCH", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        self.assertTrue(result.validation_errors)
+        self.assertEqual(result.validation_errors[0].code, "HANDLER_ERROR")
+        self.assertEqual(result.validation_errors[0].change_index, 0)
+
+    def test_result_doc_is_none_on_pass3_error(self):
+        """Pass 3 error (cycle) → result.doc is None, change_index is None."""
+        doc = _make_d16_doc()
+        result = apply_changes(
+            doc,
+            [{"type": "add_logic", "predecessor_id": "A1020", "successor_id": "A1010",
+              "relationship": "FS", "lag_days": 0}],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertIsNone(result.doc)
+        codes = [e.code for e in result.validation_errors]
+        self.assertIn("CIRCULAR_LOGIC", codes)
+        # Pass 3 errors have change_index=None
+        circular_error = next(e for e in result.validation_errors if e.code == "CIRCULAR_LOGIC")
+        self.assertIsNone(circular_error.change_index)
+
+    # ---- Extra: add_logic forward ref also works for predecessor -------------
+
+    def test_add_activity_add_logic_predecessor_forward_ref(self):
+        """[add_activity X, add_logic X->A1010] — X used as predecessor via state."""
+        doc = _make_d16_doc()
+        changes = [
+            {
+                "type": "add_activity",
+                "spec": {
+                    "code": "X0001",
+                    "name": "New Start Activity",
+                    "duration_days": 2,
+                    "calendar_id": "100",
+                    "wbs_id": "1000",
+                    "activity_type": "TT_Task",
+                },
+            },
+            {
+                "type": "add_logic",
+                "predecessor_id": "X0001",
+                "successor_id": "A1010",
+                "relationship": "FS",
+                "lag_days": 0,
+            },
+        ]
+        result = apply_changes(doc, changes, strict=False, dry_run=False)
+        self.assertEqual(result.changes_applied, 2)
+        self.assertIsNotNone(result.doc)
+        tp = result.doc.section("TASKPRED")
+        # Should have original A1010->A1020 + new X0001->A1010 = 2 rows
+        self.assertEqual(len(tp.rows), 2)
+        new_edge = next(
+            r for r in tp.rows if r["task_id"] == "101"  # A1010 as successor
+        )
+        self.assertIsNotNone(new_edge)
