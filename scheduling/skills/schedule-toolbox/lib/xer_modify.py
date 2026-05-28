@@ -673,7 +673,8 @@ def _handle_dissolve_activity(doc, change: dict, state: ChangeState) -> dict:
       (pred, succ, rel) triple in TASKPRED, raise ValidationFailure (strict, mirrors
       add_logic behaviour — caller should use remove_logic + add_logic if different
       behaviour is needed).
-    - Fanout warning: if N*M > 20, feedback['fanout_warning'] = True; no error raised.
+    - Fanout warning: if more than 20 new edges land (after self-loop pruning),
+      feedback['fanout_warning'] = True; no error raised.
 
     Returns a feedback dict with keys:
         removed_task_id, removed_edges_count, new_edges_count,
@@ -737,16 +738,17 @@ def _handle_dissolve_activity(doc, change: dict, state: ChangeState) -> dict:
         # We include all current TASKPRED rows; after removal the D-edges will be
         # gone, but the remaining edges are what we must avoid duplicating against.
         # Exclude D's own edges from the dup-check set since they will be removed.
+        # pred_edges/succ_edges are populated only inside the `taskpred is not None`
+        # block above, so reaching here guarantees taskpred exists.
         d_edge_ids = {r["task_pred_id"] for r in pred_edges + succ_edges}
         existing_triples: set[tuple[str, str, str]] = set()
-        if taskpred is not None:
-            for row in taskpred.rows:
-                if row["task_pred_id"] not in d_edge_ids:
-                    existing_triples.add((
-                        row["pred_task_id"],
-                        row["task_id"],
-                        row["pred_type"],
-                    ))
+        for row in taskpred.rows:
+            if row["task_pred_id"] not in d_edge_ids:
+                existing_triples.add((
+                    row["pred_task_id"],
+                    row["task_id"],
+                    row["pred_type"],
+                ))
 
         for pred_edge in pred_edges:
             for succ_edge in succ_edges:
