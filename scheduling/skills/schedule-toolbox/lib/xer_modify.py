@@ -163,6 +163,100 @@ def _handle_set_duration(doc, change: dict, state: ChangeState) -> dict:
     }
 
 
+_PRED_TYPE_MAP = {
+    "FS": "PR_FS",
+    "SS": "PR_SS",
+    "FF": "PR_FF",
+    "SF": "PR_SF",
+}
+
+
+@_register_handler("add_logic")
+def _handle_add_logic(doc, change: dict, state: ChangeState) -> dict:
+    predecessor_id = change["predecessor_id"]
+    successor_id = change["successor_id"]
+    relationship = change["relationship"]
+    lag_days = change["lag_days"]
+
+    # Validate the TASKPRED section exists
+    taskpred = doc.section("TASKPRED")
+    if taskpred is None:
+        raise ValidationFailure(
+            "add_logic: TASKPRED section not found in XER document"
+        )
+
+    # Resolve predecessor and successor task_codes to numeric task_ids.
+    # Forward-reference resolution (state.new_activity_ids) is D16's job.
+    task_section = doc.section("TASK")
+
+    pred_task_id = None
+    succ_task_id = None
+    pred_proj_id = ""
+    succ_proj_id = ""
+
+    if task_section is not None:
+        for row in task_section.rows:
+            if row.get("task_code") == predecessor_id:
+                pred_task_id = row["task_id"]
+                pred_proj_id = row.get("proj_id", "")
+            if row.get("task_code") == successor_id:
+                succ_task_id = row["task_id"]
+                succ_proj_id = row.get("proj_id", "")
+
+    if pred_task_id is None:
+        raise ValidationFailure(
+            f"add_logic: predecessor_id {predecessor_id!r} not found in TASK section"
+        )
+    if succ_task_id is None:
+        raise ValidationFailure(
+            f"add_logic: successor_id {successor_id!r} not found in TASK section"
+        )
+
+    # Map the relationship string to P6 pred_type
+    p6_pred_type = _PRED_TYPE_MAP[relationship]
+
+    # Duplicate edge check: (pred_task_id, task_id, pred_type) triple must be unique
+    for row in taskpred.rows:
+        if (
+            row.get("pred_task_id") == pred_task_id
+            and row.get("task_id") == succ_task_id
+            and row.get("pred_type") == p6_pred_type
+        ):
+            raise ValidationFailure(
+                f"add_logic: relationship ({predecessor_id!r} → {successor_id!r}, "
+                f"{relationship!r}) already exists in TASKPRED"
+            )
+
+    # Generate the next task_pred_id
+    if taskpred.rows:
+        next_id = str(max(int(row["task_pred_id"]) for row in taskpred.rows) + 1)
+    else:
+        next_id = "1"
+
+    # P6 stores lag as whole-hour integer strings
+    lag_hr_cnt = str(int(lag_days * 8))
+
+    # Build the new row, filling all fields in the section's field_order.
+    # Fields not provided by this handler default to "".
+    new_row = {f: "" for f in taskpred.field_order}
+    new_row["task_pred_id"] = next_id
+    new_row["task_id"] = succ_task_id
+    new_row["pred_task_id"] = pred_task_id
+    new_row["proj_id"] = succ_proj_id
+    new_row["pred_proj_id"] = pred_proj_id
+    new_row["pred_type"] = p6_pred_type
+    new_row["lag_hr_cnt"] = lag_hr_cnt
+
+    taskpred.append_row(new_row)
+
+    return {
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
+
+
 @_register_handler("set_calendar")
 def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
     activity_id = change["activity_id"]
