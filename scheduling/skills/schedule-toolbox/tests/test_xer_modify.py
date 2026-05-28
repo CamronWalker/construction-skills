@@ -2686,6 +2686,18 @@ class TestPopActivity(unittest.TestCase):
         self.assertEqual(xb_row["pred_type"], "PR_FS")
         self.assertEqual(xb_row["lag_hr_cnt"], "16")
 
+        # Feedback shape: 5 business values + 4 CPM stubs
+        fb = result.per_change_feedback[0].feedback
+        self.assertEqual(fb["new_x_task_id"], x_task_id)
+        self.assertEqual(fb["new_x_task_code"], "X")
+        self.assertEqual(fb["removed_edge_relationship"], "FS")
+        self.assertEqual(fb["removed_edge_lag_days"], 2)
+        self.assertEqual(fb["split_policy_applied"], "preserve_total")
+        self.assertIsNone(fb["activity_end_before"])
+        self.assertIsNone(fb["activity_end_after"])
+        self.assertIsNone(fb["milestone_impact_days"])
+        self.assertIsNone(fb["now_on_critical_path"])
+
     # ---- Test 2: happy path drop -----------------------------------------------
 
     def test_happy_path_drop(self):
