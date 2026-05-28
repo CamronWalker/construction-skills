@@ -5553,3 +5553,550 @@ class TestD16Pass2Pass3(unittest.TestCase):
             r for r in tp.rows if r["task_id"] == "101"  # A1010 as successor
         )
         self.assertIsNotNone(new_edge)
+
+
+# ---------------------------------------------------------------------------
+# D17: Post-CPM feedback wiring
+# ---------------------------------------------------------------------------
+
+def _make_pre_state_cpm(doc):
+    """Run CPM on doc and return the results list (pre-state baseline).
+
+    Mirrors what the MCP layer does before calling apply_changes with
+    pre_state_cpm=results.
+    """
+    import importlib.util, os
+    lib_dir = str(Path(__file__).parent.parent / "lib")
+    spec = importlib.util.spec_from_file_location(
+        "cpm_engine", os.path.join(lib_dir, "cpm_engine.py")
+    )
+    cpm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cpm)
+
+    task_rows = doc.section("TASK").rows
+    pred_rows = doc.section("TASKPRED").rows
+    cal_rows = doc.section("CALENDAR").rows
+    project_section = doc.section("PROJECT")
+    data_date = ""
+    if project_section and project_section.rows:
+        r = project_section.rows[0]
+        data_date = r.get("last_recalc_date") or r.get("plan_start_date") or ""
+
+    results, _ = cpm.schedule_forward_backward(task_rows, pred_rows, cal_rows, data_date)
+    return results
+
+
+class TestD17PostCpmFeedback(unittest.TestCase):
+    """D17: post-CPM diff wiring in apply_changes."""
+
+    # ---- Test 1: per-change feedback populated when pre_state_cpm provided ----
+
+    def test_per_change_feedback_populated_with_pre_state_cpm(self):
+        """set_duration: activity_end_before/after differ; milestone_impact_days set."""
+        import copy
+        doc = _make_cpm_doc()
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",  # M3000
+        )
+        self.assertEqual(result.changes_applied, 1)
+        fb = result.per_change_feedback[0].feedback
+        # Both dates should be populated
+        self.assertIsNotNone(fb["activity_end_before"])
+        self.assertIsNotNone(fb["activity_end_after"])
+        # Before and after differ (A1000 was shortened)
+        self.assertNotEqual(fb["activity_end_before"], fb["activity_end_after"])
+        # milestone_impact_days is set (non-None)
+        self.assertIsNotNone(fb["milestone_impact_days"])
+
+    # ---- Test 2: per-change feedback stays None when pre_state_cpm is None ---
+
+    def test_per_change_feedback_none_without_pre_state_cpm(self):
+        """set_duration: CPM feedback keys remain None when pre_state_cpm not provided."""
+        doc = _make_cpm_doc()
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=None,
+        )
+        self.assertEqual(result.changes_applied, 1)
+        fb = result.per_change_feedback[0].feedback
+        self.assertIsNone(fb["activity_end_before"])
+        self.assertIsNone(fb["activity_end_after"])
+        self.assertIsNone(fb["milestone_impact_days"])
+        self.assertIsNone(fb["now_on_critical_path"])
+
+    # ---- Test 3: post_cpm_summary populated when pre_state_cpm provided ------
+
+    def test_post_cpm_summary_populated_with_pre_state_cpm(self):
+        """All five post_cpm_summary keys are populated when pre_state_cpm provided."""
+        import copy
+        doc = _make_cpm_doc()
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",
+        )
+        s = result.post_cpm_summary
+        self.assertIsNotNone(s)
+        self.assertIn("target_milestone_id", s)
+        self.assertIn("completion_before", s)
+        self.assertIn("completion_after", s)
+        self.assertIn("net_days_change", s)
+        self.assertIn("critical_path_changed", s)
+        self.assertIn("substantial_cp_change", s)
+        # All values should be set (not all None)
+        self.assertIsNotNone(s["completion_before"])
+        self.assertIsNotNone(s["completion_after"])
+        self.assertIsNotNone(s["net_days_change"])
+        self.assertIsInstance(s["critical_path_changed"], bool)
+        self.assertIsInstance(s["substantial_cp_change"], bool)
+
+    # ---- Test 4: post_cpm_summary remains None when pre_state_cpm is None ----
+
+    def test_post_cpm_summary_none_without_pre_state_cpm(self):
+        """post_cpm_summary stays None when pre_state_cpm is not provided."""
+        doc = _make_cpm_doc()
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=None,
+        )
+        self.assertIsNone(result.post_cpm_summary)
+
+    # ---- Test 5: target_milestone_id auto-detection -------------------------
+
+    def test_target_milestone_auto_detected(self):
+        """When target_milestone_id is not provided, the TT_FinMile is auto-selected."""
+        import copy
+        doc = _make_cpm_doc()
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            # target_milestone_id omitted — auto-detect
+        )
+        s = result.post_cpm_summary
+        self.assertIsNotNone(s)
+        # Auto-detected milestone should be M3000 (task_id="3")
+        self.assertEqual(s["target_milestone_id"], "3")
+        self.assertIsNotNone(s["completion_before"])
+
+    # ---- Test 6: target_milestone_id explicit --------------------------------
+
+    def test_target_milestone_explicit(self):
+        """Explicit target_milestone_id is used for milestone impact calculation."""
+        import copy
+        doc = _make_cpm_doc()
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",
+        )
+        s = result.post_cpm_summary
+        self.assertIsNotNone(s)
+        self.assertEqual(s["target_milestone_id"], "3")
+
+    # ---- Test 7: set_duration impact — net_days_change is negative (pull-in) -
+
+    def test_set_duration_cuts_milestone(self):
+        """Cutting A1000 from 10d to 5d pulls the milestone in; net_days_change < 0."""
+        import copy
+        doc = _make_cpm_doc()
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A1000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",
+        )
+        s = result.post_cpm_summary
+        self.assertIsNotNone(s)
+        # The milestone should be pulled in (negative net_days_change)
+        self.assertLess(s["net_days_change"], 0)
+        # activity_end_after should be earlier than before
+        fb = result.per_change_feedback[0].feedback
+        self.assertLess(fb["activity_end_after"], fb["activity_end_before"])
+
+    # ---- Test 8: add_activity feedback — before is None, after is populated --
+
+    def test_add_activity_before_none_after_populated(self):
+        """add_activity: activity_end_before is None (didn't exist); after keys exist."""
+        import copy
+        from xer_io import XerSection
+
+        # _make_cpm_doc needs a PROJWBS section for add_activity to succeed
+        doc = _make_cpm_doc()
+        projwbs_section = XerSection(
+            name="PROJWBS",
+            field_order=["wbs_id", "proj_id", "wbs_name", "wbs_code",
+                         "wbs_short_name", "parent_wbs_id", "status_code"],
+            rows=[{
+                "wbs_id": "1", "proj_id": "1", "wbs_name": "Root",
+                "wbs_code": "ROOT", "wbs_short_name": "RT",
+                "parent_wbs_id": "", "status_code": "WS_Open",
+            }],
+            raw_lines=[""],
+            e_line=None,
+        )
+        doc.sections.append(projwbs_section)
+
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        result = apply_changes(
+            doc,
+            [{
+                "type": "add_activity",
+                "spec": {
+                    "code": "X9999",
+                    "name": "New Activity",
+                    "duration_days": 3,
+                    "calendar_id": "100",
+                    "wbs_id": "1",
+                    "activity_type": "TT_Task",
+                },
+            }],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",
+        )
+        self.assertIsNotNone(result.doc)
+        fb = result.per_change_feedback[0].feedback
+        # Before must be None (activity didn't exist in pre-state)
+        self.assertIsNone(fb["activity_end_before"])
+        # Keys must exist regardless of after value
+        self.assertIn("activity_end_before", fb)
+        self.assertIn("activity_end_after", fb)
+
+    # ---- Test 9: remove_activity feedback — before populated, after is None --
+
+    def test_remove_activity_before_populated_after_none(self):
+        """remove_activity: before = pre-state EF of removed activity; after = None."""
+        import copy
+        doc = _make_cpm_doc()
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        result = apply_changes(
+            doc,
+            [{"type": "remove_activity", "activity_id": "A1000"}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",
+        )
+        self.assertIsNotNone(result.doc)
+        fb = result.per_change_feedback[0].feedback
+        # Before is populated (A1000 existed and had an EF in the pre-state)
+        self.assertIsNotNone(fb["activity_end_before"])
+        # After is None (activity is gone)
+        self.assertIsNone(fb["activity_end_after"])
+
+    # ---- Test 10: WBS handler feedback unchanged ----------------------------
+
+    def test_wbs_handler_feedback_unchanged(self):
+        """add_wbs feedback dict has its own keys; CPM keys are absent (not patched)."""
+        import copy
+        # Use _make_cpm_doc which has a PROJWBS section (wbs_id="1")
+        doc = _make_cpm_doc()
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        # Need a PROJWBS section in the doc for add_wbs to work
+        from xer_io import XerSection
+        projwbs_section = XerSection(
+            name="PROJWBS",
+            field_order=["wbs_id", "proj_id", "wbs_name", "wbs_code",
+                         "wbs_short_name", "parent_wbs_id", "status_code"],
+            rows=[{
+                "wbs_id": "1", "proj_id": "1", "wbs_name": "Root",
+                "wbs_code": "ROOT", "wbs_short_name": "RT",
+                "parent_wbs_id": "", "status_code": "WS_Open",
+            }],
+            raw_lines=[""],
+            e_line=None,
+        )
+        doc.sections.append(projwbs_section)
+
+        result = apply_changes(
+            doc,
+            [{
+                "type": "add_wbs",
+                "spec": {
+                    "wbs_code": "CHILD",
+                    "wbs_name": "Child Node",
+                    "parent_wbs_id": "1",
+                },
+            }],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",
+        )
+        self.assertIsNotNone(result.doc)
+        fb = result.per_change_feedback[0].feedback
+        # WBS handler feedback has its own keys
+        self.assertIn("new_wbs_id", fb)
+        # CPM keys are NOT present in WBS handler feedback
+        self.assertNotIn("activity_end_before", fb)
+        self.assertNotIn("activity_end_after", fb)
+
+    # ---- Test 11: critical_path_changed fires when TF crosses threshold ------
+
+    def test_critical_path_changed_fires(self):
+        """A task that gains float (and leaves CP) triggers critical_path_changed=True."""
+        import copy
+        # Use a doc where shortening A1000 causes it to still be critical,
+        # but adding float to A2000 would change CP status.
+        # Build a doc where A1000 has parallel non-critical path:
+        #   A1000 (10d) -FS-> M3000
+        #   A1000 (10d) -FS-> A2000 (5d) -FS-> M3000
+        # After shortening A2000, it gains float and leaves CP.
+        from xer_io import XerDoc, XerSection
+
+        task_field_order = [
+            "task_id", "proj_id", "wbs_id", "clndr_id", "phys_complete_pct",
+            "task_type", "duration_type", "status_code", "task_code", "task_name",
+            "total_float_hr_cnt", "free_float_hr_cnt",
+            "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+            "early_start_date", "early_end_date",
+            "late_start_date", "late_end_date",
+            "act_start_date", "act_end_date",
+        ]
+        # A1000 (10d) is longer path; A2000 (10d) is parallel; M3000 is terminal
+        task_rows = [
+            {
+                "task_id": "1", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+                "phys_complete_pct": "0", "task_type": "TT_Task",
+                "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+                "task_code": "A1000", "task_name": "Path A",
+                "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+                "target_drtn_hr_cnt": "80", "remain_drtn_hr_cnt": "80",
+                "early_start_date": "", "early_end_date": "",
+                "late_start_date": "", "late_end_date": "",
+                "act_start_date": "", "act_end_date": "",
+            },
+            {
+                "task_id": "2", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+                "phys_complete_pct": "0", "task_type": "TT_Task",
+                "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+                "task_code": "A2000", "task_name": "Path B (parallel)",
+                "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+                "target_drtn_hr_cnt": "80", "remain_drtn_hr_cnt": "80",
+                "early_start_date": "", "early_end_date": "",
+                "late_start_date": "", "late_end_date": "",
+                "act_start_date": "", "act_end_date": "",
+            },
+            {
+                "task_id": "3", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+                "phys_complete_pct": "0", "task_type": "TT_FinMile",
+                "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+                "task_code": "M3000", "task_name": "Finish",
+                "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+                "target_drtn_hr_cnt": "0", "remain_drtn_hr_cnt": "0",
+                "early_start_date": "", "early_end_date": "",
+                "late_start_date": "", "late_end_date": "",
+                "act_start_date": "", "act_end_date": "",
+            },
+        ]
+        pred_field_order = ["task_pred_id", "task_id", "pred_task_id",
+                            "proj_id", "pred_proj_id", "pred_type", "lag_hr_cnt"]
+        # Both A1000 and A2000 lead to M3000; both start at data_date
+        pred_rows = [
+            {"task_pred_id": "1", "task_id": "3", "pred_task_id": "1",
+             "proj_id": "1", "pred_proj_id": "1", "pred_type": "PR_FS", "lag_hr_cnt": "0"},
+            {"task_pred_id": "2", "task_id": "3", "pred_task_id": "2",
+             "proj_id": "1", "pred_proj_id": "1", "pred_type": "PR_FS", "lag_hr_cnt": "0"},
+        ]
+        cal_field_order = ["clndr_id", "default_flag", "clndr_name", "proj_id",
+                           "base_clndr_id", "last_chng_date", "clndr_type", "day_hr_cnt"]
+        cal_rows = [{
+            "clndr_id": "100", "default_flag": "Y", "clndr_name": "Standard",
+            "proj_id": "1", "base_clndr_id": "", "last_chng_date": "",
+            "clndr_type": "CT_Base", "day_hr_cnt": "8",
+        }]
+        proj_field_order = ["proj_id", "last_recalc_date", "plan_start_date"]
+        proj_rows = [{"proj_id": "1", "last_recalc_date": "2026-01-01 08:00",
+                      "plan_start_date": ""}]
+
+        task_section = XerSection(
+            name="TASK", field_order=task_field_order, rows=task_rows,
+            raw_lines=["\t".join(r[f] for f in task_field_order) for r in task_rows],
+            e_line=None,
+        )
+        pred_section = XerSection(
+            name="TASKPRED", field_order=pred_field_order, rows=pred_rows,
+            raw_lines=["\t".join(r[f] for f in pred_field_order) for r in pred_rows],
+            e_line=None,
+        )
+        cal_section = XerSection(
+            name="CALENDAR", field_order=cal_field_order, rows=cal_rows,
+            raw_lines=["\t".join(r[f] for f in cal_field_order) for r in cal_rows],
+            e_line=None,
+        )
+        proj_section = XerSection(
+            name="PROJECT", field_order=proj_field_order, rows=proj_rows,
+            raw_lines=["\t".join(r[f] for f in proj_field_order) for r in proj_rows],
+            e_line=None,
+        )
+        doc = XerDoc(
+            header_line="ERMHDR\t...", encoding="cp1252",
+            sections=[task_section, pred_section, cal_section, proj_section],
+        )
+
+        # Pre-state: both A1000 and A2000 are critical (parallel same-length)
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+        pre_tfs = {r["task_code"]: float(r.get("total_float_hr_cnt") or "0") for r in pre_cpm}
+        # Both should be at 0 float (parallel equal paths)
+        self.assertLessEqual(pre_tfs.get("A1000", 999), 8)
+        self.assertLessEqual(pre_tfs.get("A2000", 999), 8)
+
+        # Shorten A2000 so it gains float and leaves CP
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "A2000", "new_duration_days": 5}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="3",
+        )
+        self.assertIsNotNone(result.doc)
+        s = result.post_cpm_summary
+        self.assertIsNotNone(s)
+        # A2000 left the critical path → critical_path_changed should be True
+        self.assertTrue(s["critical_path_changed"])
+
+    # ---- Test 12: substantial_cp_change fires when > 5 activities change -----
+
+    def test_substantial_cp_change_fires(self):
+        """Substantial CP change flag fires when > 5 activities move on/off CP."""
+        import copy
+        from xer_io import XerDoc, XerSection
+
+        # Build a schedule with 7 parallel paths to the milestone.
+        # When we shorten one dominant path, the others leave CP.
+        # Initial topology: 7 tasks (T1..T7) all 10d long, all FS to M.
+        # All are critical (parallel equal paths → TF=0).
+        # Shortening T1 to 1d pulls the milestone in by 9 days;
+        # T2..T7 gain 9d of float and leave CP (6 tasks change CP status).
+
+        task_field_order = [
+            "task_id", "proj_id", "wbs_id", "clndr_id", "phys_complete_pct",
+            "task_type", "duration_type", "status_code", "task_code", "task_name",
+            "total_float_hr_cnt", "free_float_hr_cnt",
+            "target_drtn_hr_cnt", "remain_drtn_hr_cnt",
+            "early_start_date", "early_end_date",
+            "late_start_date", "late_end_date",
+            "act_start_date", "act_end_date",
+        ]
+        # T0001 = 10 days (drives the milestone); T0002..T0007 = 8 days
+        # (16h float in pre-state → NOT critical).  After cutting T0001 to 1d,
+        # T0002..T0007 become the driving paths (TF=0, critical) and T0001
+        # gains float (non-critical).  7 activities change CP status (>5).
+        task_rows = []
+        for i in range(1, 8):
+            drtn = "80" if i == 1 else "64"  # T0001=10d, T0002..T0007=8d
+            task_rows.append({
+                "task_id": str(i), "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+                "phys_complete_pct": "0", "task_type": "TT_Task",
+                "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+                "task_code": f"T{i:04d}", "task_name": f"Task {i}",
+                "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+                "target_drtn_hr_cnt": drtn, "remain_drtn_hr_cnt": drtn,
+                "early_start_date": "", "early_end_date": "",
+                "late_start_date": "", "late_end_date": "",
+                "act_start_date": "", "act_end_date": "",
+            })
+        # Milestone
+        task_rows.append({
+            "task_id": "99", "proj_id": "1", "wbs_id": "1", "clndr_id": "100",
+            "phys_complete_pct": "0", "task_type": "TT_FinMile",
+            "duration_type": "DT_FixedDUR2", "status_code": "TK_NotStart",
+            "task_code": "M9999", "task_name": "Finish",
+            "total_float_hr_cnt": "0", "free_float_hr_cnt": "0",
+            "target_drtn_hr_cnt": "0", "remain_drtn_hr_cnt": "0",
+            "early_start_date": "", "early_end_date": "",
+            "late_start_date": "", "late_end_date": "",
+            "act_start_date": "", "act_end_date": "",
+        })
+
+        pred_field_order = ["task_pred_id", "task_id", "pred_task_id",
+                            "proj_id", "pred_proj_id", "pred_type", "lag_hr_cnt"]
+        pred_rows = [
+            {"task_pred_id": str(i), "task_id": "99", "pred_task_id": str(i),
+             "proj_id": "1", "pred_proj_id": "1", "pred_type": "PR_FS", "lag_hr_cnt": "0"}
+            for i in range(1, 8)
+        ]
+        cal_field_order = ["clndr_id", "default_flag", "clndr_name", "proj_id",
+                           "base_clndr_id", "last_chng_date", "clndr_type", "day_hr_cnt"]
+        cal_rows = [{
+            "clndr_id": "100", "default_flag": "Y", "clndr_name": "Standard",
+            "proj_id": "1", "base_clndr_id": "", "last_chng_date": "",
+            "clndr_type": "CT_Base", "day_hr_cnt": "8",
+        }]
+        proj_field_order = ["proj_id", "last_recalc_date", "plan_start_date"]
+        proj_rows = [{"proj_id": "1", "last_recalc_date": "2026-01-01 08:00",
+                      "plan_start_date": ""}]
+
+        def _make_section(name, field_order, rows):
+            return XerSection(
+                name=name, field_order=field_order, rows=rows,
+                raw_lines=["\t".join(r.get(f, "") for f in field_order) for r in rows],
+                e_line=None,
+            )
+
+        doc = XerDoc(
+            header_line="ERMHDR\t...", encoding="cp1252",
+            sections=[
+                _make_section("TASK", task_field_order, task_rows),
+                _make_section("TASKPRED", pred_field_order, pred_rows),
+                _make_section("CALENDAR", cal_field_order, cal_rows),
+                _make_section("PROJECT", proj_field_order, proj_rows),
+            ],
+        )
+
+        pre_cpm = _make_pre_state_cpm(copy.deepcopy(doc))
+
+        # Pre-state: only T0001 is critical (it drives the milestone).
+        # T0002..T0007 have 16h float (not critical).
+        # Shorten T0001 to 1d: T0002..T0007 now drive the milestone (6 gain CP)
+        # and T0001 leaves CP.  Total changes = 7 > 5 → substantial_cp_change.
+        result = apply_changes(
+            doc,
+            [{"type": "set_duration", "activity_id": "T0001", "new_duration_days": 1}],
+            strict=False,
+            dry_run=False,
+            pre_state_cpm=pre_cpm,
+            target_milestone_id="99",
+        )
+        self.assertIsNotNone(result.doc)
+        s = result.post_cpm_summary
+        self.assertIsNotNone(s)
+        # 7 activities changed CP status (T0001 off + T0002..T0007 on) → > 5
+        self.assertTrue(s["substantial_cp_change"])

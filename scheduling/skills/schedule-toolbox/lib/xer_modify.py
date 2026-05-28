@@ -20,7 +20,7 @@ import importlib.util
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 # Load cpm_engine from the same lib directory at import time so the handler
 # can call schedule_forward_backward and suggest_anchor_absorption without
@@ -65,6 +65,7 @@ class ApplyResult:
     validation_errors: list[ValidationIssueLite] = field(default_factory=list)
     validation_warnings: list[ValidationIssueLite] = field(default_factory=list)
     per_change_feedback: list[PerChangeFeedback] = field(default_factory=list)
+    post_cpm_summary: Optional[dict] = None
 
 
 class ValidationFailure(Exception):
@@ -107,23 +108,35 @@ def apply_changes(
     *,
     strict: bool,
     dry_run: bool,
+    pre_state_cpm: Optional[list[dict]] = None,
+    target_milestone_id: Optional[str] = None,
 ) -> ApplyResult:
-    """3-pass atomic application of changes to doc.
+    """4-pass atomic application of changes to doc.
 
     Pass 1: syntactic check (per-record required fields, enum validity).
     Pass 2: order-aware reference resolution (apply changes against an
             in-memory copy; track new IDs).
     Pass 3: post-state graph check via xer_validate — any NEW error-severity
             issue (not present before the mutations) blocks the apply.
+    Pass 4: post-state CPM + diff (only when Pass 3 succeeds and
+            pre_state_cpm is provided).
 
     Atomicity: Pass 2 works on a deep copy of doc.  The original doc is never
     mutated.  On success, result.doc is the mutated copy.  On any error,
     result.doc is None.
 
     strict=True treats post-state warnings as errors (Pass 3).
-    dry_run=True still runs all three passes and returns the mutated copy if
-    everything is clean, but the caller is expected to skip persisting the
-    result; errors still set result.doc=None.
+    dry_run=True still runs all four passes and populates CPM feedback, but
+    the caller is expected to skip persisting the result; errors still set
+    result.doc=None.
+
+    pre_state_cpm: the result list from cpm_engine.schedule_forward_backward
+        on the pre-mutation doc (same shape as returned by that function).
+        If None, per-change CPM feedback fields stay None (no diff possible)
+        and result.post_cpm_summary stays None.
+    target_milestone_id: P6 task_id (numeric string) of the milestone to use
+        for milestone_impact_days.  If None, the latest TT_FinMile by
+        early_finish in the pre-state CPM is selected automatically.
     """
     # Late import avoids an import-time circular dependency.
     from xer_validate import validate as _xer_validate  # noqa: PLC0415
@@ -203,9 +216,292 @@ def apply_changes(
         result.doc = None
         return result
 
+    # Pass 4: post-state CPM + diff (runs even on dry_run; skip only when
+    # pre_state_cpm is None — no diff possible without a baseline).
+    if pre_state_cpm is not None:
+        _run_post_cpm_diff(
+            working_doc,
+            result,
+            changes,
+            pre_state_cpm,
+            target_milestone_id,
+        )
+
     # All passes clean — return the mutated copy.
     result.doc = working_doc
     return result
+
+
+# ---- Pass 4: post-CPM diff --------------------------------------------------
+
+# Critical-path threshold: total float <= 8 working hours (1 day) = critical.
+_CP_THRESHOLD_HOURS = 8.0
+
+
+def _is_critical(task_result: dict) -> bool:
+    """Return True if a CPM result dict represents a critical activity.
+
+    Uses total_float_hr_cnt (string) written by cpm_engine.  Absent or
+    non-numeric values are treated as non-critical.
+    """
+    try:
+        return float(task_result.get("total_float_hr_cnt") or "999") <= _CP_THRESHOLD_HOURS
+    except (ValueError, TypeError):
+        return False
+
+
+def _fmt_date(date_str: str | None) -> str | None:
+    """Trim a CPM date string to YYYY-MM-DD; return None for empty/None."""
+    if not date_str:
+        return None
+    return date_str[:10]
+
+
+def _find_target_milestone(
+    pre_state_cpm: list[dict],
+    target_milestone_id: Optional[str],
+) -> Optional[dict]:
+    """Return the CPM result dict for the target milestone.
+
+    If target_milestone_id is provided, look it up by task_id.
+    Otherwise, find the latest TT_FinMile by early_finish in pre_state_cpm.
+    Returns None if no suitable milestone is found.
+    """
+    if target_milestone_id is not None:
+        for task in pre_state_cpm:
+            if task.get("task_id") == target_milestone_id:
+                return task
+        return None
+
+    # Auto-detect: latest TT_FinMile by early_finish
+    best = None
+    best_ef = None
+    for task in pre_state_cpm:
+        if task.get("task_type") != "TT_FinMile":
+            continue
+        ef_str = task.get("early_end_date") or task.get("early_finish_date") or ""
+        if not ef_str:
+            continue
+        ef = ef_str[:10]
+        if best_ef is None or ef > best_ef:
+            best_ef = ef
+            best = task
+    return best
+
+
+def _days_between_date_strings(before: str | None, after: str | None) -> Optional[int]:
+    """Return integer day difference (after - before); positive = later.
+
+    Parses only the date portion (YYYY-MM-DD).  Returns None if either
+    string is absent or un-parseable.
+    """
+    if not before or not after:
+        return None
+    try:
+        from datetime import date as _date
+        b = _date.fromisoformat(before[:10])
+        a = _date.fromisoformat(after[:10])
+        return (a - b).days
+    except (ValueError, AttributeError):
+        return None
+
+
+def _activity_id_for_change(change: dict) -> Optional[str]:
+    """Return the task_code that a change record primarily affects.
+
+    Returns the task_code (i.e. the P6 task_code field, which is what
+    callers call 'activity_id') for the affected activity, or None for
+    change types where there is no single affected activity (e.g. WBS ops).
+
+    For logic changes (add/remove/modify_logic), the successor is the
+    activity whose dates shift.
+    """
+    ct = change.get("type")
+    if ct in ("set_duration", "set_calendar", "remove_activity", "dissolve_activity"):
+        return change.get("activity_id")
+    if ct in ("add_logic", "remove_logic", "modify_logic"):
+        return change.get("successor_id")
+    if ct == "add_activity":
+        return change.get("spec", {}).get("code")
+    if ct == "pop_activity":
+        # The new X activity is the one whose dates are fresh
+        return change.get("spec", {}).get("code")
+    if ct == "apply_anchor_absorption":
+        # Delegates to set_duration — the lowered task_code is in the feedback
+        # not in the change record.  Return None; outer loop will leave as None.
+        return None
+    # WBS handlers: add_wbs, remove_wbs, modify_wbs, move_activities_to_wbs
+    return None
+
+
+def _run_post_cpm_diff(
+    working_doc,
+    result: "ApplyResult",
+    changes: list[dict],
+    pre_state_cpm: list[dict],
+    target_milestone_id: Optional[str],
+) -> None:
+    """Run CPM on working_doc and diff against pre_state_cpm.
+
+    Populates result.post_cpm_summary and patches CPM fields on each
+    per_change_feedback entry in-place.  All errors are swallowed — if CPM
+    fails, the feedback fields simply remain None.
+    """
+    # Resolve required sections from working_doc
+    task_section = working_doc.section("TASK")
+    pred_section = working_doc.section("TASKPRED")
+    cal_section = working_doc.section("CALENDAR")
+    project_section = working_doc.section("PROJECT")
+
+    if task_section is None or pred_section is None or cal_section is None:
+        return  # Cannot run CPM without these sections
+
+    # Resolve data_date from PROJECT
+    data_date = ""
+    if project_section is not None and project_section.rows:
+        proj_row = project_section.rows[0]
+        data_date = (
+            proj_row.get("last_recalc_date")
+            or proj_row.get("plan_start_date")
+            or ""
+        )
+
+    try:
+        # Run post-state CPM.  schedule_forward_backward mutates the task dicts
+        # in working_doc — that is expected (the mutation note in MEMORY.md
+        # refers to passing the SAME dicts to a second CPM call; here we are
+        # calling CPM once on the working copy).
+        post_cpm_results, _meta = _cpm.schedule_forward_backward(
+            task_section.rows,
+            pred_section.rows,
+            cal_section.rows,
+            data_date,
+        )
+    except Exception:
+        # CPM failure — skip diff silently
+        return
+
+    # Build lookup maps: task_code -> result dict
+    pre_map: dict[str, dict] = {
+        t.get("task_code", ""): t for t in pre_state_cpm if t.get("task_code")
+    }
+    post_map: dict[str, dict] = {
+        t.get("task_code", ""): t for t in post_cpm_results if t.get("task_code")
+    }
+
+    # Resolve target milestone
+    target_pre = _find_target_milestone(pre_state_cpm, target_milestone_id)
+
+    # Find the target milestone in post_map by task_code
+    target_post: Optional[dict] = None
+    if target_pre is not None:
+        target_code = target_pre.get("task_code", "")
+        target_post = post_map.get(target_code)
+
+    # Compute milestone completion change
+    milestone_before = _fmt_date(
+        target_pre.get("early_end_date") if target_pre else None
+    )
+    milestone_after = _fmt_date(
+        target_post.get("early_end_date") if target_post else None
+    )
+    milestone_net_days = _days_between_date_strings(milestone_before, milestone_after)
+
+    # Compute critical-path membership for each task in pre vs post state
+    pre_critical: dict[str, bool] = {
+        t.get("task_code", ""): _is_critical(t)
+        for t in pre_state_cpm if t.get("task_code")
+    }
+    post_critical: dict[str, bool] = {
+        t.get("task_code", ""): _is_critical(t)
+        for t in post_cpm_results if t.get("task_code")
+    }
+
+    # CP-changed flag: any task whose is_critical status changed
+    all_codes = set(pre_critical.keys()) | set(post_critical.keys())
+    cp_diff_count = sum(
+        1 for code in all_codes
+        if pre_critical.get(code, False) != post_critical.get(code, False)
+    )
+    critical_path_changed = cp_diff_count > 0
+    substantial_cp_change = cp_diff_count > 5
+
+    # Populate post_cpm_summary
+    result.post_cpm_summary = {
+        "target_milestone_id": target_pre.get("task_id") if target_pre else None,
+        "completion_before": milestone_before,
+        "completion_after": milestone_after,
+        "net_days_change": milestone_net_days,
+        "critical_path_changed": critical_path_changed,
+        "substantial_cp_change": substantial_cp_change,
+    }
+
+    # Patch per-change feedback with CPM-derived fields.
+    # Each PerChangeFeedback has a change_index that indexes into the original
+    # changes list, letting us recover the change record and hence the
+    # affected activity's task_code.
+    for pcf in result.per_change_feedback:
+        change_record = changes[pcf.change_index] if pcf.change_index < len(changes) else {}
+        activity_code = _activity_code_for_pcf(pcf, change_record)
+        if activity_code is None:
+            continue
+
+        fb = pcf.feedback
+        # Only patch feedback dicts that carry the four CPM keys (i.e. handlers
+        # that left them as None stubs).  WBS handlers don't have these keys.
+        if "activity_end_before" not in fb:
+            continue
+
+        pre_task = pre_map.get(activity_code)
+        post_task = post_map.get(activity_code)
+
+        # activity_end_before: pre-state EF (None for add_activity — didn't exist)
+        ef_before: Optional[str] = None
+        if pre_task is not None and pcf.type not in ("add_activity", "pop_activity"):
+            ef_before = _fmt_date(pre_task.get("early_end_date"))
+
+        # activity_end_after: post-state EF (None for remove_activity / dissolve_activity)
+        ef_after: Optional[str] = None
+        if post_task is not None and pcf.type not in ("remove_activity", "dissolve_activity"):
+            ef_after = _fmt_date(post_task.get("early_end_date"))
+
+        # now_on_critical_path: from post-state (None if post task not found)
+        now_critical: Optional[bool] = None
+        if post_task is not None and pcf.type not in ("remove_activity", "dissolve_activity"):
+            now_critical = _is_critical(post_task)
+
+        fb["activity_end_before"] = ef_before
+        fb["activity_end_after"] = ef_after
+        fb["milestone_impact_days"] = milestone_net_days
+        fb["now_on_critical_path"] = now_critical
+
+
+def _activity_code_for_pcf(
+    pcf: "PerChangeFeedback",
+    change: dict,
+) -> Optional[str]:
+    """Return the task_code affected by a change, given the original change record.
+
+    WBS handlers and apply_anchor_absorption return None (no single
+    activity code to diff).
+    """
+    ct = pcf.type
+
+    # WBS handlers — no schedule logic impact; skip
+    if ct in ("add_wbs", "remove_wbs", "modify_wbs", "move_activities_to_wbs"):
+        return None
+
+    # apply_anchor_absorption — delegates to set_duration; the suggestion's
+    # task_code is in set_duration_feedback inside the feedback dict.
+    if ct == "apply_anchor_absorption":
+        inner = pcf.feedback.get("set_duration_feedback") or {}
+        # set_duration_feedback is the dict returned by _handle_set_duration,
+        # which does not embed the activity_id.  We cannot recover it from
+        # feedback alone.  The suggestion_chosen dict has 'task_code'.
+        suggestion = pcf.feedback.get("suggestion_chosen") or {}
+        return suggestion.get("task_code") or None
+
+    return _activity_id_for_change(change)
 
 
 # ---- handlers ---------------------------------------------------------------
