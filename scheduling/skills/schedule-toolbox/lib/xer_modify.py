@@ -126,3 +126,38 @@ def apply_changes(
 
     result.doc = doc
     return result
+
+
+# ---- handlers ---------------------------------------------------------------
+
+
+@_register_handler("set_duration")
+def _handle_set_duration(doc, change: dict, state: ChangeState) -> dict:
+    activity_id = change["activity_id"]
+    new_duration_days = change["new_duration_days"]
+
+    task_section = doc.section("TASK")
+    row_index = None
+    if task_section is not None:
+        for i, row in enumerate(task_section.rows):
+            if row.get("task_code") == activity_id:
+                row_index = i
+                break
+
+    if row_index is None:
+        raise ValidationFailure(
+            f"set_duration: activity_id {activity_id!r} not found in TASK section"
+        )
+
+    # P6 stores duration as whole-hour integer strings (e.g. "80", not "80.0")
+    hours_str = str(int(new_duration_days * 8))
+    task_section.rows[row_index]["target_drtn_hr_cnt"] = hours_str
+    task_section.rows[row_index]["remain_drtn_hr_cnt"] = hours_str
+    task_section.mark_dirty(row_index)
+
+    return {
+        "activity_end_before": None,
+        "activity_end_after": None,
+        "milestone_impact_days": None,
+        "now_on_critical_path": None,
+    }
