@@ -81,3 +81,71 @@ class XerDoc:
             if s.name == name:
                 return s
         return None
+
+
+_ENCODINGS = ("cp1252", "utf-8-sig", "utf-8", "latin-1")
+
+
+def _detect_decode(raw: bytes) -> tuple[str, str]:
+    """Try the encoding fallback chain. Returns (text, encoding_used)."""
+    for enc in _ENCODINGS:
+        try:
+            return raw.decode(enc), enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    # Last-resort: latin-1 decodes any byte sequence
+    return raw.decode("latin-1"), "latin-1"
+
+
+def parse_for_writing(xer_path: str) -> XerDoc:
+    """Parse an XER preserving everything needed for round-trip output.
+
+    Differences from the existing read-only _parse_xer:
+      - Captures the ERMHDR header line verbatim.
+      - Captures per-table %F field order (the lossy parser only kept it
+        long enough to zip into row dicts).
+      - Captures %E markers per section.
+      - Captures the raw %R lines so the writer can emit untouched rows
+        byte-for-byte.
+    """
+    with open(xer_path, "rb") as f:
+        raw = f.read()
+    text, encoding = _detect_decode(raw)
+
+    header_line = ""
+    sections: list[XerSection] = []
+    current: Optional[XerSection] = None
+    current_fields: list[str] = []
+
+    for line in text.split("\r\n"):
+        if not line:
+            continue
+        parts = line.split("\t")
+        marker = parts[0]
+        if marker == "ERMHDR":
+            header_line = line
+        elif marker == "%T":
+            current_fields = []
+            current = XerSection(
+                name=parts[1].strip(),
+                field_order=[],
+                rows=[],
+                raw_lines=[],
+                e_line="%E",
+            )
+            sections.append(current)
+        elif marker == "%F" and current is not None:
+            current_fields = [f.strip() for f in parts[1:]]
+            current.field_order = current_fields
+        elif marker == "%R" and current is not None:
+            current.raw_lines.append(line)
+            current.rows.append(dict(zip(current_fields, parts[1:])))
+        elif marker == "%E" and current is not None:
+            current.e_line = line
+            current = None
+
+    return XerDoc(
+        header_line=header_line,
+        encoding=encoding,
+        sections=sections,
+    )

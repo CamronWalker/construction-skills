@@ -41,5 +41,46 @@ class TestDataModel(unittest.TestCase):
         self.assertTrue(s.is_dirty(1))
 
 
+class TestParseForWriting(unittest.TestCase):
+    def setUp(self):
+        # Use Plan 1's minimal.xer fixture which has known structure
+        self.fixture = (
+            Path(__file__).parent.parent.parent.parent
+            / "mcp-server" / "tests" / "fixtures" / "minimal.xer"
+        )
+
+    def test_parses_header_line(self):
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(self.fixture))
+        self.assertTrue(doc.header_line.startswith("ERMHDR"))
+
+    def test_detects_encoding(self):
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(self.fixture))
+        self.assertIn(doc.encoding, ("cp1252", "utf-8-sig", "utf-8", "latin-1"))
+
+    def test_preserves_section_order(self):
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(self.fixture))
+        names = [s.name for s in doc.sections]
+        # PROJECT must come before TASK in every P6 XER
+        self.assertLess(names.index("PROJECT"), names.index("TASK"))
+
+    def test_preserves_field_order(self):
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(self.fixture))
+        task = doc.section("TASK")
+        self.assertIsNotNone(task)
+        # task_id is always first in TASK %F
+        self.assertEqual(task.field_order[0], "task_id")
+
+    def test_preserves_raw_lines(self):
+        from xer_io import parse_for_writing
+        doc = parse_for_writing(str(self.fixture))
+        task = doc.section("TASK")
+        self.assertIsNotNone(task.raw_lines)
+        self.assertEqual(len(task.raw_lines), len(task.rows))
+
+
 if __name__ == "__main__":
     unittest.main()
