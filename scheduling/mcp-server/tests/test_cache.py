@@ -92,7 +92,9 @@ class TestCpmCache(unittest.TestCase):
                 shutil.copy(FIXTURE, p)
                 paths.append(p)
 
-            cache = CpmCache(max_entries=2)
+            # recency_grace_seconds=0 disables the recency guard so this test
+            # exercises pure LRU eviction without the 30-minute grace window.
+            cache = CpmCache(max_entries=2, recency_grace_seconds=0)
 
             # Load 0 then 1. Cache: [0, 1].
             r0a = cache.get_parsed(str(paths[0]))
@@ -146,6 +148,43 @@ class TestCpmCache(unittest.TestCase):
             f"Cache hit took {elapsed_ms:.1f}ms; partial-read guard "
             f"appears to be running on hits (expected <50ms)."
         )
+
+
+class TestLossyProjection(unittest.TestCase):
+    """The new XerDoc-based cache must project to the same dict shape
+    the old _parse_xer produced. This pins the contract for the 30+
+    read-only tools that depend on get_parsed()."""
+
+    def test_get_parsed_matches_old_parser_shape(self):
+        # Old parser available in quality_checks for comparison
+        LIB = Path(__file__).parent.parent.parent / "skills" / "schedule-toolbox" / "lib"
+        if str(LIB) not in sys.path:
+            sys.path.insert(0, str(LIB))
+        from quality_checks import _parse_xer as old_parse  # noqa
+        from cache import CpmCache
+
+        fixture = Path(__file__).parent / "fixtures" / "minimal.xer"
+        cache = CpmCache()
+        new_dict = cache.get_parsed(str(fixture))
+        old_dict = old_parse(str(fixture))
+
+        # Same table set
+        self.assertEqual(set(new_dict.keys()), set(old_dict.keys()))
+        # Same row count per table
+        for table in old_dict:
+            self.assertEqual(
+                len(new_dict[table]), len(old_dict[table]),
+                f"Row count mismatch in {table}"
+            )
+        # Same field values per row
+        for table in old_dict:
+            for i, (new_row, old_row) in enumerate(
+                zip(new_dict[table], old_dict[table])
+            ):
+                self.assertEqual(
+                    new_row, old_row,
+                    f"Row {i} in {table} differs:\n  new={new_row}\n  old={old_row}"
+                )
 
 
 if __name__ == "__main__":

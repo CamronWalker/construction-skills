@@ -1,7 +1,7 @@
 {
   "name": "scheduling",
-  "version": "8.2.0",
-  "description": "Claude Code skills for construction scheduling — schedule-toolbox (XER parsing, 31 quality checks, CPM, path analysis, weekly_update_review bundle), proposal schedules with self-contained Gantt review HTML and Copy-for-Claude iteration loop, and the full weekly schedule update pipeline driven by the westland-mcps cloud editor (one MCP POST to generate, colleague edits in browser, Outlook .eml + Procore publish on finalize).",
+  "version": "9.1.0",
+  "description": "Claude Code skills for construction scheduling — schedule-toolbox (XER parsing, 31 quality checks, CPM, path analysis, weekly_update_review bundle), Tier 3 XER modification + generation (validate_xer_structure, apply_xer_changes, fix_duplicate_activity_ids, create_xer_from_template), proposal schedules with self-contained Gantt review HTML and Copy-for-Claude iteration loop, and the full weekly schedule update pipeline driven by the westland-mcps cloud editor (one MCP POST to generate, colleague edits in browser, Outlook .eml + Procore publish on finalize).",
   "author": {
     "name": "Camron Walker"
   },
