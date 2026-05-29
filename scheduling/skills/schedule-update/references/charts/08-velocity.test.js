@@ -13,10 +13,16 @@ const fixture = JSON.parse(readFileSync(
 describe('renderVelocity', () => {
   const { html, svgInner } = renderVelocity(fixture);
 
-  it('emits every column palette hex', () => {
-    // Current Starts #B4C7E7, Current Finishes #4472C4,
-    // Baseline Starts #cccccc, Baseline Finishes #808080.
-    for (const hex of ['#B4C7E7', '#4472C4', '#cccccc', '#808080']) {
+  it('emits the canonical title from META', () => {
+    expect(META.title).toBe('Monthly Activity Start & Finish Distribution');
+    // Title is HTML-escaped (`& → &amp;`).
+    expect(html).toContain('Monthly Activity Start &amp; Finish Distribution');
+  });
+
+  it('emits every column palette hex (6 series)', () => {
+    // Actual Starts/Finishes (blue), Baseline Starts/Finishes (gray),
+    // Planned Starts/Finishes (green).
+    for (const hex of ['#B4C7E7', '#4472C4', '#cccccc', '#808080', '#C5E0B4', '#70AD47']) {
       expect(html).toContain(hex);
     }
   });
@@ -25,29 +31,36 @@ describe('renderVelocity', () => {
     expect(html).toContain('#F2A623');
   });
 
-  it('emits the canonical title from META', () => {
-    expect(META.title).toBe('Monthly Activity Start & Finish Distribution');
-    // Title is HTML-escaped in output (`& → &amp;`); accept the escaped form.
-    expect(html).toContain('Monthly Activity Start &amp; Finish Distribution');
-  });
-
-  it('emits all 5 legend labels', () => {
+  it('emits all 7 legend labels', () => {
     for (const label of [
-      'Current Starts', 'Current Finishes',
+      'Current Starts (Actual)', 'Current Finishes (Actual)',
       'Baseline Starts', 'Baseline Finishes',
+      'Current Starts (Planned)', 'Current Finishes (Planned)',
       'Average',
     ]) {
       expect(html).toContain(label);
     }
   });
 
-  it('emits the dashed data-date vertical plotline', () => {
-    expect(html).toContain('stroke-dasharray="8,6"');
+  it('emits a solid #4472C4 data-date vertical marker (not dashed)', () => {
+    // SmartPM convention: dark-blue solid stroke-width 3 at the boundary
+    // between Actual and Planned months.
+    expect(html).toMatch(/stroke="#4472C4"[^>]*stroke-width="3"/);
   });
 
-  it('formats X-axis ticks as "MMM YYYY"', () => {
-    // E.g. "Mar 2020", "Jun 2026". 3-letter month abbr + space + 4-digit year.
-    expect(html).toMatch(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}/);
+  it('emits a data-date label like "DD MMM-YY"', () => {
+    // Format: e.g. "26 May-26".
+    expect(html).toMatch(/\d{1,2}\s(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}/);
+  });
+
+  it('formats X-axis ticks as "MMM-YY"', () => {
+    // E.g. "Nov-22", "May-26". SmartPM convention (with hyphen, 2-digit year).
+    expect(html).toMatch(/>(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}</);
+  });
+
+  it('emits the rotated "Values" Y-axis title', () => {
+    expect(html).toContain('Values');
+    expect(html).toMatch(/transform="rotate\(-90/);
   });
 
   it('returns non-empty svgInner', () => {

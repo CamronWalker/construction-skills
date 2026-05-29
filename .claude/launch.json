@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "charts-gallery",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", ".preview/charts-gallery"],
+      "port": 5173
+    },
+    {
       "name": "summary-report",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", ".preview/summary-report"],

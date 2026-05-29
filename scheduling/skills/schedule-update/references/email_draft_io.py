@@ -206,6 +206,9 @@ def render_stacked_png(draft, output_dir):
     Writes a temp HTML file, shells out to html_to_png.cjs to rasterize,
     then deletes the temp HTML. Returns the absolute PNG path.
 
+    Excludes the SmartPM summary report — that one ships as its own
+    inline image at the top of the email body via `render_summary_png`.
+
     Args:
         draft: Parsed {YYYY-MM-DD}-email.json dict (from load_draft).
         output_dir: Directory the PNG lands in. Filename is
@@ -221,7 +224,9 @@ def render_stacked_png(draft, output_dir):
     this_week = draft.get('this_week') or {}
     # Canonical order: this_week.graph_order if present, else dict-insertion
     # order of graphs. JSON preserves insertion order in Python 3.7+ and ES2015+.
-    order = this_week.get('graph_order') or list(graphs.keys())
+    raw_order = this_week.get('graph_order') or list(graphs.keys())
+    # Defensive: drop summary report even if a stale graph_order still lists it.
+    order = [slug for slug in raw_order if slug != _SUMMARY_REPORT_SLUG]
 
     page_html = build_stacked_chart_page(graphs, order)
 
@@ -234,6 +239,65 @@ def render_stacked_png(draft, output_dir):
         mode='w', suffix='.html', dir=output_dir, delete=False, encoding='utf-8'
     ) as tmp:
         tmp.write(page_html)
+        tmp_html_path = tmp.name
+
+    try:
+        _run_html_to_png(tmp_html_path, png_path, width=1200, full_page=True)
+    finally:
+        try:
+            os.unlink(tmp_html_path)
+        except OSError:
+            pass
+
+    return png_path
+
+
+# Slug for the SmartPM summary report chunk. Lives in `graphs[slug].html`
+# but is rendered as its own PNG, not stacked with the trend gallery.
+_SUMMARY_REPORT_SLUG = 'smartpm-summary-report'
+
+
+def render_summary_png(draft, output_dir):
+    """Render the SmartPM summary report chunk as its own PNG file.
+
+    The summary lives at `draft.graphs['smartpm-summary-report'].html`. Unlike
+    the trend charts, it doesn't go through the stacked-gallery template — it
+    ships as a standalone inline image at the top of the email body.
+
+    Args:
+        draft: Parsed {YYYY-MM-DD}-email.json dict (from load_draft).
+        output_dir: Directory the PNG lands in. Filename is
+                    {job_number}-{report_date}-smartpm-summary.png.
+
+    Returns:
+        Absolute path to the written PNG, or None if the summary chunk is
+        missing / empty (caller should fall back to the "Insert SmartPM
+        Summary Report screenshot here" placeholder in the email body).
+
+    Raises:
+        DraftError: if html_to_png.cjs is missing or fails.
+    """
+    graphs = draft.get('graphs') or {}
+    chunk = graphs.get(_SUMMARY_REPORT_SLUG)
+    if not chunk:
+        return None
+    html = (chunk.get('html') or '').strip()
+    if not html:
+        return None
+
+    os.makedirs(output_dir, exist_ok=True)
+    job_number = (draft.get('project_info') or {}).get('job_number', 'project')
+    png_name = f'{job_number}-{draft["report_date"]}-smartpm-summary.png'
+    png_path = os.path.abspath(os.path.join(output_dir, png_name))
+
+    # Server-rendered chunks are typically a full `<!doctype html>` document
+    # for the summary slug (the composite report uses its own envelope). Write
+    # verbatim and rasterize at the report's native ~1200 px width via
+    # full-page mode so the whole tall card lands in the PNG.
+    with tempfile.NamedTemporaryFile(
+        mode='w', suffix='.html', dir=output_dir, delete=False, encoding='utf-8'
+    ) as tmp:
+        tmp.write(html)
         tmp_html_path = tmp.name
 
     try:
@@ -470,8 +534,11 @@ def generate_email_from_draft(draft_path, output_eml_path, dated_folder,
     project_info = draft.get('project_info')
     last_week = draft.get('last_week')   # may be None for week-1 projects
 
-    # 1. Render the stacked-graphs PNG into the dated folder's screenshots/ dir.
+    # 1. Render the two PNGs into the dated folder's screenshots/ dir:
+    #    - summary report (its own PNG, embedded at the top of the email body)
+    #    - stacked trend gallery (one tall PNG of the 8 trend charts, bottom)
     screenshots_dir = os.path.join(dated_folder, 'screenshots')
+    summary_png_path = render_summary_png(draft, screenshots_dir)
     stacked_png_path = render_stacked_png(draft, screenshots_dir)
 
     # 2. Translate this_week -> builder kwargs.
@@ -483,11 +550,14 @@ def generate_email_from_draft(draft_path, output_eml_path, dated_folder,
         kwargs['attachment_paths'], dated_folder
     )
 
-    # 4. Plug the stacked PNG into the builder's `summary_screenshot_path` slot.
-    #    The old per-chart graph_screenshot_paths list is empty in the new
-    #    flow — one image holds all charts.
-    kwargs['summary_screenshot_path'] = stacked_png_path
-    kwargs['graph_screenshot_paths'] = []
+    # 4. Plug the two PNGs into the builder's image slots:
+    #    - summary_screenshot_path → "Section 3: SmartPM Summary Report"
+    #    - graph_screenshot_paths  → "Section 11: Performance Graphs"
+    #    The stacked gallery is a single image, so graph_screenshot_paths is
+    #    a 1-element list. If summary rendering returned None (chunk missing)
+    #    the builder emits a "Insert summary screenshot here" placeholder.
+    kwargs['summary_screenshot_path'] = summary_png_path
+    kwargs['graph_screenshot_paths'] = [stacked_png_path] if stacked_png_path else []
 
     # 5. SmartPM URLs + logo.
     kwargs['smartpm_project_url'] = smartpm_project_url

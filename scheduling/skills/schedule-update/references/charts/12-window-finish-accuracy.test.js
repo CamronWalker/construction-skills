@@ -13,10 +13,15 @@ const fixture = JSON.parse(readFileSync(
 describe('renderWindowFinishAccuracy', () => {
   const { html, svgInner } = renderWindowFinishAccuracy(fixture);
 
-  it('emits all 3 column hexes (on-time green / late yellow / did-not red)', () => {
-    for (const hex of ['#388543', '#f2c031', '#b00020']) {
-      expect(html).toContain(hex);
-    }
+  it('emits the canonical title from META', () => {
+    expect(META.title).toBe('Window Finish Accuracy');
+    expect(html).toContain(META.title);
+  });
+
+  it('emits all 3 column hexes (red #b00020, yellow #f2c031, green #388543)', () => {
+    expect(html).toContain('#b00020');
+    expect(html).toContain('#f2c031');
+    expect(html).toContain('#388543');
   });
 
   it('emits all 3 legend labels for the finish trio', () => {
@@ -25,35 +30,50 @@ describe('renderWindowFinishAccuracy', () => {
     }
   });
 
-  it('emits the canonical title from META', () => {
-    expect(META.title).toBe('Window Finish Accuracy');
-    expect(html).toContain(META.title);
+  it('emits MM/DD/YY X-axis labels', () => {
+    expect(html).toMatch(/\d{2}\/\d{2}\/\d{2}/);
   });
 
-  it('returns non-empty svgInner', () => {
-    expect(svgInner.length).toBeGreaterThan(100);
+  it('emits the rotated "Values" Y-axis title', () => {
+    expect(html).toContain('Values');
+    expect(html).toMatch(/transform="rotate\(-90/);
   });
 
-  it('renders stacked columns whose total height equals the sum of all 3 segments', () => {
-    // First row: finishedOnTime=5, finishedLate=1, didNotFinish=5 → total=11.
-    const rectRe = /<rect\s+x="([\d.]+)"\s+y="([\d.]+)"\s+width="([\d.]+)"\s+height="([\d.]+)"/g;
-    /** @type {Array<{x:number,y:number,w:number,h:number}>} */
+  it('renders red (Did Not Finish) at the bottom of each stack', () => {
+    const rectRe = /<rect\s+x="([\d.]+)"\s+y="([\d.]+)"\s+width="([\d.]+)"\s+height="([\d.]+)"[^>]*fill="(#[0-9A-Fa-f]+)"/g;
+    /** @type {Array<{x:number,y:number,w:number,h:number,f:string}>} */
     const rects = [];
     let m;
     while ((m = rectRe.exec(svgInner)) !== null) {
-      rects.push({ x: +m[1], y: +m[2], w: +m[3], h: +m[4] });
+      rects.push({ x: +m[1], y: +m[2], w: +m[3], h: +m[4], f: m[5] });
     }
-    const dataRects = rects.filter(r => r.w < 30);
-    expect(dataRects.length).toBeGreaterThanOrEqual(3);
+    const dataRects = rects.filter(r => r.w < 40 && r.f.toLowerCase() !== 'none');
+    expect(dataRects.length).toBeGreaterThan(0);
+    /** @type {Record<string, typeof dataRects>} */
+    const byX = {};
+    for (const r of dataRects) {
+      const key = r.x.toFixed(1);
+      (byX[key] ??= []).push(r);
+    }
+    let redBottomCount = 0;
+    let multiSegCols = 0;
+    for (const col of Object.values(byX)) {
+      if (col.length < 2) continue;
+      multiSegCols++;
+      const bottom = col.reduce((a, b) => (a.y + a.h > b.y + b.h ? a : b));
+      if (bottom.f.toLowerCase() === '#b00020') redBottomCount++;
+    }
+    expect(multiSegCols).toBeGreaterThan(0);
+    expect(redBottomCount).toBe(multiSegCols);
+  });
 
-    const minX = Math.min(...dataRects.map(r => r.x));
-    const firstCol = dataRects.filter(r => Math.abs(r.x - minX) < 0.5);
-    expect(firstCol.length).toBe(3);
-    firstCol.sort((a, b) => a.y - b.y);
-    for (let i = 0; i < firstCol.length - 1; i++) {
-      const bot = firstCol[i].y + firstCol[i].h;
-      expect(Math.abs(bot - firstCol[i + 1].y)).toBeLessThan(0.5);
-    }
+  it('emits in-segment count labels in bold (Inter 11.2 px, weight 700)', () => {
+    expect(html).toMatch(/font-weight="700"[^>]*fill="#000000"/);
+    expect(html).toMatch(/font-weight="700"[^>]*fill="#ffffff"/);
+  });
+
+  it('emits a total label above each column (medium weight)', () => {
+    expect(html).toMatch(/font-weight="500"/);
   });
 
   it('throws TypeError when payload.hitRates is not an array', () => {

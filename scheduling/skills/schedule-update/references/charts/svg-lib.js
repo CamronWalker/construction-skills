@@ -196,7 +196,9 @@ export function htmlEnvelope({ title, svgW, svgH, svgInner, legendHtml, cardW = 
 <title>${titleEsc}</title>
 <style>
   html, body { margin: 0; padding: 0; background: #ffffff; font-family: Inter, "Helvetica Neue", Arial, sans-serif; color: ${PVA01_TITLE_TEXT}; -webkit-font-smoothing: antialiased; }
-  .chart-card { width: ${cardW}px; height: ${cardH}px; box-sizing: border-box; background: #ffffff; border-radius: 12px; padding: 14px 18px 8px; display: flex; flex-direction: column; }
+  /* Card height intentionally auto — content sizes the card so the
+     screenshot has no wasted whitespace below the SVG / legend. */
+  .chart-card { width: ${cardW}px; box-sizing: border-box; background: #ffffff; border: 1px solid #e6e6ea; border-radius: 12px; padding: 14px 18px 12px; display: flex; flex-direction: column; }
   .chart-title { font-size: 14px; font-weight: 600; color: ${PVA01_TITLE_TEXT}; margin: 0 0 6px 0; line-height: 1.1; }
   .chart-svg { display: block; flex: 0 0 auto; }
   .axis-text { font-size: 11px; fill: ${PVA01_AXIS_TEXT}; }
@@ -231,7 +233,7 @@ export function emptyHtml(title) {
 <html lang="en"><head><meta charset="utf-8"><title>${titleEsc}</title>
 <style>
   html, body { margin: 0; padding: 0; background: #fff; font-family: Inter, sans-serif; color: ${PVA01_TITLE_TEXT}; }
-  .chart-card { width: ${HTML_CARD_W}px; height: ${HTML_CARD_H}px; box-sizing: border-box; padding: 14px 18px 8px; display: flex; align-items: center; justify-content: center; }
+  .chart-card { width: ${HTML_CARD_W}px; min-height: 120px; box-sizing: border-box; background: #ffffff; border: 1px solid #e6e6ea; border-radius: 12px; padding: 14px 18px 12px; display: flex; align-items: center; justify-content: center; }
   .chart-title { font-size: 14px; font-weight: 600; }
 </style></head><body>
 <div class="chart-card"><h3 class="chart-title">${titleEsc} — no data</h3></div>

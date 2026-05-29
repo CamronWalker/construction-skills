@@ -1,544 +1,67 @@
 {
+  "_source": "smartpm_get_scenario_velocity project=113385 scenario=1644, fetched 2026-05-28; scenario.dataDate=2026-05-26",
+  "dataDate": "2026-05-26T08:00:00",
   "velocityList": [
-    {
-      "date": "2020-03-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 1,
-      "currentFinishes": 0
-    },
-    {
-      "date": "2020-04-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 1,
-      "currentStarts": 3,
-      "currentFinishes": 1
-    },
-    {
-      "date": "2020-05-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 1,
-      "currentStarts": 4,
-      "currentFinishes": 2
-    },
-    {
-      "date": "2020-06-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 2,
-      "currentStarts": 5,
-      "currentFinishes": 4
-    },
-    {
-      "date": "2020-07-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 0,
-      "currentStarts": 3,
-      "currentFinishes": 0
-    },
-    {
-      "date": "2020-08-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 1,
-      "currentStarts": 3,
-      "currentFinishes": 1
-    },
-    {
-      "date": "2020-09-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 2,
-      "currentStarts": 2,
-      "currentFinishes": 3
-    },
-    {
-      "date": "2020-10-01T00:00:00",
-      "baselineStarts": 5,
-      "baselineFinishes": 2,
-      "currentStarts": 5,
-      "currentFinishes": 2
-    },
-    {
-      "date": "2020-11-01T00:00:00",
-      "baselineStarts": 9,
-      "baselineFinishes": 12,
-      "currentStarts": 9,
-      "currentFinishes": 12
-    },
-    {
-      "date": "2020-12-01T00:00:00",
-      "baselineStarts": 6,
-      "baselineFinishes": 3,
-      "currentStarts": 8,
-      "currentFinishes": 7
-    },
-    {
-      "date": "2021-01-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 3,
-      "currentFinishes": 1
-    },
-    {
-      "date": "2021-02-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 3,
-      "currentStarts": 4,
-      "currentFinishes": 7
-    },
-    {
-      "date": "2021-03-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 0,
-      "currentFinishes": 3
-    },
-    {
-      "date": "2021-04-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 2,
-      "currentStarts": 4,
-      "currentFinishes": 5
-    },
-    {
-      "date": "2021-05-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 1,
-      "currentStarts": 7,
-      "currentFinishes": 5
-    },
-    {
-      "date": "2021-06-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 1,
-      "currentStarts": 5,
-      "currentFinishes": 5
-    },
-    {
-      "date": "2021-07-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 1,
-      "currentStarts": 4,
-      "currentFinishes": 3
-    },
-    {
-      "date": "2021-08-01T00:00:00",
-      "baselineStarts": 4,
-      "baselineFinishes": 2,
-      "currentStarts": 9,
-      "currentFinishes": 6
-    },
-    {
-      "date": "2021-09-01T00:00:00",
-      "baselineStarts": 5,
-      "baselineFinishes": 7,
-      "currentStarts": 13,
-      "currentFinishes": 11
-    },
-    {
-      "date": "2021-10-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 2,
-      "currentStarts": 10,
-      "currentFinishes": 10
-    },
-    {
-      "date": "2021-11-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 0,
-      "currentStarts": 11,
-      "currentFinishes": 13
-    },
-    {
-      "date": "2021-12-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 1,
-      "currentStarts": 3,
-      "currentFinishes": 3
-    },
-    {
-      "date": "2022-01-01T00:00:00",
-      "baselineStarts": 3,
-      "baselineFinishes": 1,
-      "currentStarts": 2,
-      "currentFinishes": 2
-    },
-    {
-      "date": "2022-02-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 0,
-      "currentStarts": 2,
-      "currentFinishes": 0
-    },
-    {
-      "date": "2022-03-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 2,
-      "currentStarts": 4,
-      "currentFinishes": 5
-    },
-    {
-      "date": "2022-04-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 0,
-      "currentStarts": 4,
-      "currentFinishes": 0
-    },
-    {
-      "date": "2022-05-01T00:00:00",
-      "baselineStarts": 5,
-      "baselineFinishes": 5,
-      "currentStarts": 10,
-      "currentFinishes": 9
-    },
-    {
-      "date": "2022-06-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 1,
-      "currentStarts": 5,
-      "currentFinishes": 5
-    },
-    {
-      "date": "2022-07-01T00:00:00",
-      "baselineStarts": 5,
-      "baselineFinishes": 5,
-      "currentStarts": 12,
-      "currentFinishes": 12
-    },
-    {
-      "date": "2022-08-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 1,
-      "currentStarts": 5,
-      "currentFinishes": 8
-    },
-    {
-      "date": "2022-09-01T00:00:00",
-      "baselineStarts": 9,
-      "baselineFinishes": 9,
-      "currentStarts": 13,
-      "currentFinishes": 16
-    },
-    {
-      "date": "2022-10-01T00:00:00",
-      "baselineStarts": 23,
-      "baselineFinishes": 16,
-      "currentStarts": 27,
-      "currentFinishes": 23
-    },
-    {
-      "date": "2022-11-01T00:00:00",
-      "baselineStarts": 20,
-      "baselineFinishes": 28,
-      "currentStarts": 26,
-      "currentFinishes": 23
-    },
-    {
-      "date": "2022-12-01T00:00:00",
-      "baselineStarts": 5,
-      "baselineFinishes": 6,
-      "currentStarts": 6,
-      "currentFinishes": 2
-    },
-    {
-      "date": "2023-01-01T00:00:00",
-      "baselineStarts": 5,
-      "baselineFinishes": 6,
-      "currentStarts": 4,
-      "currentFinishes": 2
-    },
-    {
-      "date": "2023-02-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 4,
-      "currentStarts": 9,
-      "currentFinishes": 5
-    },
-    {
-      "date": "2023-03-01T00:00:00",
-      "baselineStarts": 10,
-      "baselineFinishes": 9,
-      "currentStarts": 4,
-      "currentFinishes": 12
-    },
-    {
-      "date": "2023-04-01T00:00:00",
-      "baselineStarts": 13,
-      "baselineFinishes": 15,
-      "currentStarts": 21,
-      "currentFinishes": 22
-    },
-    {
-      "date": "2023-05-01T00:00:00",
-      "baselineStarts": 28,
-      "baselineFinishes": 24,
-      "currentStarts": 24,
-      "currentFinishes": 19
-    },
-    {
-      "date": "2023-06-01T00:00:00",
-      "baselineStarts": 12,
-      "baselineFinishes": 16,
-      "currentStarts": 18,
-      "currentFinishes": 19
-    },
-    {
-      "date": "2023-07-01T00:00:00",
-      "baselineStarts": 4,
-      "baselineFinishes": 4,
-      "currentStarts": 14,
-      "currentFinishes": 11
-    },
-    {
-      "date": "2023-08-01T00:00:00",
-      "baselineStarts": 7,
-      "baselineFinishes": 4,
-      "currentStarts": 36,
-      "currentFinishes": 26
-    },
-    {
-      "date": "2023-09-01T00:00:00",
-      "baselineStarts": 11,
-      "baselineFinishes": 11,
-      "currentStarts": 26,
-      "currentFinishes": 31
-    },
-    {
-      "date": "2023-10-01T00:00:00",
-      "baselineStarts": 7,
-      "baselineFinishes": 8,
-      "currentStarts": 30,
-      "currentFinishes": 23
-    },
-    {
-      "date": "2023-11-01T00:00:00",
-      "baselineStarts": 11,
-      "baselineFinishes": 8,
-      "currentStarts": 54,
-      "currentFinishes": 42
-    },
-    {
-      "date": "2023-12-01T00:00:00",
-      "baselineStarts": 9,
-      "baselineFinishes": 8,
-      "currentStarts": 17,
-      "currentFinishes": 33
-    },
-    {
-      "date": "2024-01-01T00:00:00",
-      "baselineStarts": 15,
-      "baselineFinishes": 12,
-      "currentStarts": 14,
-      "currentFinishes": 13
-    },
-    {
-      "date": "2024-02-01T00:00:00",
-      "baselineStarts": 14,
-      "baselineFinishes": 15,
-      "currentStarts": 13,
-      "currentFinishes": 12
-    },
-    {
-      "date": "2024-03-01T00:00:00",
-      "baselineStarts": 16,
-      "baselineFinishes": 17,
-      "currentStarts": 35,
-      "currentFinishes": 37
-    },
-    {
-      "date": "2024-04-01T00:00:00",
-      "baselineStarts": 16,
-      "baselineFinishes": 17,
-      "currentStarts": 27,
-      "currentFinishes": 27
-    },
-    {
-      "date": "2024-05-01T00:00:00",
-      "baselineStarts": 16,
-      "baselineFinishes": 14,
-      "currentStarts": 17,
-      "currentFinishes": 11
-    },
-    {
-      "date": "2024-06-01T00:00:00",
-      "baselineStarts": 16,
-      "baselineFinishes": 16,
-      "currentStarts": 22,
-      "currentFinishes": 28
-    },
-    {
-      "date": "2024-07-01T00:00:00",
-      "baselineStarts": 4,
-      "baselineFinishes": 12,
-      "currentStarts": 18,
-      "currentFinishes": 9
-    },
-    {
-      "date": "2024-08-01T00:00:00",
-      "baselineStarts": 2,
-      "baselineFinishes": 2,
-      "currentStarts": 24,
-      "currentFinishes": 28
-    },
-    {
-      "date": "2024-09-01T00:00:00",
-      "baselineStarts": 4,
-      "baselineFinishes": 3,
-      "currentStarts": 19,
-      "currentFinishes": 22
-    },
-    {
-      "date": "2024-10-01T00:00:00",
-      "baselineStarts": 3,
-      "baselineFinishes": 4,
-      "currentStarts": 21,
-      "currentFinishes": 23
-    },
-    {
-      "date": "2024-11-01T00:00:00",
-      "baselineStarts": 1,
-      "baselineFinishes": 1,
-      "currentStarts": 36,
-      "currentFinishes": 33
-    },
-    {
-      "date": "2024-12-01T00:00:00",
-      "baselineStarts": 3,
-      "baselineFinishes": 3,
-      "currentStarts": 17,
-      "currentFinishes": 21
-    },
-    {
-      "date": "2025-01-01T00:00:00",
-      "baselineStarts": 4,
-      "baselineFinishes": 5,
-      "currentStarts": 21,
-      "currentFinishes": 23
-    },
-    {
-      "date": "2025-02-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 40,
-      "currentFinishes": 25
-    },
-    {
-      "date": "2025-03-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 21,
-      "currentFinishes": 21
-    },
-    {
-      "date": "2025-04-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 28,
-      "currentFinishes": 37
-    },
-    {
-      "date": "2025-05-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 50,
-      "currentFinishes": 47
-    },
-    {
-      "date": "2025-06-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 44,
-      "currentFinishes": 57
-    },
-    {
-      "date": "2025-07-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 52,
-      "currentFinishes": 30
-    },
-    {
-      "date": "2025-08-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 63,
-      "currentFinishes": 57
-    },
-    {
-      "date": "2025-09-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 37,
-      "currentFinishes": 55
-    },
-    {
-      "date": "2025-10-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 44,
-      "currentFinishes": 54
-    },
-    {
-      "date": "2025-11-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 54,
-      "currentFinishes": 52
-    },
-    {
-      "date": "2025-12-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 10,
-      "currentFinishes": 18
-    },
-    {
-      "date": "2026-01-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 33,
-      "currentFinishes": 31
-    },
-    {
-      "date": "2026-02-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 38,
-      "currentFinishes": 38
-    },
-    {
-      "date": "2026-03-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 18,
-      "currentFinishes": 30
-    },
-    {
-      "date": "2026-04-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 6,
-      "currentFinishes": 3
-    },
-    {
-      "date": "2026-04-29T08:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 0,
-      "currentFinishes": 3
-    },
-    {
-      "date": "2026-05-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 6,
-      "currentFinishes": 17
-    },
-    {
-      "date": "2026-06-01T00:00:00",
-      "baselineStarts": 0,
-      "baselineFinishes": 0,
-      "currentStarts": 6,
-      "currentFinishes": 7
-    }
-  ],
-  "dataDate": "2026-04-29T08:00:00"
+    {"date":"2022-11-01T00:00:00","baselineStarts":3,"baselineFinishes":2,"currentStarts":3,"currentFinishes":2},
+    {"date":"2022-12-01T00:00:00","baselineStarts":1,"baselineFinishes":2,"currentStarts":1,"currentFinishes":2},
+    {"date":"2023-01-01T00:00:00","baselineStarts":19,"baselineFinishes":5,"currentStarts":19,"currentFinishes":5},
+    {"date":"2023-02-01T00:00:00","baselineStarts":3,"baselineFinishes":0,"currentStarts":3,"currentFinishes":0},
+    {"date":"2023-03-01T00:00:00","baselineStarts":21,"baselineFinishes":8,"currentStarts":19,"currentFinishes":8},
+    {"date":"2023-04-01T00:00:00","baselineStarts":9,"baselineFinishes":20,"currentStarts":9,"currentFinishes":20},
+    {"date":"2023-05-01T00:00:00","baselineStarts":7,"baselineFinishes":8,"currentStarts":7,"currentFinishes":8},
+    {"date":"2023-06-01T00:00:00","baselineStarts":12,"baselineFinishes":5,"currentStarts":12,"currentFinishes":5},
+    {"date":"2023-07-01T00:00:00","baselineStarts":2,"baselineFinishes":4,"currentStarts":2,"currentFinishes":4},
+    {"date":"2023-08-01T00:00:00","baselineStarts":8,"baselineFinishes":10,"currentStarts":8,"currentFinishes":10},
+    {"date":"2023-09-01T00:00:00","baselineStarts":7,"baselineFinishes":11,"currentStarts":7,"currentFinishes":11},
+    {"date":"2023-10-01T00:00:00","baselineStarts":11,"baselineFinishes":4,"currentStarts":11,"currentFinishes":4},
+    {"date":"2023-11-01T00:00:00","baselineStarts":2,"baselineFinishes":1,"currentStarts":2,"currentFinishes":1},
+    {"date":"2023-12-01T00:00:00","baselineStarts":11,"baselineFinishes":16,"currentStarts":11,"currentFinishes":16},
+    {"date":"2024-01-01T00:00:00","baselineStarts":7,"baselineFinishes":5,"currentStarts":7,"currentFinishes":5},
+    {"date":"2024-02-01T00:00:00","baselineStarts":3,"baselineFinishes":3,"currentStarts":3,"currentFinishes":3},
+    {"date":"2024-03-01T00:00:00","baselineStarts":1,"baselineFinishes":2,"currentStarts":1,"currentFinishes":2},
+    {"date":"2024-04-01T00:00:00","baselineStarts":0,"baselineFinishes":2,"currentStarts":0,"currentFinishes":2},
+    {"date":"2024-05-01T00:00:00","baselineStarts":0,"baselineFinishes":1,"currentStarts":1,"currentFinishes":1},
+    {"date":"2024-06-01T00:00:00","baselineStarts":0,"baselineFinishes":0,"currentStarts":0,"currentFinishes":1},
+    {"date":"2024-07-01T00:00:00","baselineStarts":2,"baselineFinishes":0,"currentStarts":4,"currentFinishes":2},
+    {"date":"2024-08-01T00:00:00","baselineStarts":3,"baselineFinishes":0,"currentStarts":3,"currentFinishes":0},
+    {"date":"2024-09-01T00:00:00","baselineStarts":8,"baselineFinishes":7,"currentStarts":8,"currentFinishes":7},
+    {"date":"2024-10-01T00:00:00","baselineStarts":6,"baselineFinishes":7,"currentStarts":6,"currentFinishes":7},
+    {"date":"2024-11-01T00:00:00","baselineStarts":2,"baselineFinishes":4,"currentStarts":2,"currentFinishes":4},
+    {"date":"2024-12-01T00:00:00","baselineStarts":2,"baselineFinishes":4,"currentStarts":2,"currentFinishes":4},
+    {"date":"2025-01-01T00:00:00","baselineStarts":2,"baselineFinishes":1,"currentStarts":2,"currentFinishes":1},
+    {"date":"2025-02-01T00:00:00","baselineStarts":1,"baselineFinishes":3,"currentStarts":1,"currentFinishes":3},
+    {"date":"2025-03-01T00:00:00","baselineStarts":0,"baselineFinishes":1,"currentStarts":0,"currentFinishes":1},
+    {"date":"2025-04-01T00:00:00","baselineStarts":2,"baselineFinishes":2,"currentStarts":3,"currentFinishes":3},
+    {"date":"2025-05-01T00:00:00","baselineStarts":6,"baselineFinishes":3,"currentStarts":6,"currentFinishes":3},
+    {"date":"2025-06-01T00:00:00","baselineStarts":3,"baselineFinishes":1,"currentStarts":2,"currentFinishes":1},
+    {"date":"2025-07-01T00:00:00","baselineStarts":7,"baselineFinishes":12,"currentStarts":13,"currentFinishes":13},
+    {"date":"2025-08-01T00:00:00","baselineStarts":10,"baselineFinishes":8,"currentStarts":7,"currentFinishes":9},
+    {"date":"2025-09-01T00:00:00","baselineStarts":8,"baselineFinishes":2,"currentStarts":13,"currentFinishes":4},
+    {"date":"2025-10-01T00:00:00","baselineStarts":20,"baselineFinishes":28,"currentStarts":19,"currentFinishes":19},
+    {"date":"2025-11-01T00:00:00","baselineStarts":31,"baselineFinishes":21,"currentStarts":18,"currentFinishes":15},
+    {"date":"2025-12-01T00:00:00","baselineStarts":53,"baselineFinishes":38,"currentStarts":31,"currentFinishes":23},
+    {"date":"2026-01-01T00:00:00","baselineStarts":59,"baselineFinishes":62,"currentStarts":17,"currentFinishes":18},
+    {"date":"2026-02-01T00:00:00","baselineStarts":56,"baselineFinishes":57,"currentStarts":20,"currentFinishes":13},
+    {"date":"2026-03-01T00:00:00","baselineStarts":13,"baselineFinishes":24,"currentStarts":24,"currentFinishes":18},
+    {"date":"2026-04-01T00:00:00","baselineStarts":16,"baselineFinishes":17,"currentStarts":21,"currentFinishes":26},
+    {"date":"2026-05-01T00:00:00","baselineStarts":17,"baselineFinishes":19,"currentStarts":47,"currentFinishes":43},
+    {"date":"2026-06-01T00:00:00","baselineStarts":14,"baselineFinishes":23,"currentStarts":67,"currentFinishes":81},
+    {"date":"2026-07-01T00:00:00","baselineStarts":8,"baselineFinishes":14,"currentStarts":91,"currentFinishes":81},
+    {"date":"2026-08-01T00:00:00","baselineStarts":22,"baselineFinishes":21,"currentStarts":63,"currentFinishes":66},
+    {"date":"2026-09-01T00:00:00","baselineStarts":25,"baselineFinishes":22,"currentStarts":110,"currentFinishes":103},
+    {"date":"2026-10-01T00:00:00","baselineStarts":50,"baselineFinishes":42,"currentStarts":129,"currentFinishes":137},
+    {"date":"2026-11-01T00:00:00","baselineStarts":85,"baselineFinishes":66,"currentStarts":121,"currentFinishes":114},
+    {"date":"2026-12-01T00:00:00","baselineStarts":80,"baselineFinishes":95,"currentStarts":65,"currentFinishes":74},
+    {"date":"2027-01-01T00:00:00","baselineStarts":107,"baselineFinishes":109,"currentStarts":106,"currentFinishes":103},
+    {"date":"2027-02-01T00:00:00","baselineStarts":132,"baselineFinishes":123,"currentStarts":125,"currentFinishes":130},
+    {"date":"2027-03-01T00:00:00","baselineStarts":152,"baselineFinishes":152,"currentStarts":130,"currentFinishes":137},
+    {"date":"2027-04-01T00:00:00","baselineStarts":169,"baselineFinishes":164,"currentStarts":75,"currentFinishes":84},
+    {"date":"2027-05-01T00:00:00","baselineStarts":102,"baselineFinishes":127,"currentStarts":43,"currentFinishes":52},
+    {"date":"2027-06-01T00:00:00","baselineStarts":30,"baselineFinishes":37,"currentStarts":23,"currentFinishes":23},
+    {"date":"2027-07-01T00:00:00","baselineStarts":8,"baselineFinishes":12,"currentStarts":22,"currentFinishes":26},
+    {"date":"2027-08-01T00:00:00","baselineStarts":10,"baselineFinishes":9,"currentStarts":14,"currentFinishes":16},
+    {"date":"2027-09-01T00:00:00","baselineStarts":6,"baselineFinishes":9,"currentStarts":5,"currentFinishes":5},
+    {"date":"2027-10-01T00:00:00","baselineStarts":0,"baselineFinishes":0,"currentStarts":1,"currentFinishes":3},
+    {"date":"2027-11-01T00:00:00","baselineStarts":0,"baselineFinishes":0,"currentStarts":6,"currentFinishes":7}
+  ]
 }
