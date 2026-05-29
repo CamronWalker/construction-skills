@@ -114,4 +114,20 @@ describe('renderEndDateVariance', () => {
     expect(empty).toContain('no data');
     expect(empty).not.toContain('<svg class="chart-svg"');
   });
+
+  it('fixture variance stays in a sane bounded range (guards against stale-baseline regressions)', () => {
+    // The +830-day bug came from a stale fixture whose earliest sourceEndDate
+    // was a fossil (2024-02-29) unrelated to the rest of the series. Guard it:
+    // variance = each sourceEndDate minus the earliest sourceEndDate, in days.
+    const ends = fixture.updates
+      .filter(u => u && u.sourceEndDate)
+      .map(u => Date.parse(u.sourceEndDate))
+      .sort((a, b) => a - b);
+    const baseline = ends[0];
+    const maxVarianceDays = Math.round((ends[ends.length - 1] - baseline) / 86400000);
+    // SmartPM's End Date Variance for this scenario tops out at +73 days. Any
+    // fixture pushing this past ~200 is almost certainly stale/garbage data.
+    expect(maxVarianceDays).toBeGreaterThanOrEqual(0);
+    expect(maxVarianceDays).toBeLessThan(200);
+  });
 });
