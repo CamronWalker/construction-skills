@@ -27,6 +27,7 @@ class TestServer(unittest.TestCase):
         tool_names = self._list_tool_names(server.mcp)
         expected_representatives = {
             "structure": "get_milestones",
+            "structure_invalidate": "invalidate_cache_for",
             "cpm_path": "get_critical_path",
             "quality": "get_quality_check",
             "update_review": "get_activities_to_start",
@@ -34,6 +35,10 @@ class TestServer(unittest.TestCase):
             "omnibus": "weekly_update_review",
             "update_analytics": "get_critical_path_changes",   # Plan 2
             "delay_analysis": "compute_tia",                   # Plan 2
+            "xer_validate_main": "validate_xer_structure",     # Plan 3
+            "xer_modify": "apply_xer_changes",                  # Plan 3
+            "xer_modify_create": "create_xer_from_template",    # Plan 3 F3
+            "xer_modify_fixdup": "fix_duplicate_activity_ids",  # Plan 3 F3
         }
         missing = [
             name for name in expected_representatives.values()

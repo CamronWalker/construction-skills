@@ -173,13 +173,94 @@ Optional second prompt if the project has unusual site conditions or logistics.
 
 ## Phase 5: Generate XER (v1)
 
-After the recommendations and answers are locked in, generate the v1 XER directly from the plan structure:
+After the recommendations and answers are locked in, generate the v1 XER using the two-tool compositional flow:
 
-1. Use the `schedule-toolbox` skill to generate the XER file
-2. Pass the plan structure (WBS, activities, durations, logic) as scope + sample XERs as reference schedules
-3. Apply all Westland standards during generation (from `schedule-toolbox`)
-4. Convert all durations from working days to hours (days x 8 for XER)
-5. Save to `<project>/[Project Name].xer` at the project root (v4.0.0+ layout). For legacy projects with a `Proposal Schedule/` subfolder, save there as `[Project Name] -v1.xer`.
+### Step 1 — Instantiate the skeleton
+
+Call `create_xer_from_template("westland-skeleton-v1", metadata)` where `metadata` is:
+
+```json
+{
+  "project_name":        "<Project Name>",
+  "project_id":          "<Job Number>",
+  "planned_start":       "YYYY-MM-DD",
+  "planned_data_date":   "YYYY-MM-DD",
+  "task_code_prefix":    "A"
+}
+```
+
+`task_code_prefix` is optional (defaults to `"A"`). Use the prefix confirmed with the user in Phase 3. The call writes an intermediate skeleton XER and returns:
+
+- `output_path` — the skeleton file to pass to the next step
+- `ntp_milestone` — task_id of the MILESTONE-NTP activity
+- `sc_milestone` — task_id of the MILESTONE-SC activity
+- `validation` — a brief structural check; review before continuing
+
+Capture `ntp_milestone` and `sc_milestone`. You will wire logic to both when you build the change set.
+
+### Step 2 — Build the change-record list
+
+Construct the full list of changes that turns the skeleton into the project-specific schedule. The complete change-type catalog is in `schedule-toolbox/references/xer-modify.md`; refer to it for field shapes. Apply changes in this order within the list — `apply_xer_changes` resolves references in-pass, so order matters:
+
+**2a. `add_wbs` records for the selected WBS pattern**
+
+The skeleton already contains the standard top-level tree (SUMMARY & MILESTONES, PRE-CONSTRUCTION with DESIGN subtree, PROCUREMENT, CONSTRUCTION with SITEWORK/STRUCTURE/ENCLOSURE/INTERIOR subtree, COMMISSIONING & CLOSE-OUT). The pattern adds only what the skeleton does not have — DEMOLITION, FINAL SITEWORK, and phase branches as applicable. See `references/wbs-patterns.md` § "MCP change records for this pattern" for the exact `add_wbs` record sets per pattern.
+
+Use a dry run to capture new `wbs_id` values before building the full call (see the wbs-patterns reference for the recommended approach). All `add_wbs` records must appear before any `add_activity` records that reference the new WBS nodes.
+
+**2b. `add_activity` records for every activity**
+
+One record per activity with the full spec:
+
+```json
+{
+  "type": "add_activity",
+  "spec": {
+    "code":          "A1010",
+    "name":          "Mobilization",
+    "duration_days": 5,
+    "calendar_id":   "CAL-5DAY",
+    "wbs_id":        "<wbs_id from skeleton or add_wbs result>",
+    "activity_type": "TT_Task"
+  }
+}
+```
+
+Duration unit: convert all working days to hours in the XER (days x 8). Supply `duration_days` to the tool — the tool handles the conversion internally.
+
+Milestones already exist in the skeleton (NTP, SC). Wire them via `add_logic` in step 2c rather than creating new milestone activities.
+
+**2c. `add_logic` records for the logic network**
+
+One record per relationship edge (FS/SS/FF/SF with lags in days). Each
+`add_logic` record is directional -- `predecessor_id` drives `successor_id`.
+Include:
+- `ntp_milestone` as predecessor of the first activity (NTP -> first activity): work starts after Notice to Proceed
+- The last critical activity as predecessor of `sc_milestone` (last activity -> SC): Substantial Completion follows the final work
+- All internal logic derived from the construction sequence
+
+### Step 3 — Apply all changes in one bulk call
+
+```python
+apply_xer_changes(
+    xer_path    = skeleton_output_path,   # from Step 1
+    changes     = [...],                  # full ordered list from Step 2
+    output_path = "<Project Name>.xer",
+    dry_run     = False,
+    strict      = True
+)
+```
+
+One call. The tool writes a new file — it never overwrites the skeleton. `strict=True` causes the call to fail on any unresolvable reference rather than silently skipping changes; leave it on so problems surface immediately.
+
+### Step 4 — Validate before showing the user
+
+Call `validate_xer_structure(output_path)` and confirm `import_ready: true`. If validation fails, review the per-change feedback from `apply_xer_changes` (each change record returns a `result` block) to locate the first unresolved reference or rejected field, fix the change list, and re-run from Step 3.
+
+### Step 5 — Save location
+
+- **v4.0.0+ layout:** `<project>/<Project Name>.xer` at the project root.
+- **Legacy layout** (project has a `Proposal Schedule/` subfolder): `<project>/Proposal Schedule/<Project Name> -v1.xer`.
 
 The plan PDF is **NOT** generated yet. The PDF gets built at the end (after iteration + scoring + approval) so it reflects the final schedule, not the v1 draft. See `phases/02-iterate.md` § "Generate the Plan PDF (post-approval)" for the trigger.
 

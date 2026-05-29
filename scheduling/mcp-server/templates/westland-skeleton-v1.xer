@@ -1,0 +1,144 @@
+ERMHDR	24.12	2026-03-20	Project	cwalker	Camron Walker	dbxDatabaseNoName	Project Management	USD
+%T	CURRTYPE
+%F	curr_id	decimal_digit_cnt	curr_symbol	decimal_symbol	digit_group_symbol	pos_curr_fmt_type	neg_curr_fmt_type	curr_type	curr_short_name	group_digit_cnt	base_exch_rate
+%R	1	2	$	.	,	#1.1	(#1.1)	US Dollar	USD	3	1
+%R	13	2	£	.	,	#1.1	(#1.1)	Pound Sterling	GBP	3	0.618603
+%R	14	2	¥	.	,	#1.1	(#1.1)	Japanese Yen	JPY	3	91.2708
+%R	15	2	€	.	,	#1.1	(#1.1)	Euro	EUR	3	0.689711
+%R	16	2	¥	.	,	#1.1	(#1.1)	Chinese Yuan Renminbi	CNY	3	6.82502
+%R	17	2	$	.	,	#1.1	(#1.1)	Canadian Dollar	CAD	3	1.03757
+%R	18	2	RUB	.	,	#1.1	(#1.1)	Russian Ruble	RUB	3	0.033948
+%R	19	2	$	.	,	#1.1	(#1.1)	Argentine Peso	ARS	3	3.79109
+%R	20	2	$b	.	,	#1.1	(#1.1)	Bolivian Boliviano	BOB	3	7.5708
+%R	21	2	R$	.	,	#1.1	(#1.1)	Brazilian Real	BRL	3	1.7665
+%R	22	2	$	.	,	#1.1	(#1.1)	Chilean Peso	CLP	3	507.58
+%R	23	2	$	.	,	#1.1	(#1.1)	Columbian Peso	COP	3	1957.74
+%R	24	2	$	.	,	#1.1	(#1.1)	Guyanese Dollar	GYD	3	202.95
+%R	25	2	Gs	.	,	#1.1	(#1.1)	Paraguayan Guarani	PYG	3	4640
+%R	26	2	S/.	.	,	#1.1	(#1.1)	Peruvian Nuevo Sol	PEN	3	2.7244
+%R	27	2	$	.	,	#1.1	(#1.1)	Surinamese Dollar	SRD	3	2.8
+%R	28	2	Bs	.	,	#1.1	(#1.1)	Venezuelan Bolivar Fuerto	VEF	3	2.1446
+%R	29	2	$U	.	,	#1.1	(#1.1)	Uruguayan Peso	UYU	3	21.247
+%T	FINTMPL
+%F	fintmpl_id	fintmpl_name	default_flag
+%R	1	ETY	Y
+%T	MEMOTYPE
+%F	memo_type_id	seq_num	eps_flag	proj_flag	wbs_flag	task_flag	memo_type
+%R	72	60000	N	Y	Y	Y	Description
+%T	OBS
+%F	obs_id	parent_obs_id	guid	seq_num	obs_name	obs_descr
+%R	540			0	Enterprise	<html>  <head>      </head>  <body bgcolor=""#ffffff"">    Enterprise  </body></html>
+%T	UDFTYPE
+%F	udf_type_id	table_name	udf_type_name	udf_type_label	logical_data_type	super_flag	indicator_expression	summary_indicator_expression	export_flag
+%R	971	TASK	user_field_971	Comment	FT_TEXT	N			
+%T	PROJECT
+%F	proj_id	fy_start_month_num	rsrc_self_add_flag	allow_complete_flag	rsrc_multi_assign_flag	checkout_flag	project_flag	step_complete_flag	cost_qty_recalc_flag	batch_sum_flag	name_sep_char	def_complete_pct_type	proj_short_name	acct_id	orig_proj_id	source_proj_id	base_type_id	clndr_id	sum_base_proj_id	task_code_base	task_code_step	priority_num	wbs_max_sum_level	strgy_priority_num	last_checksum	critical_drtn_hr_cnt	def_cost_per_qty	last_recalc_date	plan_start_date	plan_end_date	scd_end_date	add_date	last_tasksum_date	fcst_start_date	def_duration_type	task_code_prefix	guid	def_qty_type	add_by_name	web_local_root_path	proj_url	def_rate_type	add_act_remain_flag	act_this_per_link_flag	def_task_type	act_pct_link_flag	critical_path_type	task_code_prefix_flag	def_rollup_dates_flag	use_project_baseline_flag	rem_target_link_flag	reset_planned_flag	allow_neg_act_flag	sum_assign_level	last_fin_dates_id	last_baseline_update_date	cr_external_key	apply_actuals_date	fintmpl_id	last_schedule_date	location_id	loaded_scope_level	export_flag	new_fin_dates_id	baselines_to_export	baseline_names_to_export	next_data_date	close_period_flag	sum_refresh_date	trsrcsum_loaded	sumtask_loaded
+%R	TEMPLATE	1	Y	Y	Y	N	Y	N	N	Y	.	CP_Drtn	TEMPLATE					18261		1000	10	10				0	0.0000								DT_FixedDUR2			QT_Hour				COST_PER_QTY	N	Y	TT_Task	Y	CT_TotFloat	Y	Y	Y	Y	N	N	SL_Taskrsrc					1			7	Y						1899-12-30 00:00		
+%T	CALENDAR
+%F	clndr_id	default_flag	clndr_name	proj_id	base_clndr_id	last_chng_date	clndr_type	day_hr_cnt	week_hr_cnt	month_hr_cnt	year_hr_cnt	rsrc_private	clndr_data
+%R	18261	N	Standard	TEMPLATE			CA_Project	8	40	172	2000	N	(0||CalendarData()((0||DaysOfWeek()((0||1()())(0||2()((0||0(s|08:00|f|12:00)())(0||1(s|13:00|f|17:00)())))(0||3()((0||0(s|08:00|f|12:00)())(0||1(s|13:00|f|17:00)())))(0||4()((0||0(s|08:00|f|12:00)())(0||1(s|13:00|f|17:00)())))(0||5()((0||0(s|08:00|f|12:00)())(0||1(s|13:00|f|17:00)())))(0||6()((0||0(s|08:00|f|12:00)())(0||1(s|13:00|f|17:00)())))(0||7()())))(0||Exceptions()((0||0(d|43458)())(0||1(d|43459)())(0||2(d|43465)())(0||3(d|43466)())(0||4(d|43612)())(0||5(d|43650)())(0||6(d|43670)())(0||7(d|43710)())(0||8(d|43797)())(0||9(d|43824)())(0||10(d|43831)())(0||11(d|43976)())(0||12(d|44015)())(0||13(d|44016)())(0||14(d|44036)())(0||15(d|44081)())(0||16(d|44161)())(0||17(d|44190)())(0||18(d|44197)())(0||19(d|44347)())(0||20(d|44381)())(0||21(d|44382)())(0||22(d|44400)())(0||23(d|44401)())(0||24(d|44445)())(0||25(d|44525)())(0||26(d|44555)())(0||27(d|44561)())(0||28(d|44562)())(0||29(d|44711)())(0||30(d|44746)())(0||31(d|44766)())(0||32(d|44767)())(0||33(d|44809)())(0||34(d|44889)())(0||35(d|44920)())(0||36(d|44921)())(0||37(d|44927)())(0||38(d|44928)())(0||39(d|45075)())(0||40(d|45111)())(0||41(d|45131)())(0||42(d|45173)())(0||43(d|45253)())(0||44(d|45285)())(0||45(d|45292)())))))
+%T	SCHEDOPTIONS
+%F	schedoptions_id	proj_id	sched_outer_depend_type	sched_open_critical_flag	sched_lag_early_start_flag	sched_retained_logic	sched_setplantoforecast	sched_float_type	sched_calendar_on_relationship_lag	sched_use_expect_end_flag	sched_progress_override	level_float_thrs_cnt	level_outer_assign_flag	level_outer_assign_priority	level_over_alloc_pct	level_within_float_flag	level_keep_sched_date_flag	level_all_rsrc_flag	sched_use_project_end_date_for_float	enable_multiple_longest_path_calc	limit_multiple_longest_path_calc	max_multiple_longest_path	use_total_float_multiple_longest_paths	key_activity_for_multiple_longest_paths	LevelPriorityList
+%R	1	TEMPLATE	SD_Both	N	Y	Y	N	FT_FF	rcal_Successor	Y	N	0	N		0	N	Y	Y	Y	N	Y	1	Y		
+%T	PROJWBS
+%F	wbs_id	proj_id	obs_id	seq_num	est_wt	proj_node_flag	sum_data_flag	status_code	wbs_short_name	wbs_name	phase_id	parent_wbs_id	ev_user_pct	ev_etc_user_value	orig_cost	indep_remain_total_cost	ann_dscnt_rate_pct	dscnt_period_type	indep_remain_work_qty	anticip_start_date	anticip_end_date	ev_compute_type	ev_etc_compute_type	guid	tmpl_guid	plan_open_state
+%R	1	TEMPLATE	540	100	1	Y	N	WS_Open	PROJECT	PROJECT					0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	2	TEMPLATE	540	100	1	N	N	WS_Open	SUM	SUMMARY & MILESTONES		1			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	3	TEMPLATE	540	100	1	N	N	WS_Open	CMSB	CONTRACT MILESTONES & SUMMARY BARS		2			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	4	TEMPLATE	540	200	1	N	N	WS_Open	KPM	KEY PERFORMANCE MILESTONES		2			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	5	TEMPLATE	540	200	1	N	N	WS_Open	PRECON	PRE-CONSTRUCTION		1			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	6	TEMPLATE	540	100	1	N	N	WS_Open	DESIGN	DESIGN		5			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	7	TEMPLATE	540	100	1	N	N	WS_Open	ECSU	ESTIMATES - CONSTRUCTABILITY REPORTS - SCHEDULE UPDATES		6			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	8	TEMPLATE	540	200	1	N	N	WS_Open	BIM	BIM MODELING		6			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	9	TEMPLATE	540	300	1	N	N	WS_Open	TPQ	TRADE PRE-QUALIFICATION		6			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	10	TEMPLATE	540	400	1	N	N	WS_Open	BOPA	BUY OUT - PROPOSAL & AWARD		6			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	11	TEMPLATE	540	500	1	N	N	WS_Open	OPCP	OWNER PERMIT / CONSENT PROCESS		6			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	12	TEMPLATE	540	300	1	N	N	WS_Open	PROCUR	PROCUREMENT		1			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	13	TEMPLATE	540	100	1	N	N	WS_Open	SAFD	SUBMITTALS - APPROVALS - FABRICATION - DELIVERY		12			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	14	TEMPLATE	540	400	1	N	N	WS_Open	CONST	CONSTRUCTION		1			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	15	TEMPLATE	540	100	1	N	N	WS_Open	SITE	SITEWORK		14			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	16	TEMPLATE	540	100	1	N	N	WS_Open	INITSITE	INITIAL SITEWORK		15			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	17	TEMPLATE	540	200	1	N	N	WS_Open	BALSITE	BALANCE OF SITEWORK		15			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	18	TEMPLATE	540	200	1	N	N	WS_Open	STRSUB	STRUCTURE & SUBROUGH		14			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	19	TEMPLATE	540	300	1	N	N	WS_Open	ENCL	BUILDING ENCLOSURE - WINDOWS - ENTRIES - FINISH SYSTEMS		14			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	20	TEMPLATE	540	400	1	N	N	WS_Open	INTFIN	INTERIOR ROUGH-IN & FINISHES		14			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%R	21	TEMPLATE	540	500	1	N	N	WS_Open	CLOSE	COMMISSIONING & CLOSE-OUT		1			0.0000	0.0000						EC_Cmp_pct	EE_PF_cpi			
+%T	ACTVTYPE
+%F	actv_code_type_id	actv_short_len	seq_num	actv_code_type	proj_id	wbs_id	actv_code_type_scope	export_flag
+%R	10308	4	1	1	6094		AS_Project	
+%R	10309	1	2	2	6094		AS_Project	
+%R	10310	14	3	3	6094		AS_Project	
+%R	10311	11	4	4	6094		AS_Project	
+%R	10312	12	5	5	6094		AS_Project	
+%R	10313	10	6	6	6094		AS_Project	
+%R	10314	6	7	7	6094		AS_Project	
+%T	TASK
+%F	task_id	proj_id	wbs_id	clndr_id	phys_complete_pct	rev_fdbk_flag	est_wt	lock_plan_flag	auto_compute_act_flag	complete_pct_type	task_type	duration_type	status_code	task_code	task_name	rsrc_id	total_float_hr_cnt	free_float_hr_cnt	remain_drtn_hr_cnt	act_work_qty	remain_work_qty	target_work_qty	target_drtn_hr_cnt	target_equip_qty	act_equip_qty	remain_equip_qty	cstr_date	act_start_date	act_end_date	late_start_date	late_end_date	expect_end_date	early_start_date	early_end_date	restart_date	reend_date	target_start_date	target_end_date	rem_late_start_date	rem_late_end_date	cstr_type	priority_type	suspend_date	resume_date	float_path	float_path_order	guid	tmpl_guid	cstr_date2	cstr_type2	driving_path_flag	act_this_per_work_qty	act_this_per_equip_qty	external_early_start_date	external_late_end_date	create_date	update_date	create_user	update_user	location_id	crt_path_num
+%R	1	TEMPLATE	4	18261	0	N	0	N	N	CP_Drtn	TT_Mile	DT_FixedDrtn	TK_NotStart	MILESTONE-NTP	Notice to Proceed		0	0	0	0	0	0	0	0	0	0																PT_Normal									N	0	0								
+%R	2	TEMPLATE	4	18261	0	N	0	N	N	CP_Drtn	TT_FinMile	DT_FixedDrtn	TK_NotStart	MILESTONE-SC	Substantial Completion		0	0	0	0	0	0	0	0	0	0																PT_Normal									N	0	0								
+%T	ACTVCODE
+%F	actv_code_id	parent_actv_code_id	actv_code_type_id	actv_code_name	short_name	seq_num	color	total_assignments
+%R	183656		10308	Orem Utah Temple	Orem	1	0000FF	43
+%R	183657		10309	1 - Pre-Construction Activity	1	1		
+%R	183658		10309	2 - Procurement & Contracting	2	2		
+%R	183659		10309	3 - Construction	3	3		43
+%R	183660		10309	4 - Turnover & Commissioning	4	4		
+%R	183661		10309	5 - Closeout	5	5		
+%R	183662		10310	Rezoning	Rezoning	1		
+%R	183663		10310	Bidding, Review, & Contracting	Bidding	2		
+%R	183664		10310	BIM	BIM	3		
+%R	183665		10310	Scheduling Meetings	Scheduling	4		
+%R	183666		10310	Subcontractors to Prequalify - at least start by:	Subcontractors	5		
+%R	183667		10310	Submittal's (Sub Prep,Sent,Reviewed & Returned)	Submittal	6		
+%R	183668		10310	Guidelines/Goals	Guidelines	7		
+%R	183669		10310	Temple	Temple	8		43
+%R	183670		10310	Climatization of Building	Climatization	9		
+%R	183671		10310	Demobilization	Demobilization	10		
+%R	183672		10310	 	 	11		
+%R	183673		10311	Bid Package 1: Civil/Landscape/Building Foot Print, Elevations	Bid1	1		
+%R	183674		10311	BP 2A-Stake Center Bid Package	BP1	2		
+%R	183675		10311	BP 2B: Architectural Core, MEP, Landscape	BP2	3		
+%R	183676		10311	BP 3: Temple Interior Finishes	BP3	4		
+%R	183677		10311	BP 1 Scheduling	BP4	5		
+%R	183678		10311	BP 2A Scheduling	BP5	6		
+%R	183679		10311	BP 2B Scheduling	BP6	7		
+%R	183680		10311	BP 3 Scheduling	BP7	8		
+%R	183681		10311	Bid Package #1: Civil/Landscape/Building Foot Print, Elevations - General Dates	Bid2	9		
+%R	183682		10311	BP#2A-Stake Center Bid Package - General Dates	BP8	10		
+%R	183683		10311	BP2B: Architectural Core, MEP, Landscape - General Dates	BP2B	11		
+%R	183684		10311	BP3: Temple Interior Finishes - General Dates	BP3-1	12		
+%R	183685		10311	Procurement	Procurement	13		
+%R	183686		10311	Civil	Civil	14		
+%R	183687		10311	Font	Font	15		
+%R	183688		10311	Lower Level	Lower	16		
+%R	183689		10311	Level 1	Level1	17		
+%R	183690		10311	Level 2	Level2	18		
+%R	183691		10311	Level 3	Level3	19		
+%R	183692		10311	Exterior 	Exterior	20		
+%R	183693		10311	Stake Center	Stake	21		43
+%R	183694		10311	Site	Site	22		
+%R	183695		10311	 	 	23		
+%R	183696		10312	Bid Package #1: Civil/Landscape/Building Foot Print, Elevations	Bid	1		
+%R	183697		10312	BP#2A-Stake Center Bid Package	BP	2		
+%R	183698		10312	BP2B: Architectural Core, MEP, Landscape	BP2B	3		
+%R	183699		10312	BP3: Temple Interior Finishes	BP3	4		
+%R	183700		10312	Geneva Road Improvements	Geneva	5		
+%R	183701		10312	Font	Font	6		
+%R	183702		10312	Roof & Spire	Roof	7		
+%R	183703		10312	Construction	Construction	8		43
+%R	183704		10312	 	 	9		
+%R	183705		10313	Font Ceiling	Font	1		
+%R	183706		10313	Corridors, Mechanical Rooms, Vestibules	Corridors	2		
+%R	183707		10313	Chapel	Chapel	3		
+%R	183708		10313	Cultural Room	Cultural	4		
+%R	183709		10313	Classrooms, Aux Rooms, & Bathrooms	Classrooms	5		
+%R	183710		10313	Sitework	Sitework	6		
+%R	183711		10313	Closeout of Stake Center	Closeout	7		2
+%R	183712		10313	 	 	8		41
+%R	183713		10314	Raised Floor	Raised	1		
+%R	183714		10314	High Ceilings	High	2		
+%R	183715		10314	 	 	3		43
+%T	TASKPRED
+%F	task_pred_id	task_id	pred_task_id	proj_id	pred_proj_id	pred_type	lag_hr_cnt	comments	float_path	aref	arls
+%R	1	2	1	TEMPLATE	TEMPLATE	PR_FS	0				
+%E

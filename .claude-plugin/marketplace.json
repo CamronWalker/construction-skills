@@ -13,8 +13,8 @@
     {
       "name": "scheduling",
       "source": "./scheduling",
-      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop, reviewer-feedback download for external reviewers (attribution-tagged JSON), and a single propsched dispatcher (iterate, paths, anchors, diff, walk, score, init, bootstrap-anchors, aggregate-postmortems, feedback, metadata, durations).",
-      "version": "8.1.3"
+      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop, reviewer-feedback download for external reviewers (attribution-tagged JSON), Tier 3 XER modification + generation (validate_xer_structure, apply_xer_changes, fix_duplicate_activity_ids, create_xer_from_template), and a single propsched dispatcher (iterate, paths, anchors, diff, walk, score, init, bootstrap-anchors, aggregate-postmortems, feedback, metadata, durations).",
+      "version": "9.0.0"
     },
     {
       "name": "estimating",

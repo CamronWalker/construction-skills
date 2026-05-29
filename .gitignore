@@ -9,6 +9,9 @@ src/
 # Test fixtures are committed -- they ARE the parser's regression contract.
 !scheduling/mcp-server/tests/fixtures/*.xer
 
+# MCP server templates are committed -- they are the canonical donor skeletons.
+!scheduling/mcp-server/templates/*.xer
+
 # Playwright test artifacts
 **/test-results/
 **/tests/results.json
