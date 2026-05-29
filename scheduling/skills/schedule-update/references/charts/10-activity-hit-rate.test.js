@@ -13,37 +13,42 @@ const fixture = JSON.parse(readFileSync(
 describe('renderActivityHitRate', () => {
   const { html, svgInner } = renderActivityHitRate(fixture);
 
-  it('uses the #1476b7 line stroke', () => {
-    expect(html).toContain('#1476b7');
+  it('emits the canonical title from META', () => {
+    expect(META.title).toBe('Activity Hit Rate (%)');
+    expect(html).toContain(META.title);
   });
 
-  it('emits each per-point marker fill hex (red / yellow / green) across the fixture', () => {
-    // Fixture spans values < 0.7, 0.7-0.9, and >= 0.9 — all 3 colors must appear.
-    for (const hex of ['#b00020', '#f2c031', '#1AA462']) {
-      expect(html).toContain(hex);
-    }
-  });
-
-  it('uses #ffffff (or shorthand) for marker stroke', () => {
-    expect(html).toMatch(/#fff(f{3})?/i);
-  });
-
-  it('emits both reference-plotline strokes with the 8,6 dash pattern', () => {
-    // Yellow plotline at hit rate = 0.7 — #f2c031.
-    // Green  plotline at hit rate = 1.0 — #388543.
+  it('emits the 3-zone palette (red #b00020, yellow #f2c031, green #388543)', () => {
+    expect(html).toContain('#b00020');
     expect(html).toContain('#f2c031');
     expect(html).toContain('#388543');
+  });
+
+  it('emits both dashed threshold lines with stroke-dasharray="8,6"', () => {
+    // Yellow at 0.80, green at 0.90.
     expect(html).toContain('stroke-dasharray="8,6"');
   });
 
-  it('renders straight segments only (M-L-L-..., no C cubic curves)', () => {
-    expect(svgInner).not.toMatch(/\sC\s/);
+  it('emits the legend swatch color #2caffe', () => {
+    expect(html).toContain('#2caffe');
   });
 
-  it('emits the canonical title from META', () => {
-    expect(META.title).toBe('Activity Hit Rate (%)');
-    // The "(%)" survives HTML escaping unchanged (no reserved chars).
-    expect(html).toContain('Activity Hit Rate (%)');
+  it('emits percent-suffixed Y-axis labels', () => {
+    // E.g. "0 %", "20 %", "100 %".
+    expect(html).toMatch(/\d+\s%/);
+  });
+
+  it('emits MM/DD/YY X-axis labels', () => {
+    expect(html).toMatch(/\d{2}\/\d{2}\/\d{2}/);
+  });
+
+  it('emits the rotated "Values" Y-axis title', () => {
+    expect(html).toContain('Values');
+    expect(html).toMatch(/transform="rotate\(-90/);
+  });
+
+  it('renders straight segments only (no cubic curves)', () => {
+    expect(svgInner).not.toMatch(/\sC\s/);
   });
 
   it('returns non-empty svgInner', () => {
@@ -67,6 +72,6 @@ describe('renderActivityHitRate', () => {
   it('accepts a flat array as well as the { hitRates: [...] } envelope', () => {
     const { html: arrHtml } = renderActivityHitRate(fixture.hitRates);
     expect(arrHtml).toContain(META.title);
-    expect(arrHtml).toContain('#1476b7');
+    expect(arrHtml).toContain('#b00020');
   });
 });

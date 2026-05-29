@@ -203,8 +203,7 @@ The Worker validates on `generate_weekly_schedule_update_email_draft` and on eve
       "09-spi-over-time",
       "10-activity-hit-rate",
       "11-window-start-accuracy",
-      "12-window-finish-accuracy",
-      "smartpm-summary-report"
+      "12-window-finish-accuracy"
     ]
   },
 
@@ -212,7 +211,8 @@ The Worker validates on `generate_weekly_schedule_update_email_draft` and on eve
 
   "graphs": {
     "01-planned-vs-actual-percent-complete": { "html": "<svg…>…", "data": { } },
-    "06-end-date-variance":                   { "html": "<svg…>…", "data": { } }
+    "06-end-date-variance":                   { "html": "<svg…>…", "data": { } },
+    "smartpm-summary-report":                 { "html": "<div…>…", "data": { } }
   }
 }
 ```

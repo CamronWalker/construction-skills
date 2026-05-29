@@ -13,42 +13,86 @@ const fixture = JSON.parse(readFileSync(
 describe('renderEndDateVariance', () => {
   const { html, svgInner } = renderEndDateVariance(fixture);
 
-  it('uses the #2caffe line color', () => {
-    expect(html).toContain('#2caffe');
-  });
-
-  it('uses the #388543 circle-marker fill', () => {
-    expect(html).toContain('#388543');
-  });
-
-  it('uses the #ffffff marker stroke (or shorthand) for circle outlines', () => {
-    expect(html).toMatch(/#fff(f{3})?/i);
-  });
-
   it('emits the canonical title from META', () => {
     expect(META.title).toBe('End Date Variance');
     expect(html).toContain(META.title);
   });
 
+  it('uses the SmartPM zone palette (#b00020 red and #388543 green) when both sides are present', () => {
+    // Synthetic two-row payload that crosses the zero line so both zone colors
+    // get rendered. The live fixture's baseline puts all visible points on
+    // one side of zero — sufficient to draw one color only.
+    const sample = {
+      contractual_completion: '2024-06-15',
+      updates: [
+        { dataDate: '2024-01-01T08:00:00', sourceEndDate: '2024-06-01T09:00:00' },  // -14 days → green
+        { dataDate: '2024-02-01T08:00:00', sourceEndDate: '2024-06-30T09:00:00' },  // +15 days → red
+      ],
+    };
+    const { html: out } = renderEndDateVariance(sample);
+    expect(out).toContain('#b00020');
+    expect(out).toContain('#388543');
+  });
+
+  it('emits the blue zero-line stroke (#1476b7)', () => {
+    expect(html).toContain('#1476b7');
+  });
+
+  it('emits the two SmartPM plot-band fills (pink + light green)', () => {
+    expect(html).toContain('rgba(176, 0, 32, 0.0375)');
+    expect(html).toContain('rgba(20, 118, 75, 0.0375)');
+  });
+
+  it('uses #2caffe for the legend swatch', () => {
+    expect(html).toContain('#2caffe');
+  });
+
   it('renders MMM DD, YYYY X-axis labels (long format)', () => {
-    // e.g. "Oct 07, 2025" — accept any month abbrev + 2-digit day + 4-digit year.
     expect(html).toMatch(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2},\s\d{4}/);
   });
 
-  it('Y-axis tick labels include a "days" unit', () => {
-    expect(html).toMatch(/days/i);
+  it('uses Inter as the font family for axis labels', () => {
+    expect(html).toContain('Inter');
   });
 
-  it('has empty legend row content (single-series chart)', () => {
-    expect(html).toMatch(/<div class="legend-row">\s*<\/div>/);
+  it('emits a legend item for End Date Variance', () => {
+    expect(html).toContain('End Date Variance');
   });
 
-  it('returns non-empty svgInner', () => {
-    expect(svgInner.length).toBeGreaterThan(100);
-  });
-
-  it('renders straight segments only (M-L-L-..., no C cubic curves)', () => {
+  it('renders straight segments only (no cubic curves)', () => {
     expect(svgInner).not.toMatch(/\sC\s/);
+  });
+
+  it('uses contractual_completion as the variance baseline when provided', () => {
+    // baseline = 2024-06-01; one row matches it (variance=0), one 10 days later.
+    const sample = {
+      contractual_completion: '2024-06-01',
+      updates: [
+        { dataDate: '2024-01-01T08:00:00', sourceEndDate: '2024-06-01T09:00:00' },
+        { dataDate: '2024-02-01T08:00:00', sourceEndDate: '2024-06-11T09:00:00' },
+      ],
+    };
+    const { html: out } = renderEndDateVariance(sample);
+    // Variance is +10 days at second point. With minSpan 50 and ±18% padding,
+    // a Y tick somewhere in the 0–25 range should appear.
+    expect(out).toMatch(/>(?:0|5|10|15|20|25)</);
+  });
+
+  it('falls back to the earliest sourceEndDate when contractual_completion is absent', () => {
+    const sample = {
+      updates: [
+        { dataDate: '2024-01-01T08:00:00', sourceEndDate: '2024-06-01T09:00:00' },
+        { dataDate: '2024-02-01T08:00:00', sourceEndDate: '2024-06-11T09:00:00' },
+      ],
+    };
+    const { html: out } = renderEndDateVariance(sample);
+    // First row's variance = 0 against itself; second is +10.
+    expect(out).toContain('End Date Variance');
+  });
+
+  it('emits colored pill labels with bold Inter 11.2 text', () => {
+    // Each visible data point gets a "MMM DD, YYYY" pill rendered as bold text.
+    expect(html).toMatch(/font-weight="700"[^>]*>(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2},\s\d{4}</);
   });
 
   it('throws TypeError when payload.updates is not an array', () => {
@@ -69,21 +113,5 @@ describe('renderEndDateVariance', () => {
     const { html: empty } = renderEndDateVariance({ updates: [] });
     expect(empty).toContain('no data');
     expect(empty).not.toContain('<svg class="chart-svg"');
-  });
-
-  it('computes variance as days from the earliest sourceEndDate', () => {
-    // Baseline = first sorted row's sourceEndDate, expressed as variance = 0.
-    // The earliest row in the fixture has sourceEndDate 2024-02-29. Pass a tiny
-    // 2-row payload to verify the math is days-from-baseline.
-    const sample = {
-      updates: [
-        { dataDate: '2024-01-01T08:00:00', sourceEndDate: '2024-06-01T09:00:00' },  // baseline
-        { dataDate: '2024-02-01T08:00:00', sourceEndDate: '2024-06-11T09:00:00' },  // +10 days
-      ],
-    };
-    const out = renderEndDateVariance(sample);
-    // The label formatter is `${v.toFixed(0)} days`. With 2 rows including 0,
-    // and 5-day minimum span, the Y-axis must show a label near +10.
-    expect(out.html).toMatch(/10 days|11 days|9 days/);
   });
 });

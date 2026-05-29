@@ -1,32 +1,54 @@
-// 08-velocity.js — Monthly Activity Start & Finish Distribution (Velocity).
-// Grouped column chart: 4 column series (Current Starts/Finishes,
-// Baseline Starts/Finishes) per month + an Average line connecting
-// per-month averages of Current Starts/Finishes + a dashed data-date
-// plotline at the last month with any current* activity.
+// 08-velocity.js — Monthly Activity Start & Finish Distribution.
 //
-// Palette/series structure captured from SmartPM's live DOM via Chrome MCP
-// on Wellington NZ Temple (project 113385, scenario 1644) on 2026-05-22.
-// Live SmartPM shows 6 column series (including Planned variants); our
-// payload only carries the 4 used here, so we render the 4-series simplification.
+// Six grouped column series + one stepped average line + a dark-blue data-date
+// marker. The MCP (`smartpm_get_scenario_velocity`) returns one number per
+// month for currentStarts and currentFinishes; SmartPM splits each into an
+// Actual portion (months ≤ scenario data_date) and a Planned portion (months
+// after data_date) so the chart visually separates "what happened" from
+// "what's left to do". Palette / typography captured live from SmartPM DOM
+// (project 113385, scenario 1644) on 2026-05-28.
+//
+// Series (legend order):
+//   0  Current Starts (Actual)     #B4C7E7   light blue
+//   1  Current Finishes (Actual)   #4472C4   dark  blue
+//   2  Baseline Starts             #cccccc   light gray
+//   3  Baseline Finishes           #808080   dark  gray
+//   4  Current Starts (Planned)    #C5E0B4   light green
+//   5  Current Finishes (Planned)  #70AD47   dark  green
+//   6  Average                     #F2A623   orange line (stepped at data_date)
+//
+// Plus:
+//   • Dark-blue vertical line (#4472C4, stroke-width 3) at the boundary
+//     between the data-date month's slot and the next month's slot, with a
+//     "DD MMM-YY" label rotated 90° at the top of the line.
+//   • Stepped average: horizontal segment at the mean of actual months,
+//     vertical step at the data-date boundary, horizontal segment at the
+//     mean of planned months.
+//   • X-axis labels rotated -45° so every month can fit without collision.
+//   • "Values" rotated Y-axis title.
 
 import {
   HTML_CARD_W, HTML_CARD_H,
   parseDate, legendItem, htmlEnvelope, emptyHtml,
 } from './svg-lib.js';
 
-const CURRENT_STARTS    = '#B4C7E7'; // light blue
-const CURRENT_FINISHES  = '#4472C4'; // medium blue
-const BASELINE_STARTS   = '#cccccc'; // light gray
-const BASELINE_FINISHES = '#808080'; // dark gray
-const AVERAGE_LINE      = '#F2A623'; // orange
+// --- Palette --------------------------------------------------------------
+const ACTUAL_STARTS     = '#B4C7E7';
+const ACTUAL_FINISHES   = '#4472C4';
+const BASELINE_STARTS   = '#cccccc';
+const BASELINE_FINISHES = '#808080';
+const PLANNED_STARTS    = '#C5E0B4';
+const PLANNED_FINISHES  = '#70AD47';
+const AVERAGE_LINE      = '#F2A623';
+const DATA_DATE_LINE    = '#4472C4';
 const BAR_STROKE        = '#ffffff';
-const DATA_DATE_LINE    = '#cccccc';
 const GRID              = '#e6e6e6';
+const AXIS_LABEL_TXT    = '#333333';
+const AXIS_TITLE_TXT    = '#666666';
 
-const MONTH_ABBR = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
+const MONTHS_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+/** @param {Date} d @returns {string} */
+const fmtMMMYY = (d) => `${MONTHS_ABBR[d.getUTCMonth()]}-${String(d.getUTCFullYear()).slice(-2)}`;
 
 /**
  * @typedef {Object} VelocityRow
@@ -37,7 +59,9 @@ const MONTH_ABBR = [
  * @property {number} currentFinishes
  */
 
-/** @typedef {VelocityRow[]} VelocityPayload */
+/**
+ * @typedef {{ velocityList: VelocityRow[], dataDate?: string } | VelocityRow[]} VelocityPayload
+ */
 
 /** @type {{ svgWidth: number, svgHeight: number, title: string }} */
 export const META = {
@@ -47,13 +71,17 @@ export const META = {
 };
 
 /**
- * @param {VelocityPayload | { velocityList?: VelocityPayload }} payload
+ * @param {VelocityPayload} payload
  * @returns {import('./svg-lib.js').RenderResult}
  */
 export function renderVelocity(payload) {
+  /** @type {VelocityRow[]} */
   let rows;
+  /** @type {string | undefined} */
+  let dataDateISO;
   if (Array.isArray(payload)) {
     rows = payload;
+    dataDateISO = undefined;
   } else if (payload && typeof payload === 'object') {
     const envelope = /** @type {any} */ (payload).velocityList;
     if (envelope === undefined || envelope === null) {
@@ -61,10 +89,11 @@ export function renderVelocity(payload) {
     } else if (Array.isArray(envelope)) {
       rows = envelope;
     } else {
-      throw new TypeError('expected VelocityPayload (array) or { velocityList: array }');
+      throw new TypeError('expected VelocityPayload ({ velocityList: array }) or array');
     }
+    dataDateISO = /** @type {any} */ (payload).dataDate;
   } else {
-    throw new TypeError('expected VelocityPayload (array) or { velocityList: array }');
+    throw new TypeError('expected VelocityPayload ({ velocityList: array }) or array');
   }
 
   if (!rows.length) return { html: emptyHtml(META.title), svgInner: '' };
@@ -72,173 +101,232 @@ export function renderVelocity(payload) {
   /** @param {any} v */
   const num = (v) => (typeof v === 'number' ? v : Number(v) || 0);
 
-  /** @type {Array<{ d: Date, cs: number, cf: number, bs: number, bf: number }>} */
-  const parsed = rows.map(r => ({
-    d:  parseDate(String(r.date)),
-    cs: num(r.currentStarts),
-    cf: num(r.currentFinishes),
-    bs: num(r.baselineStarts),
-    bf: num(r.baselineFinishes),
-  }));
+  // The data-date month is the boundary between Actual and Planned. If the
+  // payload omits dataDate (e.g. array form), fall back to the latest month
+  // with any currentStarts/currentFinishes — that's the last "actual" month.
+  /** @type {Date | null} */
+  let dataDate = dataDateISO ? parseDate(dataDateISO) : null;
 
-  // Trim empty months that fall outside the data-bearing range. We keep
-  // interior zero-months as zero-height placeholders so the X-axis stays
-  // evenly spaced.
+  /** @type {Array<{ d: Date, csTotal: number, cfTotal: number, bs: number, bf: number }>} */
+  const parsed = rows
+    .filter(r => r && r.date != null)
+    .map(r => ({
+      d: parseDate(String(r.date)),
+      csTotal: num(r.currentStarts),
+      cfTotal: num(r.currentFinishes),
+      bs: num(r.baselineStarts),
+      bf: num(r.baselineFinishes),
+    }))
+    .filter(p => !isNaN(p.d.getTime()))
+    .sort((a, b) => a.d.getTime() - b.d.getTime());
+
+  if (!parsed.length) return { html: emptyHtml(META.title), svgInner: '' };
+
+  if (!dataDate) {
+    for (let i = parsed.length - 1; i >= 0; i--) {
+      if (parsed[i].csTotal || parsed[i].cfTotal) {
+        dataDate = parsed[i].d;
+        break;
+      }
+    }
+  }
+  if (!dataDate) dataDate = parsed[parsed.length - 1].d;
+
+  const dataDateMonthMs = Date.UTC(dataDate.getUTCFullYear(), dataDate.getUTCMonth(), 1);
+
+  // Split current* into Actual (≤ data-date month) vs Planned (> data-date month).
+  const split = parsed.map(p => {
+    const monthMs = Date.UTC(p.d.getUTCFullYear(), p.d.getUTCMonth(), 1);
+    const isPlanned = monthMs > dataDateMonthMs;
+    return {
+      d: p.d,
+      bs: p.bs,
+      bf: p.bf,
+      csa: isPlanned ? 0 : p.csTotal,
+      cfa: isPlanned ? 0 : p.cfTotal,
+      csp: isPlanned ? p.csTotal : 0,
+      cfp: isPlanned ? p.cfTotal : 0,
+    };
+  });
+
+  // Trim leading/trailing all-zero months; keep interior zeros for spacing.
   let firstIdx = 0;
-  while (firstIdx < parsed.length) {
-    const p = parsed[firstIdx];
-    if (p.cs || p.cf || p.bs || p.bf) break;
+  while (firstIdx < split.length) {
+    const r = split[firstIdx];
+    if (r.bs || r.bf || r.csa || r.cfa || r.csp || r.cfp) break;
     firstIdx++;
   }
-  let lastIdx = parsed.length - 1;
+  let lastIdx = split.length - 1;
   while (lastIdx > firstIdx) {
-    const p = parsed[lastIdx];
-    if (p.cs || p.cf || p.bs || p.bf) break;
+    const r = split[lastIdx];
+    if (r.bs || r.bf || r.csa || r.cfa || r.csp || r.cfp) break;
     lastIdx--;
   }
-  const months = parsed.slice(firstIdx, lastIdx + 1);
+  const months = split.slice(firstIdx, lastIdx + 1);
   if (!months.length) return { html: emptyHtml(META.title), svgInner: '' };
+  const N = months.length;
 
-  const svgW = 1692, svgH = 312;
-  const padT = 14, padR = 32, padB = 30, padL = 56;
+  // --- Layout ------------------------------------------------------------
+  const svgW = 1692, svgH = 400;
+  const padT = 14, padR = 32, padB = 64, padL = 64;
   const x0 = padL, x1 = svgW - padR;
   const y0 = padT, y1 = svgH - padB;
 
-  // Group geometry: 4 bars per month, ~7px each. Group width ~28px.
-  const BAR_W = 7;
-  const N_SERIES = 4;
-  const GROUP_W = BAR_W * N_SERIES;
-  const offsets = [
-    -1.5 * BAR_W, // currentStarts
-    -0.5 * BAR_W, // currentFinishes
-    +0.5 * BAR_W, // baselineStarts
-    +1.5 * BAR_W, // baselineFinishes
-  ];
+  // One slot per month, 6-bar group fills ~70% of the slot leaving ~30% gap
+  // between months (matches SmartPM spacing at this density).
+  const N_SERIES = 6;
+  const slotW = N >= 2 ? (x1 - x0) / N : (x1 - x0);
+  const GROUP_W = Math.max(12, Math.min(40, slotW * 0.70));
+  const BAR_W = GROUP_W / N_SERIES;
+  const offsets = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5].map(k => k * BAR_W);
 
-  // Per-month X center: linearly space across the plot area so the labels stay
-  // evenly distributed even when actual months are unevenly spaced.
-  const nMonths = months.length;
-  /** @param {number} i @returns {number} */
-  const monthX = (i) => {
-    if (nMonths === 1) return (x0 + x1) / 2;
-    // Leave half a group of padding on each side so end groups don't kiss the frame.
-    const usable = (x1 - x0) - GROUP_W;
-    return x0 + GROUP_W / 2 + (i / (nMonths - 1)) * usable;
-  };
+  /** @param {number} i */
+  const monthX = (i) => (N === 1 ? (x0 + x1) / 2 : x0 + slotW * (i + 0.5));
 
-  // Y range: auto-fit from 0 to max column value with 10% top padding.
+  // Y range — fit 0 to max of all 6 bar series + the per-month combined avg.
   let vMax = 0;
-  for (const m of months) {
-    vMax = Math.max(vMax, m.cs, m.cf, m.bs, m.bf);
-  }
-  const avgs = months.map(m => (m.cs + m.cf) / 2);
-  vMax = Math.max(vMax, ...avgs);
+  for (const m of months) vMax = Math.max(vMax, m.bs, m.bf, m.csa, m.cfa, m.csp, m.cfp);
+  const perMonthAvg = months.map(m => ((m.csa + m.csp) + (m.cfa + m.cfp)) / 2);
+  vMax = Math.max(vMax, ...perMonthAvg);
   vMax = Math.max(1, vMax) * 1.10;
-  const vMin = 0;
-  const ySpan = vMax - vMin;
-  /** @param {number} v @returns {number} */
-  const valueToY = (v) => y1 - ((v - vMin) / ySpan) * (y1 - y0);
+  const span = vMax;
+  /** @param {number} v */
+  const valueToY = (v) => y1 - (v / span) * (y1 - y0);
 
-  // ~5 horizontal gridlines spanning 0..vMax at "sensible" round increments.
-  // Highcharts default is 5 ticks; we mirror that.
-  const gridlines = [];
-  const yLabels = [];
-  for (let i = 0; i <= 4; i++) {
-    const v = vMin + (i / 4) * ySpan;
+  // --- Y ticks -----------------------------------------------------------
+  const tickStep = pickTickStep(vMax);
+  const yTicks = [];
+  for (let v = 0; v <= vMax + 0.5; v += tickStep) yTicks.push(v);
+
+  const gridlines = yTicks.map(v => {
     const y = valueToY(v);
-    gridlines.push(`<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" class="grid-line" />`);
-    yLabels.push(`<text x="${x0 - 8}" y="${(y + 4).toFixed(1)}" class="axis-text axis-text-y">${v.toFixed(0)}</text>`);
-  }
+    return `<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" stroke="${GRID}" stroke-width="1" />`;
+  });
+  const yLabels = yTicks.map(v => {
+    const y = valueToY(v);
+    return `<text x="${x0 - 10}" y="${(y + 4).toFixed(1)}" font-family="Inter, sans-serif" font-size="12.8" fill="${AXIS_LABEL_TXT}" text-anchor="end">${v}</text>`;
+  });
 
-  // X-axis labels: every month gets a label if there are ≤ 24 months;
-  // otherwise stride to keep ~12-15 labels.
-  const labelStride = Math.max(1, Math.ceil(nMonths / 14));
+  const yTitleCX = 22;
+  const yTitleCY = (y0 + y1) / 2;
+  const yTitle = `<text x="${yTitleCX}" y="${yTitleCY}" font-family="Inter, sans-serif" font-size="12.8" fill="${AXIS_TITLE_TXT}" text-anchor="middle" transform="rotate(-90 ${yTitleCX} ${yTitleCY})">Values</text>`;
+
+  // --- X tick labels (rotated -45°) --------------------------------------
   const xLabels = [];
-  for (let i = 0; i < nMonths; i += labelStride) {
-    const m = months[i];
-    const mon = MONTH_ABBR[m.d.getUTCMonth()];
-    const yyyy = m.d.getUTCFullYear();
+  for (let i = 0; i < N; i++) {
     const x = monthX(i);
-    xLabels.push(`<text x="${x.toFixed(1)}" y="${y1 + 18}" class="axis-text axis-text-x">${mon} ${yyyy}</text>`);
-  }
-  // Always include the last month's label, even if the stride skipped it.
-  if ((nMonths - 1) % labelStride !== 0 && nMonths > 1) {
-    const m = months[nMonths - 1];
-    const mon = MONTH_ABBR[m.d.getUTCMonth()];
-    const yyyy = m.d.getUTCFullYear();
-    const x = monthX(nMonths - 1);
-    xLabels.push(`<text x="${x.toFixed(1)}" y="${y1 + 18}" class="axis-text axis-text-x">${mon} ${yyyy}</text>`);
+    const ly = y1 + 12;
+    xLabels.push(`<text x="${x.toFixed(1)}" y="${ly}" font-family="Inter, sans-serif" font-size="12.8" fill="${AXIS_LABEL_TXT}" text-anchor="end" transform="rotate(-45 ${x.toFixed(1)} ${ly})">${fmtMMMYY(months[i].d)}</text>`);
   }
 
   const frame = `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="${GRID}" stroke-width="1" />`;
 
-  // Data-date vertical plotline at the last month with any current* activity.
-  /** @type {string} */
-  let plotLine = '';
-  let dataDateIdx = -1;
-  for (let i = nMonths - 1; i >= 0; i--) {
-    if (months[i].cs || months[i].cf) { dataDateIdx = i; break; }
-  }
-  if (dataDateIdx >= 0) {
-    const dx = monthX(dataDateIdx);
-    plotLine = `<line x1="${dx.toFixed(1)}" y1="${y0}" x2="${dx.toFixed(1)}" y2="${y1}" stroke="${DATA_DATE_LINE}" stroke-width="2" stroke-dasharray="8,6" />`;
-  }
-
-  // Bars (4 per month, grouped). Order: currentStarts, currentFinishes,
-  // baselineStarts, baselineFinishes (left → right).
+  // --- 6 column series ---------------------------------------------------
+  const yBot = valueToY(0);
   /** @type {string[]} */
-  const barSvg = [];
-  for (let i = 0; i < nMonths; i++) {
-    const m = months[i];
+  const bars = [];
+  /** @param {number} cx @param {number} off @param {number} v @param {string} fill */
+  const drawRect = (cx, off, v, fill) => {
+    if (v <= 0) return;
+    const yTop = valueToY(v);
+    const h = Math.max(0, yBot - yTop);
+    if (h === 0) return;
+    const x = cx + off - BAR_W / 2;
+    bars.push(`<rect x="${x.toFixed(2)}" y="${yTop.toFixed(2)}" width="${BAR_W.toFixed(2)}" height="${h.toFixed(2)}" fill="${fill}" stroke="${BAR_STROKE}" stroke-width="1" />`);
+  };
+  months.forEach((m, i) => {
     const cx = monthX(i);
-    /** @param {number} value @param {number} offset @param {string} fill */
-    const rect = (value, offset, fill) => {
-      // Render even zero-value bars as zero-height placeholders so the
-      // group geometry stays consistent. Skip negative (shouldn't occur).
-      if (value < 0) return '';
-      const yTop = valueToY(value);
-      const yBot = valueToY(0);
-      const h = Math.max(0, yBot - yTop);
-      const x = cx + offset - BAR_W / 2;
-      if (h === 0) return '';
-      return `<rect x="${x.toFixed(2)}" y="${yTop.toFixed(2)}" width="${BAR_W}" height="${h.toFixed(2)}" fill="${fill}" stroke="${BAR_STROKE}" stroke-width="1" />`;
-    };
-    barSvg.push(rect(m.cs, offsets[0], CURRENT_STARTS));
-    barSvg.push(rect(m.cf, offsets[1], CURRENT_FINISHES));
-    barSvg.push(rect(m.bs, offsets[2], BASELINE_STARTS));
-    barSvg.push(rect(m.bf, offsets[3], BASELINE_FINISHES));
+    drawRect(cx, offsets[0], m.csa, ACTUAL_STARTS);
+    drawRect(cx, offsets[1], m.cfa, ACTUAL_FINISHES);
+    drawRect(cx, offsets[2], m.bs,  BASELINE_STARTS);
+    drawRect(cx, offsets[3], m.bf,  BASELINE_FINISHES);
+    drawRect(cx, offsets[4], m.csp, PLANNED_STARTS);
+    drawRect(cx, offsets[5], m.cfp, PLANNED_FINISHES);
+  });
+
+  // --- Data-date marker (boundary between actual and planned months) ----
+  let dataDateIdx = -1;
+  for (let i = 0; i < N; i++) {
+    if (
+      months[i].d.getUTCFullYear() === dataDate.getUTCFullYear() &&
+      months[i].d.getUTCMonth() === dataDate.getUTCMonth()
+    ) { dataDateIdx = i; break; }
+  }
+  let dataDateLineSvg = '';
+  let dataDateLabelSvg = '';
+  /** @type {number | null} */
+  let dataDateX = null;
+  if (dataDateIdx >= 0) {
+    dataDateX = monthX(dataDateIdx) + slotW / 2;
+    dataDateLineSvg = `<line x1="${dataDateX.toFixed(1)}" y1="${y0}" x2="${dataDateX.toFixed(1)}" y2="${y1}" stroke="${DATA_DATE_LINE}" stroke-width="3" />`;
+    const day = dataDate.getUTCDate();
+    const labelTxt = `${day} ${fmtMMMYY(dataDate)}`;
+    const lx = dataDateX + 4;
+    const ly = y0 + 6;
+    dataDateLabelSvg = `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-family="Inter, sans-serif" font-size="12.8" fill="${AXIS_LABEL_TXT}" text-anchor="start" transform="rotate(90 ${lx.toFixed(1)} ${ly.toFixed(1)})">${labelTxt}</text>`;
   }
 
-  // Average line: connects per-month avgs = (currentStarts + currentFinishes) / 2.
-  // SmartPM's live chart uses Highcharts auto-averaging across all visible
-  // series; we approximate by averaging the two Current* series, which is
-  // what colleagues actually care about (Current pace).
-  /** @type {Array<[number, number]>} */
-  const avgPts = months.map((m, i) => [monthX(i), valueToY((m.cs + m.cf) / 2)]);
-  const avgPath = 'M ' + avgPts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L ');
-  const avgLineSvg = `<path d="${avgPath}" fill="none" stroke="${AVERAGE_LINE}" stroke-width="2" />`;
+  // --- Stepped Average line ---------------------------------------------
+  const actualMonths  = months.filter(m => m.csa || m.cfa);
+  const plannedMonths = months.filter(m => m.csp || m.cfp);
+  /** @param {number[]} arr */
+  const mean = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+  const actualAvg  = mean(actualMonths.map(m => (m.csa + m.cfa) / 2));
+  const plannedAvg = mean(plannedMonths.map(m => (m.csp + m.cfp) / 2));
 
-  // Y-axis title — colleague needs to know the unit is activity count, not %.
-  const yAxisTitleX = x0 - 38;
-  const yAxisTitleY = (y0 + y1) / 2;
-  const yAxisTitle = `<text x="${yAxisTitleX}" y="${yAxisTitleY.toFixed(1)}" class="axis-title-text" transform="rotate(-90 ${yAxisTitleX} ${yAxisTitleY.toFixed(1)})">Activities</text>`;
+  const avgSegs = [];
+  if (actualMonths.length && dataDateX != null) {
+    const xLeft = monthX(0);
+    const yA = valueToY(actualAvg);
+    avgSegs.push(`<line x1="${xLeft.toFixed(1)}" y1="${yA.toFixed(2)}" x2="${dataDateX.toFixed(1)}" y2="${yA.toFixed(2)}" stroke="${AVERAGE_LINE}" stroke-width="2" />`);
+  }
+  if (plannedMonths.length && dataDateX != null) {
+    const xRight = monthX(N - 1);
+    const yP = valueToY(plannedAvg);
+    if (actualMonths.length) {
+      const yA = valueToY(actualAvg);
+      avgSegs.push(`<line x1="${dataDateX.toFixed(1)}" y1="${yA.toFixed(2)}" x2="${dataDateX.toFixed(1)}" y2="${yP.toFixed(2)}" stroke="${AVERAGE_LINE}" stroke-width="2" />`);
+    }
+    avgSegs.push(`<line x1="${dataDateX.toFixed(1)}" y1="${yP.toFixed(2)}" x2="${xRight.toFixed(1)}" y2="${yP.toFixed(2)}" stroke="${AVERAGE_LINE}" stroke-width="2" />`);
+  }
+  const avgLineSvg = avgSegs.join('\n');
 
   const svgInner = [
-    ...gridlines, frame,
-    ...yLabels, ...xLabels, yAxisTitle,
-    ...barSvg.filter(s => s !== ''),
-    plotLine,
+    ...gridlines,
+    frame,
+    ...yLabels,
+    ...xLabels,
+    yTitle,
+    ...bars,
     avgLineSvg,
-  ].filter(s => s !== '').join('\n');
-
-  const legendHtml = [
-    legendItem('square', CURRENT_STARTS,    '', 'Current Starts'),
-    legendItem('square', CURRENT_FINISHES,  '', 'Current Finishes'),
-    legendItem('square', BASELINE_STARTS,   '', 'Baseline Starts'),
-    legendItem('square', BASELINE_FINISHES, '', 'Baseline Finishes'),
-    legendItem('square', AVERAGE_LINE,      '', 'Average'),
+    dataDateLineSvg,
+    dataDateLabelSvg,
   ].join('\n');
 
-  const html = htmlEnvelope({ title: META.title, svgW, svgH, svgInner, legendHtml });
+  const legendHtml = [
+    legendItem('square', ACTUAL_STARTS,    '', 'Current Starts (Actual)'),
+    legendItem('square', ACTUAL_FINISHES,  '', 'Current Finishes (Actual)'),
+    legendItem('square', BASELINE_STARTS,  '', 'Baseline Starts'),
+    legendItem('square', BASELINE_FINISHES,'', 'Baseline Finishes'),
+    legendItem('square', PLANNED_STARTS,   '', 'Current Starts (Planned)'),
+    legendItem('square', PLANNED_FINISHES, '', 'Current Finishes (Planned)'),
+    legendItem('circle', AVERAGE_LINE,     '', 'Average'),
+  ].join('\n');
+
+  const html = htmlEnvelope({
+    title: META.title,
+    svgW, svgH,
+    svgInner,
+    legendHtml,
+  });
   return { html, svgInner };
+}
+
+/** @param {number} vMax @returns {number} */
+function pickTickStep(vMax) {
+  const candidates = [5, 10, 20, 25, 50, 100, 200, 500];
+  for (const c of candidates) {
+    if (vMax / c <= 6) return c;
+  }
+  return 1000;
 }

@@ -50,6 +50,11 @@ SCHEMA_URL = (
 )
 
 CANONICAL_GRAPH_ORDER = [
+    # smartpm-summary-report is intentionally NOT in this list — it ships
+    # as its own PNG at the top of the email body (Section 3) rather than
+    # being stacked with the trend gallery (Section 11). The Worker still
+    # emits its HTML chunk in `graphs['smartpm-summary-report']`; the email
+    # pipeline pulls it via render_summary_png() in email_draft_io.py.
     '01-planned-vs-actual-percent-complete',
     '06-end-date-variance',
     '07-schedule-compression-index-over-time',
@@ -58,7 +63,6 @@ CANONICAL_GRAPH_ORDER = [
     '10-activity-hit-rate',
     '11-window-start-accuracy',
     '12-window-finish-accuracy',
-    'smartpm-summary-report',
 ]
 
 DEFAULT_CLOSING_PARAGRAPHS = [{

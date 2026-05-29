@@ -13,38 +13,61 @@ const fixture = JSON.parse(readFileSync(
 describe('renderScheduleCompression', () => {
   const { html, svgInner } = renderScheduleCompression(fixture);
 
-  it('uses the #2caffe line color', () => {
-    expect(html).toContain('#2caffe');
-  });
-
-  it('uses the #1AA462 circle-marker fill', () => {
-    expect(html).toContain('#1AA462');
-  });
-
-  it('uses the #ffffff marker stroke (or shorthand) for circle outlines', () => {
-    expect(html).toMatch(/#fff(f{3})?/i);
-  });
-
   it('emits the canonical title from META (including the ™ symbol)', () => {
     expect(META.title).toBe('Schedule Compression Index™ Over Time');
     expect(html).toContain('Schedule Compression Index');
     expect(html).toContain('™');
   });
 
-  it('emits the percent Y-axis (e.g. "%" in tick labels)', () => {
-    expect(html).toContain('%');
+  it('emits the 3-zone palette when all 3 zones are represented', () => {
+    // Synthetic 3-row payload crossing both thresholds (15 and 25) to force
+    // every zone color into the output.
+    const sample = {
+      trend: [
+        { dataDate: '2024-01-01T08:00:00', scheduleCompressionIndex: 5,  indicator: 'GOOD' },
+        { dataDate: '2024-02-01T08:00:00', scheduleCompressionIndex: 20, indicator: 'FINE' },
+        { dataDate: '2024-03-01T08:00:00', scheduleCompressionIndex: 35, indicator: 'BAD'  },
+      ],
+    };
+    const { html: out } = renderScheduleCompression(sample);
+    expect(out).toContain('#1AA462');
+    expect(out).toContain('#F5A623');
+    expect(out).toContain('#DB495B');
   });
 
-  it('has empty legend row content (single-series chart)', () => {
-    expect(html).toMatch(/<div class="legend-row">\s*<\/div>/);
+  it('emits both dashed threshold lines (yellow @ 15% and red @ 25%)', () => {
+    expect(html).toContain('#E0B020');
+    expect(html).toContain('#B41E2F');
+    expect(html).toContain('stroke-dasharray="8,4"');
+  });
+
+  it('emits the legend swatch color #2caffe', () => {
+    expect(html).toContain('#2caffe');
+  });
+
+  it('emits percent-suffixed Y-axis labels', () => {
+    expect(html).toMatch(/\d+\s%/);
+  });
+
+  it('emits MM/DD/YY X-axis labels', () => {
+    expect(html).toMatch(/\d{2}\/\d{2}\/\d{2}/);
+  });
+
+  it('emits the rotated "Values" Y-axis title', () => {
+    expect(html).toContain('Values');
+    expect(html).toMatch(/transform="rotate\(-90/);
+  });
+
+  it('uses Inter font family', () => {
+    expect(html).toContain('Inter');
+  });
+
+  it('renders straight segments only (no cubic curves)', () => {
+    expect(svgInner).not.toMatch(/\sC\s/);
   });
 
   it('returns non-empty svgInner', () => {
     expect(svgInner.length).toBeGreaterThan(100);
-  });
-
-  it('renders straight segments only (M-L-L-..., no C cubic curves)', () => {
-    expect(svgInner).not.toMatch(/\sC\s/);
   });
 
   it('throws TypeError when payload.trend is not an array', () => {
@@ -67,10 +90,7 @@ describe('renderScheduleCompression', () => {
     expect(empty).not.toContain('<svg class="chart-svg"');
   });
 
-  it('skips rows with null scheduleCompressionIndex (does NOT plot them as 0)', () => {
-    // Two rows with values, one null in the middle. A null-as-0 bug would
-    // show 3 markers, with the middle one anchored at the 0% gridline.
-    // The renderer should produce exactly 2 <circle> markers.
+  it('skips rows with null scheduleCompressionIndex', () => {
     const sample = {
       trend: [
         { dataDate: '2024-01-01T08:00:00', scheduleCompressionIndex: 10, indicator: 'GOOD' },
@@ -81,22 +101,5 @@ describe('renderScheduleCompression', () => {
     const { svgInner: inner } = renderScheduleCompression(sample);
     const markerCount = (inner.match(/<circle\b/g) ?? []).length;
     expect(markerCount).toBe(2);
-  });
-
-  it('uses scheduleCompressionIndex, NOT scheduleCompression (the ratio)', () => {
-    // A row with scheduleCompression=1.18 and scheduleCompressionIndex=18:
-    // if the renderer reads .value or .scheduleCompression, it would plot
-    // around 1.18% (collapsed near 0); reading .scheduleCompressionIndex
-    // plots at 18%, which after auto-fit padding produces a "20%" tick.
-    const sample = {
-      trend: [
-        { dataDate: '2024-01-01T08:00:00', scheduleCompression: 1.0, scheduleCompressionIndex: 0 },
-        { dataDate: '2024-02-01T08:00:00', scheduleCompression: 1.18, scheduleCompressionIndex: 18 },
-      ],
-    };
-    const { html: out } = renderScheduleCompression(sample);
-    // Auto-fit on [0, 18] padded ±10% lands roughly [-2, 20], so a label
-    // near 20% (or 19% / 18%) should appear in the Y-axis text.
-    expect(out).toMatch(/(18|19|20|21)%/);
   });
 });

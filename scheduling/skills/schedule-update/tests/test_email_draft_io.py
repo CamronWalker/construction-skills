@@ -250,6 +250,12 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
         import unittest.mock as mock
         captured = {}
 
+        def fake_render_summary_png(draft, output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+            path = os.path.join(output_dir, 'fake-summary.png')
+            Path(path).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16)
+            return path
+
         def fake_render_stacked_png(draft, output_dir):
             os.makedirs(output_dir, exist_ok=True)
             path = os.path.join(output_dir, 'fake-stacked.png')
@@ -262,7 +268,9 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
             Path(output_path).write_text('fake eml')
             return os.path.abspath(output_path)
 
-        with mock.patch.object(email_draft_io, 'render_stacked_png',
+        with mock.patch.object(email_draft_io, 'render_summary_png',
+                               side_effect=fake_render_summary_png), \
+             mock.patch.object(email_draft_io, 'render_stacked_png',
                                side_effect=fake_render_stacked_png), \
              mock.patch.object(email_draft_io, '_call_generate_update_email_eml',
                                side_effect=fake_generate_eml):
@@ -279,11 +287,13 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
                 )
 
                 self.assertTrue(os.path.isfile(eml_path))
-                # Builder received the stacked PNG via summary_screenshot_path
+                # Summary slot (Section 3, top of body) → summary PNG
                 self.assertIn('summary_screenshot_path', captured['kwargs'])
-                self.assertTrue(captured['kwargs']['summary_screenshot_path'].endswith('.png'))
-                # No per-graph paths — stacked PNG replaces them
-                self.assertEqual(captured['kwargs'].get('graph_screenshot_paths', []), [])
+                self.assertTrue(captured['kwargs']['summary_screenshot_path'].endswith('fake-summary.png'))
+                # Performance Graphs slot (Section 11, bottom) → 1-element list
+                # containing the stacked-gallery PNG
+                self.assertEqual(len(captured['kwargs']['graph_screenshot_paths']), 1)
+                self.assertTrue(captured['kwargs']['graph_screenshot_paths'][0].endswith('fake-stacked.png'))
                 # Attachment paths are absolute and exist
                 for att_path in captured['kwargs']['attachment_paths']:
                     self.assertTrue(os.path.isabs(att_path))
@@ -291,6 +301,12 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
 
     def test_skips_attachments_that_dont_exist_on_disk(self):
         import unittest.mock as mock
+
+        def fake_render_summary_png(draft, output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+            path = os.path.join(output_dir, 'fake-summary.png')
+            Path(path).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16)
+            return path
 
         def fake_render_stacked_png(draft, output_dir):
             os.makedirs(output_dir, exist_ok=True)
@@ -305,7 +321,9 @@ class GenerateEmailFromDraftTests(unittest.TestCase):
             Path(output_path).write_text('fake eml')
             return os.path.abspath(output_path)
 
-        with mock.patch.object(email_draft_io, 'render_stacked_png',
+        with mock.patch.object(email_draft_io, 'render_summary_png',
+                               side_effect=fake_render_summary_png), \
+             mock.patch.object(email_draft_io, 'render_stacked_png',
                                side_effect=fake_render_stacked_png), \
              mock.patch.object(email_draft_io, '_call_generate_update_email_eml',
                                side_effect=fake_generate_eml):

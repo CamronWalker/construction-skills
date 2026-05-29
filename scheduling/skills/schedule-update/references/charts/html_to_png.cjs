@@ -2,14 +2,21 @@
 /**
  * Rasterise a chart HTML file to PNG via headless Chromium.
  *
- * Each chart's JS renderer (the per-slug files in this directory, e.g.
- * 01-planned-vs-actual.js) emits a self-contained HTML+SVG document. The
- * CLI (cli.js) writes that HTML alongside its PNG output, then calls this
- * helper to rasterise it. The HTML stays as an auditable, browser-viewable
- * sibling that uses the same CSS the PNG was made from.
+ * Two modes:
  *
- * Usage:
- *   node html_to_png.js <htmlPath> <pngPath> [width=1728] [height=432] [scale=2]
+ *  1. Single-card mode (default) — screenshots the first `.chart-card`
+ *     element at its native CSS dimensions. Used by ad-hoc renders of a
+ *     single chart card.
+ *
+ *  2. Full-page mode (`--full-page`) — screenshots the entire scrollable
+ *     body. Used by the weekly email pipeline to capture the stacked
+ *     gallery (all chart cards arranged vertically). Picks up the body's
+ *     real height regardless of viewport.
+ *
+ * Argument forms (both accepted):
+ *
+ *   node html_to_png.cjs <htmlPath> <pngPath> [width=1728] [height=432] [scale=2]
+ *   node html_to_png.cjs <htmlPath> <pngPath> [--width=N] [--height=N] [--scale=N] [--full-page]
  *
  * Exit codes:
  *   0 — success
@@ -34,20 +41,47 @@ try {
   }
 }
 
+/**
+ * Parse argv supporting both positional (legacy) and flag (new) styles.
+ * Returns { htmlPath, pngPath, width, height, scale, fullPage }.
+ */
+function parseArgs(argv) {
+  const positional = [];
+  const flags = {};
+  for (const a of argv) {
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      if (eq === -1) {
+        flags[a.slice(2)] = true;
+      } else {
+        flags[a.slice(2, eq)] = a.slice(eq + 1);
+      }
+    } else {
+      positional.push(a);
+    }
+  }
+  if (positional.length < 2) return null;
+  const htmlPath = positional[0];
+  const pngPath  = positional[1];
+  // Positional ordering: width, height, scale.
+  const width  = flags.width  !== undefined ? parseInt(flags.width,  10) : parseInt(positional[2] || '1728', 10);
+  const height = flags.height !== undefined ? parseInt(flags.height, 10) : parseInt(positional[3] || '432',  10);
+  const scale  = flags.scale  !== undefined ? parseFloat(flags.scale)    : parseFloat(positional[4] || '2');
+  const fullPage = Boolean(flags['full-page']);
+  return { htmlPath, pngPath, width, height, scale, fullPage };
+}
+
 async function main() {
-  const args = process.argv.slice(2);
-  if (args.length < 2) {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args) {
     console.error(
-      'Usage: node html_to_png.js <htmlPath> <pngPath> [width=1728] [height=432] [scale=2]'
+      'Usage: node html_to_png.cjs <htmlPath> <pngPath> [width=1728] [height=432] [scale=2] [--full-page]'
     );
     process.exit(2);
   }
-  const [htmlPathArg, pngPath] = args;
-  const width  = parseInt(args[2] || '1728', 10);
-  const height = parseInt(args[3] || '432', 10);
-  const scale  = parseFloat(args[4] || '2');
+  const { htmlPath, pngPath, width, height, scale, fullPage } = args;
 
-  const htmlAbs = path.resolve(htmlPathArg);
+  const htmlAbs = path.resolve(htmlPath);
   if (!fs.existsSync(htmlAbs)) {
     console.error(`HTML file not found: ${htmlAbs}`);
     process.exit(2);
@@ -74,13 +108,21 @@ async function main() {
     // frame and the PNG ships with the wrong glyphs.
     await page.evaluate(() => (document.fonts ? document.fonts.ready : Promise.resolve()));
 
-    const card = await page.$('.chart-card');
-    if (card) {
-      await card.screenshot({ path: pngPath, omitBackground: false });
+    if (fullPage) {
+      // Stacked-gallery mode: capture the whole scrollable body, ignoring
+      // the viewport's fixed height. This is what produces the tall single-
+      // PNG of all chart cards used by the weekly email.
+      await page.screenshot({ path: pngPath, fullPage: true, omitBackground: false });
     } else {
-      // Fallback: screenshot the viewport. Caller's HTML didn't follow the
-      // expected envelope, but they still get a PNG.
-      await page.screenshot({ path: pngPath, fullPage: false });
+      // Single-card mode: screenshot the first .chart-card element so the
+      // PNG is exactly the card's native CSS dimensions (no surrounding
+      // viewport whitespace). Falls back to viewport if no card exists.
+      const card = await page.$('.chart-card');
+      if (card) {
+        await card.screenshot({ path: pngPath, omitBackground: false });
+      } else {
+        await page.screenshot({ path: pngPath, fullPage: false });
+      }
     }
   } catch (err) {
     console.error('ERROR: ' + (err && err.message ? err.message : err));

@@ -1,14 +1,26 @@
 // _hit-rate.js — shared stacked-column renderer for charts 11 + 12.
-// Three series stacked vertically per data date: on-time (green), late (yellow),
-// did-not (red). Palette captured from SmartPM's live DOM via Chrome MCP on
-// Wellington NZ Temple (project 113385, scenario 1644) on 2026-05-22.
 //
-// Chart 10 (Activity Hit Rate %) is a single-line chart, not a stack, so it
-// does NOT use this helper — it lives inline in 10-activity-hit-rate.js.
+// Three series stacked per data date — red (Did Not …) at the bottom,
+// yellow (… Late) in the middle, green (… On Time) on top — with a per-
+// segment count label inside each visible segment and the period total
+// labeled above each column. Categorical X axis (one slot per data date).
+// Palette / typography / layout captured live from SmartPM DOM (project
+// 113385, scenario 1644) on 2026-05-28.
+//
+// Visual specs:
+//   • Columns ≈ 65% of slot width, leaving visible inter-column gaps
+//   • Segment labels: Inter 11.2 px bold;
+//       black on green/yellow, white on red (SmartPM convention)
+//   • Total label above each column: Inter 12.8 px medium, dark gray
+//   • Y axis: 0 floor, tick step picked to fit the observed max
+//   • "Values" rotated Y-axis title
+//   • X-axis labels: MM/DD/YY, horizontal, one per data date
+//
+// Chart 10 (Activity Hit Rate %) is a single-line chart, not a stack —
+// it lives inline in 10-activity-hit-rate.js, not this helper.
 
 import {
-  HTML_CARD_W, HTML_CARD_H,
-  dateToX, xTicks, parseDate,
+  parseDate,
   htmlEnvelope, emptyHtml, legendItem,
 } from './svg-lib.js';
 
@@ -17,8 +29,9 @@ export const HIT_YELLOW = '#f2c031';
 export const HIT_RED    = '#b00020';
 const COLUMN_STROKE     = '#ffffff';
 const GRID              = '#e6e6e6';
-
-const BAR_WIDTH = 11; // px — visible without crowding even when data dates are dense
+const AXIS_LABEL_TXT    = '#333333';
+const AXIS_TITLE_TXT    = '#666666';
+const TOTAL_LABEL_TXT   = '#333333';
 
 /**
  * @typedef {Object} HitRateStackedConfig
@@ -68,77 +81,111 @@ export function renderHitRateStacked(payload, config) {
   }
 
   if (!parsed.length) return { html: emptyHtml(config.title), svgInner: '' };
+  parsed.sort((a, b) => a.d.getTime() - b.d.getTime());
 
-  const svgW = 1692, svgH = 312;
-  const padT = 14, padR = 32, padB = 30, padL = 56;
+  // Show the most recent ~6 months at weekly cadence (matches the email's
+  // narrative window). Wider history is still in the fixture if a future
+  // version wants to expose a longer view.
+  const WINDOW = 26;
+  const visible = parsed.slice(-WINDOW);
+  const N = visible.length;
+
+  // --- Layout ------------------------------------------------------------
+  const svgW = 1692, svgH = 400;
+  // padT = 32 to leave room for the total-label above each column.
+  const padT = 32, padR = 32, padB = 36, padL = 64;
   const x0 = padL, x1 = svgW - padR;
   const y0 = padT, y1 = svgH - padB;
 
-  const dmin = new Date(Math.min(...parsed.map(p => p.d.getTime())));
-  const dmax = new Date(Math.max(...parsed.map(p => p.d.getTime())));
+  const slotW = N >= 2 ? (x1 - x0) / N : (x1 - x0);
+  const BAR_W = Math.max(8, Math.min(32, slotW * 0.65));
+  const colX = (i) => N === 1 ? (x0 + x1) / 2 : x0 + slotW * (i + 0.5);
 
-  // Y range: 0 to max stack height (with small headroom). Minimum of 1 so a
-  // pathological "all zeros" payload still draws a coherent axis.
-  const vMaxObs = Math.max(1, ...parsed.map(p => p.total));
-  const vMax = Math.ceil(vMaxObs * 1.05);
-  const vMin = 0;
-  const ySpan = vMax - vMin;
-  /** @param {number} v @returns {number} */
-  const valueToY = (v) => y1 - ((v - vMin) / ySpan) * (y1 - y0);
+  // Y range
+  const vMax = Math.max(1, ...visible.map(p => p.total));
+  const tickStep = pickTickStep(vMax);
+  const vCeil = Math.ceil(vMax / tickStep) * tickStep;
+  /** @param {number} v */
+  const valueToY = (v) => y1 - (v / vCeil) * (y1 - y0);
 
-  // ~5 horizontal gridlines + integer Y-axis labels.
-  const gridlines = [];
-  const yLabels = [];
-  for (let i = 0; i <= 4; i++) {
-    const v = vMin + (i / 4) * ySpan;
+  const yTicks = [];
+  for (let v = 0; v <= vCeil + 0.5; v += tickStep) yTicks.push(v);
+
+  const gridlines = yTicks.map(v => {
     const y = valueToY(v);
-    gridlines.push(`<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" class="grid-line" />`);
-    yLabels.push(`<text x="${x0 - 8}" y="${(y + 4).toFixed(1)}" class="axis-text axis-text-y">${Math.round(v)}</text>`);
-  }
+    return `<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" stroke="${GRID}" stroke-width="1" />`;
+  });
+  const yLabels = yTicks.map(v => {
+    const y = valueToY(v);
+    return `<text x="${x0 - 10}" y="${(y + 4).toFixed(1)}" font-family="Inter, sans-serif" font-size="12.8" fill="${AXIS_LABEL_TXT}" text-anchor="end">${v}</text>`;
+  });
 
-  // X-axis labels: MM/DD/YY via xTicks.
-  const xLabels = [];
-  for (const d of xTicks(dmin, dmax)) {
-    const x = dateToX(d, dmin, dmax, x0, x1);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    const yy = String(d.getUTCFullYear()).slice(-2);
-    xLabels.push(`<text x="${x.toFixed(1)}" y="${y1 + 18}" class="axis-text axis-text-x">${mm}/${dd}/${yy}</text>`);
-  }
+  const yTitleCX = 22;
+  const yTitleCY = (y0 + y1) / 2;
+  const yTitle = `<text x="${yTitleCX}" y="${yTitleCY}" font-family="Inter, sans-serif" font-size="12.8" fill="${AXIS_TITLE_TXT}" text-anchor="middle" transform="rotate(-90 ${yTitleCX} ${yTitleCY})">Values</text>`;
+
+  const xLabels = visible.map((r, i) => {
+    const x = colX(i);
+    const mm = String(r.d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(r.d.getUTCDate()).padStart(2, '0');
+    const yy = String(r.d.getUTCFullYear()).slice(-2);
+    return `<text x="${x.toFixed(1)}" y="${y1 + 20}" font-family="Inter, sans-serif" font-size="12.8" fill="${AXIS_LABEL_TXT}" text-anchor="middle">${mm}/${dd}/${yy}</text>`;
+  });
 
   const frame = `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="${GRID}" stroke-width="1" />`;
 
-  // Stacked columns — on-time at the bottom (green), then late (yellow), then
-  // did-not (red) on top. Bar centered on the data date's x.
   const yBaseline = valueToY(0);
   /** @type {string[]} */
   const columns = [];
-  for (const p of parsed) {
-    const xCenter = dateToX(p.d, dmin, dmax, x0, x1);
-    const xLeft = xCenter - BAR_WIDTH / 2;
-    let runningBottom = yBaseline; // y of the top of the previous segment (or baseline)
+  /** @type {string[]} */
+  const segmentLabels = [];
+  /** @type {string[]} */
+  const totalLabels = [];
+
+  for (let i = 0; i < N; i++) {
+    const p = visible[i];
+    const cx = colX(i);
+    const xLeft = cx - BAR_W / 2;
+    let runningBottom = yBaseline;
+    // Red on bottom, yellow middle, green on top.
     const segments = [
-      { value: p.onTime, color: HIT_GREEN },
-      { value: p.late,   color: HIT_YELLOW },
-      { value: p.didNot, color: HIT_RED },
+      { v: p.didNot, color: HIT_RED,    cum: p.didNot,                       textFill: '#ffffff' },
+      { v: p.late,   color: HIT_YELLOW, cum: p.didNot + p.late,              textFill: '#000000' },
+      { v: p.onTime, color: HIT_GREEN,  cum: p.didNot + p.late + p.onTime,   textFill: '#000000' },
     ];
     for (const seg of segments) {
-      if (seg.value <= 0) continue;
-      const segTopY = valueToY(stackTopValue(p, seg));
-      const h = runningBottom - segTopY;
+      if (seg.v <= 0) continue;
+      const segTop = valueToY(seg.cum);
+      const h = runningBottom - segTop;
       if (h <= 0) continue;
       columns.push(
-        `<rect x="${xLeft.toFixed(2)}" y="${segTopY.toFixed(2)}" width="${BAR_WIDTH}" height="${h.toFixed(2)}" ` +
+        `<rect x="${xLeft.toFixed(2)}" y="${segTop.toFixed(2)}" width="${BAR_W.toFixed(2)}" height="${h.toFixed(2)}" ` +
         `fill="${seg.color}" stroke="${COLUMN_STROKE}" stroke-width="1" />`
       );
-      runningBottom = segTopY;
+      // In-segment label (only if there's room).
+      if (h >= 14) {
+        const cy = (segTop + runningBottom) / 2 + 4;
+        segmentLabels.push(
+          `<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Inter, sans-serif" font-size="11.2" font-weight="700" fill="${seg.textFill}" text-anchor="middle">${seg.v}</text>`
+        );
+      }
+      runningBottom = segTop;
+    }
+    if (p.total > 0) {
+      const topY = valueToY(p.total);
+      totalLabels.push(
+        `<text x="${cx.toFixed(1)}" y="${(topY - 4).toFixed(1)}" font-family="Inter, sans-serif" font-size="12.8" font-weight="500" fill="${TOTAL_LABEL_TXT}" text-anchor="middle">${p.total}</text>`
+      );
     }
   }
 
   const svgInner = [
     ...gridlines, frame,
     ...yLabels, ...xLabels,
+    yTitle,
     ...columns,
+    ...segmentLabels,
+    ...totalLabels,
   ].join('\n');
 
   const [labelOnTime, labelLate, labelDidNot] = config.legendLabels;
@@ -152,19 +199,13 @@ export function renderHitRateStacked(payload, config) {
   return { html, svgInner };
 }
 
-/**
- * Cumulative stack value through the current segment, used to find the y of
- * the segment's top edge. The bottom edge is the previous segment's top (or
- * the baseline if this is the on-time segment).
- *
- * @param {{ onTime: number, late: number, didNot: number }} p
- * @param {{ value: number, color: string }} seg
- * @returns {number}
- */
-function stackTopValue(p, seg) {
-  if (seg.color === HIT_GREEN)  return p.onTime;
-  if (seg.color === HIT_YELLOW) return p.onTime + p.late;
-  return p.onTime + p.late + p.didNot;
+/** @param {number} vMax @returns {number} */
+function pickTickStep(vMax) {
+  const candidates = [5, 10, 15, 20, 25, 50, 100, 200];
+  for (const c of candidates) {
+    if (vMax / c <= 6) return c;
+  }
+  return 500;
 }
 
 /** @param {unknown} v @returns {number} */
