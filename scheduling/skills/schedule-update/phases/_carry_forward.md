@@ -3,6 +3,10 @@
 > **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `_carry_forward` phase; any divergence from it is a bug.
 > **Internal reference** (underscore-prefix). Loaded by `draft.md` and `report.md` (called as an internal dependency from another phase).
 
+> **Most callers don't need this file directly.** `build_seed_dict` in [references/build_seed.py](../references/build_seed.py) calls `reconcile_items`, `reconcile_key_items`, and `transition_attachments` internally — driving them by hand is a code smell. Read this file when you need to extend the helper, override its behavior, or debug a carry-forward edge case.
+
+> The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema> is the contract. The dict-shape paraphrases below are for orientation; if anything here disagrees with the live schema, the schema wins.
+
 ## Function signatures (inline)
 
 ```python
@@ -55,9 +59,27 @@ else:
     last = None
 ```
 
-If no prior `{prev_date}-email.json` exists, treat as "first update" and skip carry-forward — `last_week` in the new seed becomes `null`.
+### Fallback chain when `{prev_date}-email.json` is missing
 
-The top-level JSON shape is canonical in scheduling/CLAUDE.md "Email JSON shape — single source of truth". Inside `this_week`, list items are dicts (`{text, checked, status, prev_idx}`) and item `text` is HTML.
+Many projects ran their weekly update outside this pipeline before adopting it — last week's email lives as a PDF or an old preview HTML, not as a cloud-finalized JSON. Walk this chain and use the first source that yields a usable `prev_draft`:
+
+1. **`{prev_date}-email.json`** — the cloud-finalized v2 dict. Load with `email_draft_io.load_draft(path)`. Primary path; everything else below is a fallback.
+
+2. **`{prev_date}-email-preview.html`** — the v1 legacy editable preview. No bundled parser ships in v2 (`parse_email_html.py` was removed). If you find this file, hand-extract the four lists + `eot_recovery` / `logic_changes` / signer block from the HTML by `Read`-ing it and pattern-matching the section headers. Build a `prev_draft`-shaped dict by hand: `{'this_week': {'successes': [...], 'red_flags': [...], 'stalled_tasks': [...], 'key_items': [...], 'key_items_archived': [], 'attachments': [...], 'days_metric': {...}, 'gain_loss': {...}, 'eot_recovery': '...', 'logic_changes': '...', 'closing_paragraphs': [...], 'closing_salutation': '...', 'skip_procore': False, 'graph_order': [...] }}`. Fields you can't recover (`prev_idx`, per-row `status`) default to `None` and `'active'` respectively.
+
+3. **`{prev_date}-update-email.md`** — the archive markdown that the `report` flow writes after each successful run. Structured as two sections (Update Email + Project Log). `Read` it and pattern-match the bulleted lists under each header. Same hand-construction of a `prev_draft` dict as path 2.
+
+4. **`{prev_date} *.pdf`** (the sent email, exported to PDF) — last resort. Use the [pdf skill](anthropic-skills:pdf) to extract text, then pattern-match the same fields as path 2. PDFs lose formatting; pass items as plain text wrapped in `<div>...</div>`.
+
+5. **None of the above** — treat as a first update. `prev_draft = None` and `last_week` in the new seed is `null`. The cloud editor renders without diff overlays for week-1 projects.
+
+When you build a `prev_draft` from paths 2–4, the goal is not byte-perfect reconstruction — it's "enough state for `build_seed_dict` to carry forward identity-matched items via `reconcile_items`." The fuzzy matcher tolerates re-typed text; what it can't do is invent items that weren't in the previous email. Better to skip an item you can't recover than to fabricate one.
+
+Tell the colleague which source you used: "I pulled last week's state from `{filename}` since there's no JSON archive. Diff overlays in the editor will be best-effort." That sets expectations.
+
+### Shape reference
+
+The top-level JSON shape is canonical in scheduling/CLAUDE.md "Email JSON shape — fetch the live schema, don't trust this file". Inside `this_week`, list items are dicts (`{text, checked, status, prev_idx}`) and item `text` is HTML.
 
 Pull the carry-forward values from `last`:
 

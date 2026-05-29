@@ -3,6 +3,10 @@
 > **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `_attachments` phase; any divergence from it is a bug.
 > **Internal reference** (underscore-prefix). Not invoked directly; loaded by `email.md`, `report.md`, `draft.md`, and `procore.md` per the router command matrix (called as an internal dependency from another phase).
 
+> **Most callers don't need this file directly.** `build_seed_dict` in [references/build_seed.py](../references/build_seed.py) calls `transition_attachments` and applies the Procore bootstrap rule internally. This file is reference material for the `procore` phase (which reads attachments from the finalized JSON) and for anyone extending the helper.
+
+> The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema> is the contract for the attachment row shape.
+
 ## Per-attachment dict shape (v2)
 
 ```python
