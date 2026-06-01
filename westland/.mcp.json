@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "westland": {
-      "type": "http",
-      "url": "https://westland-mcps.westland.workers.dev/westland/mcp"
-    }
-  }
-}
