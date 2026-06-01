@@ -77,6 +77,14 @@ class BuildSeedShapeTests(unittest.TestCase):
         self.assertIn('this_week', seed)
         self.assertIsNone(seed['last_week'])  # week-1 project
 
+    def test_emits_smartpm_binding(self):
+        # The Worker requires a smartpm binding on generate (validateSeed,
+        # default requireSmartpm=True); a seed without it 422s. build_seed_dict
+        # must emit it from ctx['smartpm_project_name'].
+        seed = build_seed.build_seed_dict(**_kwargs())
+        self.assertIn('smartpm', seed)
+        self.assertEqual(seed['smartpm']['project_name'], 'Test Temple')
+
     def test_project_info_required_fields_populated(self):
         seed = build_seed.build_seed_dict(**_kwargs())
         pi = seed['project_info']
@@ -157,6 +165,13 @@ class BuildSeedErrorTests(unittest.TestCase):
         with self.assertRaises(build_seed.SeedBuildError) as exc:
             build_seed.build_seed_dict(**_kwargs(ctx=ctx))
         self.assertIn('to_recipients', str(exc.exception))
+
+    def test_missing_smartpm_project_name_raises_clear_error(self):
+        ctx = _minimal_ctx()
+        ctx['smartpm_project_name'] = ''
+        with self.assertRaises(build_seed.SeedBuildError) as exc:
+            build_seed.build_seed_dict(**_kwargs(ctx=ctx))
+        self.assertIn('smartpm_project_name', str(exc.exception))
 
     def test_invalid_days_metric_direction_raises(self):
         with self.assertRaises(ValueError):

@@ -205,6 +205,16 @@ def build_seed_dict(
             'recipient row before running the report flow.'
         )
 
+    smartpm_project_name = (ctx.get('smartpm_project_name') or '').strip()
+    if not smartpm_project_name:
+        raise SeedBuildError(
+            'project-context.html has no smartpm_project_name. The Worker '
+            'requires a smartpm binding on generate (it resolves the SmartPM '
+            'project to render charts), so a seed without one 422s. Add the '
+            'SmartPM project name to project-context.html before running the '
+            'report flow.'
+        )
+
     prev_this_week = (prev_draft or {}).get('this_week') or {}
 
     successes_rows, _ = reconcile_items(
@@ -307,4 +317,14 @@ def build_seed_dict(
         },
         'this_week': this_week,
         'last_week': prev_this_week if prev_draft else None,
+        # The Worker REQUIRES smartpm on generate (validateSeed defaults to
+        # requireSmartpm=True) so the orchestrator can resolve the SmartPM
+        # project and render charts. project_id is preferred, but the skill
+        # only carries the SmartPM project NAME in project-context
+        # (ctx['smartpm_project_name']); the Worker accepts an exact-match
+        # name and resolves the id itself. Omitting this 422'd every generate
+        # (INVALID_SEED_SHAPE, path "smartpm").
+        'smartpm': {
+            'project_name': smartpm_project_name,
+        },
     }

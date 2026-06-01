@@ -215,10 +215,12 @@ result = finalize_weekly_schedule_update_email(
     report_date=today_iso,
 )
 with open(os.path.join(dated_folder, f'{today_iso}-email.json'), 'w') as f:
-    json.dump(result['working_json'], f, indent=2)
+    json.dump(result, f, indent=2)
 ```
 
-If `result['graphs_ready_count'] < result['graphs_total']`, some chart cards are placeholders or errored — warn the colleague before building the .eml. They can choose to ship with placeholders (rare) or wait + re-finalize.
+`finalize_weekly_schedule_update_email` returns the working JSON blob directly — `{project, report_date, version, project_info, this_week, last_week, graphs, meta}` — so write `result` itself (there is no `working_json` wrapper).
+
+If `result['meta']['graphs_ready_count'] < result['meta']['graphs_total']`, some chart cards are placeholders or errored — warn the colleague before building the .eml. They can choose to ship with placeholders (rare) or wait + re-finalize. (The readiness counters live under `meta` on the finalize response; `generate_..._draft` and `get_..._status` return them at the top level.)
 
 ### 12. Build the .eml
 
