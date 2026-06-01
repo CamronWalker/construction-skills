@@ -44,7 +44,7 @@ stacked_png = render_stacked_png(draft, output_dir=os.path.join(dated_folder, 's
 
 ## What to do if graphs aren't ready
 
-The Worker's `finalize_weekly_schedule_update_email` response includes `graphs_ready_count` and `graphs_total`. If `graphs_ready_count < graphs_total`, some chart cards in `graphs.{slug}.html` will be placeholder SVGs ("Data not yet available" or "Render failed"). Stacking and rasterizing still works — the PNG will contain placeholder cards alongside the ready ones.
+The Worker's `finalize_weekly_schedule_update_email` response carries `graphs_ready_count` and `graphs_total` under `meta` (i.e. `result['meta']['graphs_ready_count']`). If `meta.graphs_ready_count < meta.graphs_total`, some chart cards in `graphs.{slug}.html` will be placeholder SVGs ("Data not yet available" or "Render failed"). Stacking and rasterizing still works — the PNG will contain placeholder cards alongside the ready ones.
 
 Two options when this happens:
 - **Wait and re-finalize.** SmartPM usually finishes within ~20 minutes of XER upload. Sleep, then call `finalize_weekly_schedule_update_email` again. Each finalize call returns a fresh snapshot — placeholders update to real cards as the Worker finishes them.

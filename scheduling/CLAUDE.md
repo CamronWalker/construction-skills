@@ -209,6 +209,11 @@ The Worker validates on `generate_weekly_schedule_update_email_draft` and on eve
 
   "last_week": { /* identical shape; frozen verbatim copy from prior week's this_week; null for week-1 of v2 */ },
 
+  "smartpm": {
+    "project_name": "Exact SmartPM project name (matches project.name in smartpm_list_projects)",
+    "project_id":   123        // optional int, preferred over name; resolved by the Worker if omitted
+  },
+
   "graphs": {
     "01-planned-vs-actual-percent-complete": { "html": "<svg…>…", "data": { } },
     "06-end-date-variance":                   { "html": "<svg…>…", "data": { } },
@@ -216,6 +221,8 @@ The Worker validates on `generate_weekly_schedule_update_email_draft` and on eve
   }
 }
 ```
+
+**`smartpm` is required on `generate`.** The Worker's `validateSeed` rejects a seed without a `smartpm` binding (`project_id` preferred, or a non-empty `project_name`) — `INVALID_SEED_SHAPE`, path `smartpm`. `build_seed_dict` emits it from `ctx['smartpm_project_name']`; it is the one top-level block that is **not** part of the editable surface (the SPA never sends it, and re-runs preserve it server-side). `last_week` never carries `smartpm`.
 
 ### Item row shape — used in `successes` / `red_flags` / `stalled_tasks` / `key_items` / `key_items_archived`
 
