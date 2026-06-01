@@ -27,13 +27,13 @@ Not for: general Q&A, code questions, or things unrelated to Westland tooling.
 
 ## Prerequisite — install the Westland MCP connector
 
-The skill submits via an MCP connector. If it isn't installed (or you're signed out), the skill will tell you and stop.
+The skill submits via the **Westland MCP** connector (claude.ai-managed). Its tools appear as `mcp__claude_ai_Westland_MCP__*`. If you don't see those tools — or `whoami` errors with "tool not found" / "not connected" / 401 — the connector isn't installed (or you're signed out). Don't fail silently: surface the install steps below and stop until it's added.
 
 **To install:** Settings → Connectors → Add custom connector →
 ```
 https://westland-mcps.westland.workers.dev/westland/mcp
 ```
-Sign in with your `@westlandconstruction.com` Procore account when the browser tab opens. One-time setup; mirrors SmartPM / Buildr.
+Sign in with your `@westlandconstruction.com` Procore account when the browser tab opens. One-time setup; mirrors SmartPM / Buildr. After adding it, the `mcp__claude_ai_Westland_MCP__*` tools become available (you may need to start a new session for them to sync).
 
 ## Flow
 
@@ -41,7 +41,7 @@ Follow these steps every time. Do not submit without showing the preview.
 
 ### 1. Verify connector
 
-Call `mcp__westland__whoami`. Expected response: `{ email: "<user>@westlandconstruction.com", procoreUserId: "...", service: "westland-internal" }`.
+Call `mcp__claude_ai_Westland_MCP__whoami`. Expected response: `{ email: "<user>@westlandconstruction.com", procoreUserId: "...", service: "westland-internal" }`.
 
 If the call errors with "tool not found" or "not connected" / "401" — the connector isn't installed or the user isn't signed in. Show the install instructions above and stop.
 
@@ -151,7 +151,7 @@ If the user replies `edit <field>: <new value>`, update the payload and re-rende
 
 ### 7. Submit
 
-Call `mcp__westland__submit_bug_report` with the payload. **Do not include `user_email`** in the arguments — the MCP stamps it server-side from the Procore-verified identity. Anything you pass is overwritten.
+Call `mcp__claude_ai_Westland_MCP__submit_bug_report` with the payload. **Do not include `user_email`** in the arguments — the MCP stamps it server-side from the Procore-verified identity. Anything you pass is overwritten.
 
 ### 8. Report receipt
 
@@ -164,7 +164,7 @@ Report submitted.
 - As: {user_email}
 - Status: new
 
-Track triage in the Supabase dashboard or via `mcp__westland__list_my_reports`.
+Track triage in the Supabase dashboard or via `mcp__claude_ai_Westland_MCP__list_my_reports`.
 ```
 
 ### 9. Error handling
