@@ -1,8 +1,8 @@
-# westland-internal MCP tool shapes
+# Westland MCP — internal bug-report tool shapes
 
-Reference documentation for the three tools exposed by the `westland-internal` MCP service (`https://westland-mcps.westland.workers.dev/westland-internal/mcp`). Source of truth lives in `westland-mcps/src/services/westland-internal/tools/`.
+Reference documentation for the three internal bug-report tools served by the Westland MCP connector (`https://westland-mcps.westland.workers.dev/westland/mcp`). Source of truth lives in `westland-mcps/src/services/westland-internal/tools/`.
 
-The service is named `westland-internal` because it holds tools for internal Westland workflows that aren't tied to a specific upstream vendor — bug reports today, plus future capture flows (feature requests, skill-usage stats, etc.). All three tools in v1 are bug-report-related; new tools live in the same connector.
+The underlying service module is named `westland-internal` because it holds tools for internal Westland workflows that aren't tied to a specific upstream vendor — bug reports today, plus future capture flows (feature requests, skill-usage stats, etc.). All three tools in v1 are bug-report-related; they are now served by the unified Westland MCP connector.
 
 ## `submit_bug_report`
 

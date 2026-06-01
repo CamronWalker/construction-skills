@@ -4,7 +4,7 @@ description: >
   Capture a bug, friction point, or feature gap in any Westland skill, MCP tool,
   or workflow — from inside the conversation that hit the problem. Drafts a
   structured report from current-conversation context, shows the user a preview,
-  and submits via the westland-internal MCP connector (Procore-OAuth gated,
+  and submits via the Westland MCP connector (Procore-OAuth gated,
   writes to Supabase). Trigger on: "bug report", "report a bug",
   "westland-bug-report", "/westland-bug-report", "this skill is broken",
   "this tool is broken", "log a bug", "submit feedback", "file a complaint",
@@ -13,25 +13,25 @@ description: >
 
 # Westland Bug Report
 
-One-shot bug capture from inside a Claude Code session. The skill drafts a structured report from the conversation that hit the problem, shows the user a preview, then submits via the `westland-internal` MCP connector. Westland identity is verified server-side (Procore OAuth), so `user_email` is trustworthy and triage-by-user works.
+One-shot bug capture from inside a Claude Code session. The skill drafts a structured report from the conversation that hit the problem, shows the user a preview, then submits via the Westland MCP connector. Westland identity is verified server-side (Procore OAuth), so `user_email` is trustworthy and triage-by-user works.
 
 ## When to use
 
 - A Westland skill misbehaved or output something wrong (`scheduling:`, `estimating:`, `project-management:`, `site-operations:`, `safety:`, or `westland:`).
-- A Westland MCP tool (Procore, BuildingConnected, SmartPM, Buildr, Westland Internal) returned an error or unexpected shape.
+- A Westland MCP tool (Procore, BuildingConnected, SmartPM, Buildr, Westland internal tools) returned an error or unexpected shape.
 - A workflow felt confusing, a prompt was missing context, or a step was undocumented.
 - A feature gap surfaced ("I wish this skill could …").
 - Anything you'd want recorded for the next skill-improvement session.
 
 Not for: general Q&A, code questions, or things unrelated to Westland tooling.
 
-## Prerequisite — install the westland-internal connector
+## Prerequisite — install the Westland MCP connector
 
 The skill submits via an MCP connector. If it isn't installed (or you're signed out), the skill will tell you and stop.
 
 **To install:** Settings → Connectors → Add custom connector →
 ```
-https://westland-mcps.westland.workers.dev/westland-internal/mcp
+https://westland-mcps.westland.workers.dev/westland/mcp
 ```
 Sign in with your `@westlandconstruction.com` Procore account when the browser tab opens. One-time setup; mirrors SmartPM / Buildr.
 
@@ -41,7 +41,7 @@ Follow these steps every time. Do not submit without showing the preview.
 
 ### 1. Verify connector
 
-Call `mcp__westland-internal__whoami`. Expected response: `{ email: "<user>@westlandconstruction.com", procoreUserId: "...", service: "westland-internal" }`.
+Call `mcp__westland__whoami`. Expected response: `{ email: "<user>@westlandconstruction.com", procoreUserId: "...", service: "westland-internal" }`.
 
 If the call errors with "tool not found" or "not connected" / "401" — the connector isn't installed or the user isn't signed in. Show the install instructions above and stop.
 
@@ -151,7 +151,7 @@ If the user replies `edit <field>: <new value>`, update the payload and re-rende
 
 ### 7. Submit
 
-Call `mcp__westland-internal__submit_bug_report` with the payload. **Do not include `user_email`** in the arguments — the MCP stamps it server-side from the Procore-verified identity. Anything you pass is overwritten.
+Call `mcp__westland__submit_bug_report` with the payload. **Do not include `user_email`** in the arguments — the MCP stamps it server-side from the Procore-verified identity. Anything you pass is overwritten.
 
 ### 8. Report receipt
 
@@ -164,7 +164,7 @@ Report submitted.
 - As: {user_email}
 - Status: new
 
-Track triage in the Supabase dashboard or via `mcp__westland-internal__list_my_reports`.
+Track triage in the Supabase dashboard or via `mcp__westland__list_my_reports`.
 ```
 
 ### 9. Error handling
