@@ -4,7 +4,7 @@
   launchers and rewrite them to the current minimal form.
 
 .DESCRIPTION
-  Walks $ProjectsRoot (default: G:\Common\Westland Project Files) and
+  Walks $ProjectsRoot (default: G:\Westland Project Files) and
   finds existing launcher copies:
 
     - "Write Weekly Schedule Email.bat"
@@ -40,7 +40,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$ProjectsRoot = 'G:\Common\Westland Project Files',
+    [string]$ProjectsRoot = 'G:\Westland Project Files',
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [switch]$DryRun,
     [switch]$Backup
