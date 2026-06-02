@@ -316,6 +316,17 @@ The pre-cloud-editor `*-email-preview.html` round-trip is gone since v1 (`genera
 
 Repeated from the skill files for visibility: never `Edit`, never overwrite-`Write`, never `rm` / `Remove-Item` a `.xer` in any project folder. Westland's PreToolUse hook blocks this physically; if you find yourself wanting to, you've misunderstood the workflow — write a new versioned file (`-v2.xer`, `-v3.xer`) alongside instead, or stop and ask.
 
-## HTML CRUD goes through the parse/generate pair
+## project-context.html is RETIRED — project state lives in Supabase
 
-This is the project-context.html lesson from W1177 applied generally: never `Read` → `Edit` → `Write` an embedded-image-bearing HTML directly. Round-tripping ~17KB base64 logos through tool I/O corrupts them. Use the dedicated parse + generate scripts for every artifact that has one (`generate_project_context_html.py` / `parse_project_context_html.py` for the project context). The weekly email no longer round-trips through HTML — it lives in `{YYYY-MM-DD}-email.json` and the cloud editor handles all read/write — but the same rule applies if you ever need to script project-context.html.
+Project state (bindings + the project log) no longer lives in `project-context.html`. It lives in Supabase (`wnd_projects` + `wnd_project_log`), reached through four internal-service MCP tools:
+
+- `get_project(job_number)` → the bindings row, or `null`.
+- `upsert_project(job_number, project_name?, smartpm_*?, procore_*?, source?)` → the row (partial update; `created_by_email` server-stamped, `updated_at` bumped).
+- `append_project_log(job_number, body, category?, created_at?)` → one log entry (categories e.g. `note`, `eot`, `scope_change`, `schedule_published`; `created_at` override preserves historical dates on migration).
+- `list_project_log(job_number, limit?)` → entries, newest first.
+
+`schedule-project-init` writes bindings via `upsert_project`; the weekly flow (`schedule-update`) reads them via `get_project` and maps the row with `project_context_db_mapping.project_row_to_context`. Bindings are **only**: `project_name`, `smartpm_url`, `smartpm_trends_url`, `smartpm_changelog_url`, `smartpm_project_name`, `procore_company_id`, `procore_project_id`, `procore_documents_folder_id`. Recipients / signer / `graph_order` live in the weekly-email JSON (carry-forward, or week-1 conversational gather); `contractual_completion` is fetched from Procore (`list_prime_contracts` → Substantial Completion) at email-build time — none of these are stored in `wnd_projects`.
+
+**The generator is gone.** `generate_project_context_html.py` is retired — nothing writes `project-context.html` anymore. **The parser stays for lazy migration only.** On a `get_project` miss, the skill parses any legacy `project-context.html` (`parse_project_context_html.py`), maps it via `project_context_db_mapping.parsed_context_to_project_row` → `upsert_project(source='migrated')`, replays the project log via `parsed_context_to_log_entries` → `append_project_log` (one call per entry, passing each entry's `created_at`), then renames the file with `retire_context_html` (→ `project-context-migrated.html`) so it never re-migrates.
+
+The W1177 base64-logo lesson still holds for any *other* embedded-image-bearing HTML: never `Read` → `Edit` → `Write` it directly — round-tripping a ~17KB base64 logo through tool I/O corrupts it. The weekly email itself never round-trips through HTML — it lives in `{YYYY-MM-DD}-email.json` and the cloud editor handles all read/write.

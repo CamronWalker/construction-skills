@@ -6,8 +6,24 @@ The Worker schema at
 is the contract. This helper's job is to produce a dict that satisfies it,
 in one call, from the inputs the report flow has on hand:
 
-    - project_context (from parse_project_context_html.load_project_context)
-    - prev_draft      (from email_draft_io.load_draft on last week's email.json)
+    - ctx             (bindings dict — from project_context_db_mapping.
+                       project_row_to_context on the get_project row, or the
+                       lazy-migration parse of project-context.html). Supplies
+                       ONLY bindings: project_name, smartpm_url/trends/changelog/
+                       project_name, procore_company_id/project_id/
+                       documents_folder_id. It no longer carries recipients,
+                       signer info, graph_order, contractual_completion, or
+                       job_number — those are now explicit args (below).
+    - job_number      (explicit arg — parsed from the folder name / Procore)
+    - contractual_completion (explicit arg — fetched from Procore at build time
+                       via list_prime_contracts → Substantial Completion date)
+    - prev_draft      (from email_draft_io.load_draft on last week's email.json).
+                       When present, supplies recipients / signer / graph_order /
+                       closing fields via carry-forward (takes precedence over the
+                       explicit args below).
+    - recipients/signer/graph_order (explicit args — gathered conversationally on
+                       week-1, when prev_draft is None; ignored when prev_draft
+                       carries them)
     - this week's XER comparison deltas (from the westland-scheduler-mcp tools)
     - this week's narrative content (from the meeting transcript or the colleague)
     - fresh attachment filenames (from globbing the dated folder)
@@ -109,13 +125,17 @@ def fetch_schema(url=SCHEMA_URL, timeout=10):
 
 
 def _require(ctx, field):
-    """Return ctx[field] or raise a SeedBuildError naming what's missing."""
+    """Return ctx[field] or raise a SeedBuildError naming what's missing.
+
+    ctx is the bindings dict from project_context_db_mapping.project_row_to_context
+    (a get_project row), or the lazy-migration parse of project-context.html.
+    """
     value = ctx.get(field)
     if value in (None, ''):
         raise SeedBuildError(
-            f"project-context.html is missing required field '{field}'. "
-            f"Run schedule-project-init to seed it, or fill the field in the "
-            f"editor at the Schedules root."
+            f"project bindings are missing required field '{field}'. "
+            f"Run schedule-project-init to seed the project in Supabase "
+            f"(wnd_projects), or fix the field there."
         )
     return value
 
@@ -137,6 +157,14 @@ def build_seed_dict(
     stalled_tasks_html,
     key_items_html,
     fresh_filenames,
+    job_number,
+    contractual_completion,
+    to_recipients=None,
+    cc_recipients=None,
+    signer_name=None,
+    signer_title=None,
+    signer_mobile=None,
+    graph_order=None,
     subject=None,
     changes_report_filename=None,
     include_changes_report=True,
@@ -149,12 +177,28 @@ def build_seed_dict(
     The shape this returns matches the Worker schema at SCHEMA_URL. If the
     schema changes, update this builder — do not band-aid in callers.
 
+    Sourcing contract (changed in the project-context-supabase refactor):
+        - ctx supplies ONLY bindings — project_name, smartpm_url/trends/
+          changelog/project_name, procore_company_id/project_id/
+          documents_folder_id. It NO LONGER carries job_number,
+          contractual_completion, recipients, signer info, or graph_order.
+        - job_number + contractual_completion are explicit args (the caller
+          parses job_number from the folder and fetches contractual_completion
+          from Procore via list_prime_contracts → Substantial Completion).
+        - recipients (to/cc), signer (name/title/mobile), and graph_order come
+          from prev_draft carry-forward when present; otherwise from the
+          explicit args (gathered conversationally on week-1). graph_order
+          defaults to CANONICAL_GRAPH_ORDER when neither prev_draft nor the arg
+          supplies it.
+
     Args:
-        ctx: Parsed project-context.html (from parse_project_context_html).
-            Must contain project_name, job_number, contractual_completion,
-            to_recipients, signer_name, signer_title.
+        ctx: Project bindings dict — from project_context_db_mapping.
+            project_row_to_context(get_project_row), or the lazy-migration
+            parse of project-context.html. Must contain project_name and
+            smartpm_project_name.
         prev_draft: Parsed last week's email.json (from email_draft_io.load_draft),
-            or None for a week-1 project.
+            or None for a week-1 project. When present, its this_week supplies
+            recipients / signer / graph_order via carry-forward.
         today_iso: 'YYYY-MM-DD' for this update.
         projected_completion_iso: 'YYYY-MM-DD' projected completion from this
             week's XER (from compare_milestone_slip.sc_date_new).
@@ -172,6 +216,20 @@ def build_seed_dict(
         stalled_tasks_html: list[str].
         key_items_html: list[str]; carry-forward applies and may add archived rows.
         fresh_filenames: list[basename] of attachment candidates in the dated folder.
+        job_number: Project job number (e.g. 'W9999'). Required — the caller
+            parses it from the folder name; it is no longer stored in ctx.
+        contractual_completion: Contractual / Substantial Completion date string.
+            Required — the caller fetches it from Procore (list_prime_contracts →
+            the prime contract's substantial_completion_date), NOT from ctx.
+        to_recipients: list[{name, email}] for week-1 (prev_draft is None).
+            Ignored when prev_draft carries recipients. At least one valid
+            to-recipient must be resolvable (from prev_draft or this arg).
+        cc_recipients: list[{name, email}] for week-1; ignored when prev_draft
+            carries cc recipients.
+        signer_name / signer_title / signer_mobile: signer block for week-1;
+            ignored when prev_draft carries the signer.
+        graph_order: chart slug order for week-1; defaults to
+            CANONICAL_GRAPH_ORDER. Ignored when prev_draft carries graph_order.
         subject: Email subject; defaults to "Schedule Update - {project_name} - {today_iso}".
         changes_report_filename: Filename of this week's changes-report PDF, if any.
         include_changes_report: Master toggle for the changes-report attachment.
@@ -180,7 +238,8 @@ def build_seed_dict(
         A v2 seed dict ready to POST to generate_weekly_schedule_update_email_draft.
 
     Raises:
-        SeedBuildError: if any required project_context field is missing.
+        SeedBuildError: if a required binding is missing or no to-recipient can
+            be resolved (from prev_draft or the to_recipients arg).
         ValueError: if discriminator values are not in their valid enum.
     """
     if days_metric_direction not in ('behind', 'ahead'):
@@ -195,27 +254,70 @@ def build_seed_dict(
         )
 
     project_name = _require(ctx, 'project_name')
-    job_number = _require(ctx, 'job_number')
-    contractual_completion = _require(ctx, 'contractual_completion')
-
-    to_recipients = ctx.get('to_recipients') or []
-    if not to_recipients:
+    if job_number in (None, ''):
         raise SeedBuildError(
-            'project-context.html has no to_recipients. Add at least one '
-            'recipient row before running the report flow.'
+            'build_seed_dict requires job_number (parsed from the folder name); '
+            'it is no longer read from ctx.'
+        )
+    if contractual_completion in (None, ''):
+        raise SeedBuildError(
+            'build_seed_dict requires contractual_completion (fetched from '
+            'Procore via list_prime_contracts → Substantial Completion); it is '
+            'no longer read from ctx.'
         )
 
     smartpm_project_name = (ctx.get('smartpm_project_name') or '').strip()
     if not smartpm_project_name:
         raise SeedBuildError(
-            'project-context.html has no smartpm_project_name. The Worker '
+            'project bindings have no smartpm_project_name. The Worker '
             'requires a smartpm binding on generate (it resolves the SmartPM '
             'project to render charts), so a seed without one 422s. Add the '
-            'SmartPM project name to project-context.html before running the '
-            'report flow.'
+            'SmartPM project name to the project in Supabase (wnd_projects) '
+            'via schedule-project-init before running the report flow.'
         )
 
     prev_this_week = (prev_draft or {}).get('this_week') or {}
+
+    # Recipients / signer / graph_order: prev_draft carry-forward wins; the
+    # explicit args are the week-1 source (gathered conversationally). They are
+    # no longer read from ctx. graph_order falls back to the canonical order.
+    resolved_to_recipients = (
+        prev_this_week.get('to_recipients')
+        if prev_this_week.get('to_recipients')
+        else list(to_recipients or [])
+    )
+    if not resolved_to_recipients:
+        raise SeedBuildError(
+            'No to_recipients available. On week-1 (no prior email.json), pass '
+            'to_recipients=[{name, email}, ...] gathered conversationally; '
+            'thereafter they carry forward from last week. At least one '
+            'recipient is required.'
+        )
+    resolved_cc_recipients = (
+        prev_this_week.get('cc_recipients')
+        if prev_this_week.get('cc_recipients') is not None
+        else list(cc_recipients or [])
+    )
+    resolved_signer_name = (
+        prev_this_week['signer_name']
+        if prev_this_week.get('signer_name') is not None
+        else (signer_name or '')
+    )
+    resolved_signer_title = (
+        prev_this_week['signer_title']
+        if prev_this_week.get('signer_title') is not None
+        else (signer_title or '')
+    )
+    resolved_signer_mobile = (
+        prev_this_week['signer_mobile']
+        if prev_this_week.get('signer_mobile') is not None
+        else (signer_mobile or '')
+    )
+    resolved_graph_order = (
+        prev_this_week.get('graph_order')
+        or graph_order
+        or list(CANONICAL_GRAPH_ORDER)
+    )
 
     successes_rows, _ = reconcile_items(
         prev_this_week.get('successes'),
@@ -258,8 +360,8 @@ def build_seed_dict(
 
     this_week = {
         'subject': subject,
-        'to_recipients': list(to_recipients),
-        'cc_recipients': list(ctx.get('cc_recipients') or []),
+        'to_recipients': list(resolved_to_recipients),
+        'cc_recipients': list(resolved_cc_recipients or []),
 
         'days_metric': {
             'direction': days_metric_direction,
@@ -291,19 +393,16 @@ def build_seed_dict(
             or DEFAULT_CLOSING_SALUTATION
         ),
 
-        'signer_name': ctx.get('signer_name') or '',
-        'signer_title': ctx.get('signer_title') or '',
-        'signer_mobile': ctx.get('signer_mobile') or '',
+        'signer_name': resolved_signer_name or '',
+        'signer_title': resolved_signer_title or '',
+        'signer_mobile': resolved_signer_mobile or '',
 
         'attachments': attachments_rows,
         'skip_procore': bool(prev_this_week.get('skip_procore', False)),
         'include_changes_report': bool(include_changes_report and changes_report_filename),
         'changes_report_filename': changes_report_filename or '',
 
-        'graph_order': (
-            prev_this_week.get('graph_order')
-            or list(CANONICAL_GRAPH_ORDER)
-        ),
+        'graph_order': list(resolved_graph_order),
     }
 
     return {
@@ -319,10 +418,10 @@ def build_seed_dict(
         'last_week': prev_this_week if prev_draft else None,
         # The Worker REQUIRES smartpm on generate (validateSeed defaults to
         # requireSmartpm=True) so the orchestrator can resolve the SmartPM
-        # project and render charts. project_id is preferred, but the skill
-        # only carries the SmartPM project NAME in project-context
-        # (ctx['smartpm_project_name']); the Worker accepts an exact-match
-        # name and resolves the id itself. Omitting this 422'd every generate
+        # project and render charts. project_id is preferred, but the bindings
+        # only carry the SmartPM project NAME (ctx['smartpm_project_name'], a
+        # wnd_projects column); the Worker accepts an exact-match name and
+        # resolves the id itself. Omitting this 422'd every generate
         # (INVALID_SEED_SHAPE, path "smartpm").
         'smartpm': {
             'project_name': smartpm_project_name,

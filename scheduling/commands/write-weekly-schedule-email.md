@@ -24,7 +24,7 @@ The human has already completed the manual steps of the update and is handing th
 
 ## Expected starting state
 
-CWD is the **Schedules root folder** — the `.bat` does `cd /d "%~dp0"` before launching, and the script lives next to `project-context.html`. The grandparent should match `W\d+ - .+` (e.g. `W1134 - Neiafu Tonga Temple Construction/Schedules/`). Today's dated folder (`YYYY-MM-DD/`) should already exist inside the root.
+CWD is the **Schedules root folder** — the `.bat` does `cd /d "%~dp0"` before launching, and the script lives at the Schedules root. The grandparent should match `W\d+ - .+` (e.g. `W1134 - Neiafu Tonga Temple Construction/Schedules/`); parse `{job_number}` from it. Today's dated folder (`YYYY-MM-DD/`) should already exist inside the root.
 
 These steps are already done by the human (per `Schedule Update Template.md`):
 
@@ -38,13 +38,16 @@ These steps are already done by the human (per `Schedule Update Template.md`):
 
 ## Preflight — run these before anything else
 
-### 1. `project-context.html` must exist at the Schedules root
+### 1. The project must be initialized in Supabase
 
-Check for `./project-context.html`. If it's missing, **stop** and tell the user:
+Parse `{job_number}` from the `W#### - Name` grandparent folder and call `get_project(job_number)`.
 
-> "No `project-context.html` at the Schedules root. This project hasn't been initialized — run the `schedule-project-init` skill first. Without it, the SmartPM URLs, recipients, and graph list aren't available, and the screenshots step will fail."
+- **Row returned** → proceed. The SmartPM URLs + Procore id bindings come from the row (mapped via `project_context_db_mapping.project_row_to_context`); recipients / signer come from carry-forward.
+- **`get_project` returns null but a legacy `./project-context.html` exists at the Schedules root** → lazy-migrate it once (parse → `upsert_project(source='migrated')` → replay the log via `append_project_log` → rename with `retire_context_html`; see `phases/report.md` Step 1b / `schedule-project-init`), then proceed.
+- **Null and no legacy `project-context.html`** → **stop** and tell the user:
+  > "No project bindings found for `{job_number}` in Supabase, and no `project-context.html` to migrate. This project hasn't been initialized — run the `schedule-project-init` skill first. Without it, the SmartPM URLs and Procore bindings aren't available."
 
-Do not try to proceed without it.
+Do not try to proceed without bindings.
 
 ### 2. SmartPM MCP must be available
 

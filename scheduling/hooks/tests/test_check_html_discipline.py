@@ -40,7 +40,12 @@ class TestHookAdvisory(unittest.TestCase):
             'tool_input': {'file_path': r'G:\some\Schedules\project-context.html'},
         })
         self.assertEqual(proc.returncode, 0)
-        self.assertIn('parse_project_context_html', proc.stderr)
+        # project-context.html is retired; the read message steers toward
+        # the schedule-project-init lazy migration and get_project, not a
+        # direct parse, and never the deleted generator.
+        self.assertIn('RETIRED', proc.stderr)
+        self.assertIn('get_project', proc.stderr)
+        self.assertIn('MIGRATED', proc.stderr)
         self.assertNotIn('generate_', proc.stderr)
 
     def test_edit_project_context_uses_write_message(self):
@@ -49,7 +54,12 @@ class TestHookAdvisory(unittest.TestCase):
             'tool_input': {'file_path': '/c/Users/a/project-context.html'},
         })
         self.assertEqual(proc.returncode, 0)
-        self.assertIn('generate_project_context_html', proc.stderr)
+        # project-context.html is retired; the write message must steer
+        # toward the schedule-project-init lazy migration, not the deleted
+        # generate_project_context_html generator.
+        self.assertNotIn('generate_project_context_html.generate', proc.stderr)
+        self.assertIn('schedule-project-init', proc.stderr)
+        self.assertIn('retire_context_html', proc.stderr)
 
     def test_email_preview_html_no_longer_matches(self):
         """The pre-cloud-editor *-email-preview.html artifact is gone; the

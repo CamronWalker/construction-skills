@@ -7,7 +7,7 @@ Creates a new dated folder for today's schedule update.
 
 ## Prerequisites
 
-- `project-context.html` must exist in the Schedules root (created by `schedule-project-init`).
+- The project must be initialized in Supabase — `get_project(job_number)` returns a row (created by `schedule-project-init`). Parse `{job_number}` from the `W#### - Name` Schedules-root folder.
 - Folder resolution rules: see SKILL.md.
 
 ## Step 1: Resolve root

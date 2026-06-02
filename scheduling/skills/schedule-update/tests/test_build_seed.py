@@ -21,27 +21,22 @@ SAMPLE_DRAFT_PATH = FIXTURES_DIR / 'email-draft-sample.json'
 
 
 def _minimal_ctx():
+    """Bindings-only ctx, as project_row_to_context would emit it.
+
+    Post-refactor, ctx carries ONLY bindings: project_name, smartpm_*,
+    procore_*. Recipients, signer, graph_order, contractual_completion, and
+    job_number are NOT in ctx — they come from explicit args / prev_draft /
+    Procore.
+    """
     return {
         'project_name': 'Test Temple Construction',
-        'job_number': 'W9999',
-        'contractual_completion': '2027-06-30',
-        'projected_completion': '2027-07-15',
         'smartpm_url': '',
         'smartpm_trends_url': '',
         'smartpm_changelog_url': 'https://smartpm.example/changes',
         'smartpm_project_name': 'Test Temple',
-        'signer_name': 'JANE DOE',
-        'signer_title': 'PROJECT MANAGER',
-        'signer_mobile': '801-555-0100',
         'procore_company_id': '11093',
         'procore_project_id': '',
         'procore_documents_folder_id': '',
-        'graph_screenshots': [],
-        'to_recipients': [{'name': 'Owner', 'email': 'owner@example.com'}],
-        'cc_recipients': [],
-        'to_recipients_str': 'Owner <owner@example.com>',
-        'cc_recipients_str': '',
-        'project_log': [],
     }
 
 
@@ -63,6 +58,15 @@ def _kwargs(**overrides):
         stalled_tasks_html=[],
         key_items_html=['<div>Confirm elevator submittal approval.</div>'],
         fresh_filenames=['Report 01 - Master Schedule 2026-05-28.pdf'],
+        # Explicit args that no longer live in ctx:
+        job_number='W9999',
+        contractual_completion='2027-06-30',
+        # Week-1 conversational sourcing (prev_draft is None by default):
+        to_recipients=[{'name': 'Owner', 'email': 'owner@example.com'}],
+        cc_recipients=[],
+        signer_name='JANE DOE',
+        signer_title='PROJECT MANAGER',
+        signer_mobile='801-555-0100',
     )
     base.update(overrides)
     return base
@@ -130,6 +134,35 @@ class BuildSeedShapeTests(unittest.TestCase):
         self.assertEqual(cp[0]['label'], 'Questions')
         self.assertTrue(cp[0]['checked'])
 
+    def test_ctx_recipients_and_signer_are_ignored(self):
+        # Post-refactor, ctx supplies ONLY bindings. Stray recipient / signer /
+        # graph_order / contractual keys left in ctx (e.g. from an old parse)
+        # must NOT leak into the seed — those come from args / prev_draft only.
+        ctx = _minimal_ctx()
+        ctx.update({
+            'to_recipients': [{'name': 'STALE', 'email': 'stale@example.com'}],
+            'cc_recipients': [{'name': 'STALECC', 'email': 'stalecc@x.com'}],
+            'signer_name': 'STALE SIGNER',
+            'signer_title': 'STALE TITLE',
+            'signer_mobile': '000-000-0000',
+            'graph_order': ['stale-graph'],
+            'contractual_completion': '1999-01-01',
+            'job_number': 'STALE',
+        })
+        seed = build_seed.build_seed_dict(**_kwargs(ctx=ctx))
+        tw = seed['this_week']
+        # Recipients/signer come from the week-1 args, not ctx.
+        self.assertEqual(tw['to_recipients'],
+                         [{'name': 'Owner', 'email': 'owner@example.com'}])
+        self.assertEqual(tw['signer_name'], 'JANE DOE')
+        self.assertEqual(tw['signer_title'], 'PROJECT MANAGER')
+        self.assertEqual(tw['signer_mobile'], '801-555-0100')
+        self.assertEqual(tw['graph_order'], build_seed.CANONICAL_GRAPH_ORDER)
+        # job_number / contractual_completion come from explicit args.
+        self.assertEqual(seed['project_info']['job_number'], 'W9999')
+        self.assertEqual(seed['project_info']['contractual_completion'],
+                         '2027-06-30')
+
 
 class BuildSeedCarryForwardTests(unittest.TestCase):
     def test_last_week_is_prev_draft_this_week_verbatim(self):
@@ -160,11 +193,21 @@ class BuildSeedErrorTests(unittest.TestCase):
         self.assertIn('project_name', str(exc.exception))
 
     def test_missing_to_recipients_raises_clear_error(self):
-        ctx = _minimal_ctx()
-        ctx['to_recipients'] = []
+        # Week-1 (prev_draft None) with no to_recipients arg → error.
         with self.assertRaises(build_seed.SeedBuildError) as exc:
-            build_seed.build_seed_dict(**_kwargs(ctx=ctx))
+            build_seed.build_seed_dict(
+                **_kwargs(prev_draft=None, to_recipients=[]))
         self.assertIn('to_recipients', str(exc.exception))
+
+    def test_missing_job_number_raises_clear_error(self):
+        with self.assertRaises(build_seed.SeedBuildError) as exc:
+            build_seed.build_seed_dict(**_kwargs(job_number=''))
+        self.assertIn('job_number', str(exc.exception))
+
+    def test_missing_contractual_completion_raises_clear_error(self):
+        with self.assertRaises(build_seed.SeedBuildError) as exc:
+            build_seed.build_seed_dict(**_kwargs(contractual_completion=''))
+        self.assertIn('contractual_completion', str(exc.exception))
 
     def test_missing_smartpm_project_name_raises_clear_error(self):
         ctx = _minimal_ctx()
@@ -180,6 +223,79 @@ class BuildSeedErrorTests(unittest.TestCase):
     def test_invalid_gain_loss_direction_raises(self):
         with self.assertRaises(ValueError):
             build_seed.build_seed_dict(**_kwargs(gain_loss_direction='neutral'))
+
+
+class BuildSeedRecipientSourcingTests(unittest.TestCase):
+    """Recipients / signer / graph_order sourcing contract:
+    prev_draft carry-forward wins; explicit args are the week-1 fallback;
+    ctx no longer carries any of them."""
+
+    def test_week1_args_populate_recipients_and_signer(self):
+        seed = build_seed.build_seed_dict(**_kwargs(
+            prev_draft=None,
+            to_recipients=[{'name': 'Owner A', 'email': 'a@example.com'},
+                           {'name': 'Owner B', 'email': 'b@example.com'}],
+            cc_recipients=[{'name': 'CC One', 'email': 'cc@example.com'}],
+            signer_name='ALEX SCHEDULER',
+            signer_title='SR SCHEDULER',
+            signer_mobile='801-555-9999',
+        ))
+        tw = seed['this_week']
+        self.assertEqual(len(tw['to_recipients']), 2)
+        self.assertEqual(tw['to_recipients'][0]['email'], 'a@example.com')
+        self.assertEqual(tw['cc_recipients'],
+                         [{'name': 'CC One', 'email': 'cc@example.com'}])
+        self.assertEqual(tw['signer_name'], 'ALEX SCHEDULER')
+        self.assertEqual(tw['signer_title'], 'SR SCHEDULER')
+        self.assertEqual(tw['signer_mobile'], '801-555-9999')
+
+    def test_prev_draft_recipients_and_signer_win_over_args(self):
+        prev = json.loads(SAMPLE_DRAFT_PATH.read_text())
+        seed = build_seed.build_seed_dict(**_kwargs(
+            prev_draft=prev,
+            # These args should be IGNORED because prev_draft carries them.
+            to_recipients=[{'name': 'SHOULD NOT', 'email': 'no@x.com'}],
+            cc_recipients=[{'name': 'NOPE', 'email': 'nope@x.com'}],
+            signer_name='IGNORE ME',
+            signer_title='IGNORE TITLE',
+            signer_mobile='000-000-0000',
+        ))
+        tw = seed['this_week']
+        self.assertEqual(tw['to_recipients'],
+                         prev['this_week']['to_recipients'])
+        self.assertEqual(tw['cc_recipients'],
+                         prev['this_week']['cc_recipients'])
+        self.assertEqual(tw['signer_name'],
+                         prev['this_week']['signer_name'])
+        self.assertEqual(tw['signer_title'],
+                         prev['this_week']['signer_title'])
+        self.assertEqual(tw['signer_mobile'],
+                         prev['this_week']['signer_mobile'])
+
+    def test_graph_order_uses_arg_when_no_prev_draft(self):
+        custom = ['08-velocity', '09-spi-over-time']
+        seed = build_seed.build_seed_dict(**_kwargs(
+            prev_draft=None, graph_order=custom))
+        self.assertEqual(seed['this_week']['graph_order'], custom)
+
+    def test_graph_order_falls_back_to_canonical_when_no_arg_no_prev(self):
+        seed = build_seed.build_seed_dict(**_kwargs(
+            prev_draft=None, graph_order=None))
+        self.assertEqual(seed['this_week']['graph_order'],
+                         build_seed.CANONICAL_GRAPH_ORDER)
+
+    def test_graph_order_from_prev_draft_wins_over_arg(self):
+        prev = json.loads(SAMPLE_DRAFT_PATH.read_text())
+        prev_order = prev['this_week']['graph_order']
+        seed = build_seed.build_seed_dict(**_kwargs(
+            prev_draft=prev, graph_order=['arg-should-be-ignored']))
+        self.assertEqual(seed['this_week']['graph_order'], prev_order)
+
+    def test_contractual_completion_arg_lands_in_project_info(self):
+        seed = build_seed.build_seed_dict(**_kwargs(
+            contractual_completion='2028-12-31'))
+        self.assertEqual(seed['project_info']['contractual_completion'],
+                         '2028-12-31')
 
 
 if __name__ == '__main__':

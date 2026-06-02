@@ -9,7 +9,7 @@ Builds the Outlook-openable `.eml` from the cloud-editor's finalized JSON. The o
 ## Inputs
 
 - `{dated_folder}/{YYYY-MM-DD}-email.json` — produced by `phases/draft.md` via the weekly-email cloud editor (`generate_weekly_schedule_update_email_draft` → `finalize_weekly_schedule_update_email`).
-- `{dated_folder}/project-context.html` — for SmartPM URLs and logo path (read via `parse_project_context_html`).
+- Project bindings (for SmartPM URLs) from Supabase — `get_project(job_number)` mapped via `project_context_db_mapping.project_row_to_context(row)` (see SKILL.md "Project bindings — the `ctx` dict shape"). The Westland logo is the static asset bundled at `schedule-project-init/references/westland-logo.png` — it is **not** read from the retired `project-context.html`.
 
 If the `-email.json` file is missing, stop and tell the colleague:
 > "No `{YYYY-MM-DD}-email.json` found for today's folder. Run `/schedule-update draft` first to open the cloud editor and finalize the draft."

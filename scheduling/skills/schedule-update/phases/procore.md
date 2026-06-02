@@ -19,7 +19,7 @@ All Procore work uses MCP tools called directly by Claude. There is no Python or
 
 ## Preflight 1 — Resolve `procore_project_id`
 
-Load `project-context.html` via `parse_project_context_html.load_project_context(schedules_root)`. If `ctx['procore_project_id']` is non-empty, **skip to Preflight 2**.
+Load project bindings from Supabase: parse `{job_number}` from the `W#### - Name` Schedules-root folder, call `get_project(job_number=<job_number>)`, and map the row with `ctx = project_context_db_mapping.project_row_to_context(row)`. On a `get_project` miss (`None`) with a legacy `project-context.html` present, lazy-migrate first (see `schedule-project-init` / `report.md` Step 1b), then re-read. If `ctx['procore_project_id']` is non-empty, **skip to Preflight 2**.
 
 Otherwise, call the MCP tool to look up the project by name + number:
 
@@ -34,10 +34,9 @@ mcp__a695fe63-..-bbf8965a4c43__find_project(
 
 Decision logic:
 
-- **Single result whose `project_number` exactly matches `ctx['job_number']`** → silent write-back. Set `ctx['procore_project_id'] = result['id']` and immediately persist via:
-  ```python
-  import generate_project_context_html
-  generate_project_context_html.generate_project_context_html(html_path, ctx)
+- **Single result whose `project_number` exactly matches `job_number`** → silent write-back. Set `ctx['procore_project_id'] = result['id']` and immediately persist via the `upsert_project` MCP tool so subsequent runs skip discovery:
+  ```
+  upsert_project(job_number=<job_number>, procore_project_id=result['id'])
   ```
 - **Multiple results OR no exact job-number match** → call `AskUserQuestion`:
   - Question: "Multiple Procore projects matched. Which is the right one?"
@@ -89,7 +88,7 @@ On user selection:
   Set `ctx['procore_documents_folder_id'] = response['id']`.
 - **User cancels** → print "Procore: aborted by user." and return.
 
-Persist via `generate_project_context_html` immediately so the next run skips this step.
+Persist immediately via `upsert_project(job_number=<job_number>, procore_documents_folder_id=ctx['procore_documents_folder_id'])` so the next run skips this step.
 
 ## Operation 1 — XER import to Schedule tool
 
@@ -241,7 +240,7 @@ If any line is `failed:` or `skipped:`, end with:
 
 ## What this phase MUST NOT do
 
-- Read `email_draft_io.py`, `parse_project_context_html.py`, `generate_*.py`, or the project-context HTML directly. Use the documented function signatures only.
-- Re-prompt for IDs already in `project-context.html`. The whole point of the write-back is that subsequent runs are silent.
+- Read `email_draft_io.py`, `project_context_db_mapping.py`, or any `*.py` directly. Use the documented function signatures and MCP tools only.
+- Re-prompt for IDs already in `wnd_projects` (i.e. returned by `get_project`). The whole point of the `upsert_project` write-back is that subsequent runs are silent.
 - Upload `procore: false` attachments. The folder is public; explicit opt-in is the safety net.
 - Upload the SmartPM Summary screenshot or any other file outside the user's curated `procore` set.

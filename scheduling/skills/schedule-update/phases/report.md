@@ -20,25 +20,47 @@ Order of operations:
 
 2. **Fetch in parallel** — fire these in one message:
    - **`weekly_update_review(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)`** — the data call. Bundles activity changes, milestone slip, critical-path changes, gain/loss attribution, expected updates. Capture the returned dict; you'll reuse it in `draft.md` step 3.
-   - **`load_project_context(schedules_root)`** — recipients, signer, SmartPM URLs.
+   - **`get_project(job_number=<job_number>)`** MCP tool — the project **bindings** row (`project_name`, SmartPM URLs + project name, Procore ids). On a hit, map the row via `project_context_db_mapping.project_row_to_context(row)` to get the `ctx` bindings dict. On a miss (`null`), lazy-migrate (Step 1b). `ctx` no longer carries recipients / signer / graph_order / contractual_completion — those come from carry-forward / Procore / Q&A (see Step 3).
+   - **`list_prime_contracts(project_id=ctx['procore_project_id'])`** (Procore MCP) — fetch the prime contract's **Substantial Completion** date for `contractual_completion`. (Can also be deferred to Step 3 when you build the seed.)
    - **Read transcript** at `{dated_folder}/meeting-transcript.md` if it exists.
 
 3. **Read what came back; only then decide what to ask the colleague.** If the review dict shows no SC slip and no completed tasks, you don't need to drive a Q&A — the email is essentially "stable week." If it shows a 12-day slip with three critical-path activities flipping, that's where the conversation goes.
 
 The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/weekly-schedule-update-email/schema> is the contract — fetch it any time you're unsure about a field, but it is not required before POST.
 
-## Step 1: Resolve Folder
+## Step 1: Resolve Folder + Load Project Bindings
 
 Apply folder resolution from **Shared Setup**.
 - Default target folder: `{Schedules root}/{today's date in YYYY-MM-DD}/`
 - If today's folder does not exist, list the most recent 3 dated folders and ask: "I don't see a folder for today. Is this week's update in `{most_recent}` or should I create today's folder first? (Run `copy` to create today's folder.)"
 - If today's folder exists but is empty or missing the XER, note what's missing and ask whether to proceed or wait for the human steps (5–9) to finish.
 
-Read `project-context.html`. If missing, stop with the standard error.
+Parse `{job_number}` from the Schedules-root folder name (e.g. `W1177 - Project Name` → `W1177`).
+
+**Load project bindings from Supabase, not HTML.** Project state now lives in `wnd_projects` (via the `get_project` / `upsert_project` MCP tools). `project-context.html` is **retired** — the parser remains only for the one-time lazy migration below.
+
+Call **`get_project(job_number=<job_number>)`** (fired in the parallel block above):
+
+- **Hit** (a row comes back) → `ctx = project_context_db_mapping.project_row_to_context(row)`. `ctx` holds only bindings (`project_name`, `smartpm_url/trends/changelog/project_name`, `procore_company_id/project_id/documents_folder_id`).
+- **Miss** (`null`) → **lazy-migrate** (Step 1b).
+
+`project_context_db_mapping` lives in the sibling skill at `scheduling/skills/schedule-project-init/references/project_context_db_mapping.py` — resolve its path with Glob and import it (do not copy it).
+
+### Step 1b: Lazy migration (only on a `get_project` miss)
+
+If `get_project` returned `null`, check the Schedules root for a legacy `project-context.html`:
+
+1. **HTML present** → migrate it:
+   - `parsed = parse_project_context_html(html_path)` (the parser in `schedule-project-init/references/`).
+   - `payload = parsed_context_to_project_row(parsed, job_number=<job_number>)` → `upsert_project(**payload, source='migrated')`.
+   - For each `entry` in `parsed_context_to_log_entries(parsed)` → `append_project_log(job_number=<job_number>, body=entry['body'], category=entry['category'], created_at=entry['created_at'])` (pass `created_at` to preserve the historical log date).
+   - `retire_context_html(html_path)` → renames it to `project-context-migrated.html` so it never re-migrates.
+   - Set `ctx = project_row_to_context(<the upserted row>)` (or re-call `get_project`).
+2. **No HTML** → stop with: "No project bindings found for `{job_number}` in Supabase and no `project-context.html` to migrate. Run the **schedule-project-init** skill to set up this project."
 
 ## Step 2: Read the review dict; pick a content source
 
-You already have the `review` dict from `weekly_update_review` (fired in the parallel block above) and project-context. Now choose how to fill `successes` / `red_flags` / `stalled_tasks` / `key_items`:
+You already have the `review` dict from `weekly_update_review` (fired in the parallel block above) and the `ctx` bindings. Now choose how to fill `successes` / `red_flags` / `stalled_tasks` / `key_items`:
 
 - **If a transcript was present** → mine it for narrative, then cross-reference with `review` (transcript catches things the XER doesn't — owner decisions, weather, trade performance; the XER catches things the transcript misses — slips, completions).
 - **If no transcript** → drive the colleague Q&A from `review`. The dict tells you what's worth asking about, so the conversation stays on the actual deltas instead of asking generic "anything new?" questions.
@@ -83,14 +105,22 @@ The metrics (`days_metric`, `gain_loss`), carry-forward of last week's lists, at
 
 Short version:
 
-1. Load `prev_draft` (last week's `{prev_date}-email.json`) via `email_draft_io.load_draft`.
+1. Load `prev_draft` (last week's `{prev_date}-email.json`) via `email_draft_io.load_draft`. If it's missing, walk the `_carry_forward.md` fallback chain (its **step 0** is `get_project` + `project_row_to_context`, already done in Step 1).
 2. Glob `{dated_folder}` for attachment basenames.
-3. Compute `days_metric` from `sc_date_new` (from step 2) vs `ctx['contractual_completion']`.
-4. Compute `gain_loss` from `sc_slip_days` (from step 2).
-5. Call `build_seed_dict(...)` with the content gathered in step 2 + the metrics above.
-6. Write the seed to `{dated_folder}/{today}-email.seed.json`.
-7. POST to `generate_weekly_schedule_update_email_draft`.
-8. On 422, refetch the schema and apply the violation's fix (see draft.md §7b).
+3. Fetch `contractual_completion` from **Procore** — `list_prime_contracts(project_id=ctx['procore_project_id'])`, take the prime contract's `substantial_completion_date`. It is **not** in `ctx` anymore.
+4. Compute `days_metric` from `sc_date_new` (from step 2) vs the Procore `contractual_completion`.
+5. Compute `gain_loss` from `sc_slip_days` (from step 2).
+6. Call `build_seed_dict(...)` with the content gathered in step 2 + the metrics above. **New args** the report flow must pass:
+   - `job_number=<parsed from folder>`
+   - `contractual_completion=<from Procore, step 3>`
+   - On **week-1 only** (prev_draft is None), pass the recipients / signer / graph_order gathered in the Q&A: `to_recipients`, `cc_recipients`, `signer_name`, `signer_title`, `signer_mobile`, `graph_order`. Thereafter they carry forward from `prev_draft` and these args are ignored.
+7. Write the seed to `{dated_folder}/{today}-email.seed.json`.
+8. POST to `generate_weekly_schedule_update_email_draft`.
+9. On 422, refetch the schema and apply the violation's fix (see draft.md §7b).
+
+> **Week-1 recipient/signer Q&A.** When there is no `prev_draft`, the report flow must ask the colleague for: the TO recipients (name + email), any CC recipients, and the signer block (name / title / mobile). Add these to the open-ended round in Step 2. The chart `graph_order` defaults to the canonical order — only ask if the colleague wants a non-standard chart set.
+
+> **Project-log appends.** When this week files an EOT, records a scope change, or publishes a schedule, append it to the project log via the **`append_project_log(job_number, body, category)`** MCP tool (categories e.g. `eot`, `scope_change`, `schedule_published`). Do **not** write it back into any HTML — the log lives in `wnd_project_log` now.
 
 ## Step 4: Hand the editor URL to the colleague
 
