@@ -1,6 +1,7 @@
-"""Advisory hook: when Claude reads or writes one of the managed HTML
-artifacts in the schedule update pipeline, print a steer toward the
-matching parse/generate Python script.
+"""Advisory hook: project-context.html is RETIRED. If Claude tries to
+Read / Edit / Write a *legacy* project-context.html directly, steer it
+toward the one-time lazy migration in schedule-project-init instead of
+hand-editing — the embedded base64 logo corrupts under direct tool I/O.
 
 Never blocks — always exits 0. Stderr goes to Claude as a system note.
 """
@@ -11,32 +12,36 @@ import re
 import sys
 
 
-# basename match: project-context.html (the only HTML artifact still
-# managed via parse/generate after the cloud-editor migration; the
-# weekly email lives in {YYYY-MM-DD}-email.json now).
+# basename match: a legacy project-context.html. The file is RETIRED as a
+# live source — project state lives in Supabase (wnd_projects / wnd_project_log),
+# read via get_project and the weekly email in {YYYY-MM-DD}-email.json. Any
+# project-context.html still on disk is a pre-migration legacy file.
 PROTECTED_RE = re.compile(r'^project-context\.html$', re.IGNORECASE)
 
 
-READ_MSG = """HEADS UP — direct Read on a managed HTML file ({path}).
+READ_MSG = """HEADS UP - direct Read on a legacy project-context.html ({path}).
 
-project-context.html is ~47 KB with an embedded base64 logo. Prefer the
-parser:
-  parse_project_context_html.load_project_context(schedules_root)
+project-context.html is RETIRED. Project state now lives in Supabase --
+read bindings with the get_project(job_number) MCP tool and the project
+log with list_project_log; the weekly email lives in {{YYYY-MM-DD}}-email.json.
 
-Reading via the parser gives you a dict and avoids token blow-up. You
-can proceed if you have a reason, but most reads should go through the
-parser.
+A legacy project-context.html should be MIGRATED once by the
+schedule-project-init skill, not read by hand. It is ~47 KB with an
+embedded base64 logo that corrupts under direct tool I/O.
 """
 
 
-WRITE_MSG = """HEADS UP — direct write to a managed HTML file ({path}).
+WRITE_MSG = """HEADS UP - direct write to a legacy project-context.html ({path}).
 
-W1177 (2026-05-07) corrupted the embedded base64 logo via a direct Write.
+project-context.html is RETIRED and is never regenerated -- the
+generate_project_context_html generator is gone. W1177 (2026-05-07)
+corrupted the embedded base64 logo via a direct Write.
 
-For project-context.html writes, use
-generate_project_context_html.generate_project_context_html(path, ctx).
-
-Not blocked, but pause: is this an edit a generator should do?
+A legacy project-context.html should be MIGRATED once by the
+schedule-project-init skill (parse_project_context_html +
+project_context_db_mapping -> upsert_project -> retire_context_html
+renames it to project-context-migrated.html), never hand-edited or
+regenerated. Write bindings with the upsert_project MCP tool instead.
 """
 
 

@@ -1,5 +1,5 @@
 {
-  "description": "Scheduling — two PreToolUse hooks: (1) advisory steer toward the parse/generate scripts for managed HTML artifacts (project-context.html); (2) lib-fence advisory recommending the Westland Scheduler Local MCP tools instead of reading schedule-toolbox/lib/*.py directly — emits permissionDecision:allow with a tool-mapped reason so Claude sees the recommendation but is not blocked from debugging an MCP failure. Both run through the Python wrapper (run-hook.ps1) that skips the Microsoft Store python.exe stub.",
+  "description": "Scheduling — two PreToolUse hooks: (1) advisory steer for a legacy project-context.html — the file is retired (project state lives in Supabase), so a direct Read/Edit/Write is steered toward the one-time schedule-project-init lazy migration, never a hand-edit or regenerate; (2) lib-fence advisory recommending the Westland Scheduler Local MCP tools instead of reading schedule-toolbox/lib/*.py directly — emits permissionDecision:allow with a tool-mapped reason so Claude sees the recommendation but is not blocked from debugging an MCP failure. Both run through the Python wrapper (run-hook.ps1) that skips the Microsoft Store python.exe stub.",
   "hooks": {
     "PreToolUse": [
       {

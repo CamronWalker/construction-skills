@@ -109,7 +109,7 @@ A shared helper **`load_project(job_number)`** replaces `parse_project_context_h
 
 **Behavior changes that follow from the cuts:**
 - **Recipients / signer / graph_order sourcing moves.** Today week-1 seeds these from `project-context.html`. New behavior: source from the previous email JSON (carry-forward) when present, else gather conversationally during the report Q&A on the first email (`graph_order` → canonical default). The report/draft phases stop reading these from `ctx`.
-- **`contractual_completion` from Procore.** The build step pulls it via a Procore MCP call (`list_project_dates` / `show_project`) instead of from the store. *(Open item: confirm which Procore date field maps to "contractual completion.")*
+- **`contractual_completion` from Procore.** The build step pulls the **Substantial Completion** date off the **Prime Contract** via the Procore MCP (`list_prime_contracts` → the prime contract's substantial-completion date) instead of from the store.
 - **Project-log appends become MCP calls.** Where `schedule-update` previously parsed the HTML, appended a `{date, body}`, and re-generated, it now calls `append_project_log(job_number, body, category)`. Integration points to wire: EOT filed (`category='eot'`), scope change (`'scope_change'`), schedule published to Procore (`'schedule_published'`), plus free-form notes (`'note'`).
 
 **`schedule-project-init` rewritten:** gathers fields conversationally → `upsert_project(source='init')`. It **stops generating `project-context.html`** but still drops the generic launchers into the Schedules root (they're unchanged and still needed). Triggers/description updated.
@@ -140,7 +140,7 @@ Implementation runs as a **Workflow** (per request). Phasing:
 ## Risks / open items
 
 - **Hard connector/network dependency** for project reads — acceptable; the weekly update already hard-depends on the connector (cloud editor) + network (SmartPM/Procore). The lazy-parse + local `project-settings.json` snapshot cushion the edges.
-- **`contractual_completion` Procore field mapping is unresolved** — must be nailed in the implementation plan before Phase 2.
+- **`contractual_completion` source resolved** — Substantial Completion date on the Procore Prime Contract (`list_prime_contracts`), fetched at email-build time.
 - **Week-1 sourcing path** (recipients/signer/graph_order with no prior email JSON) must be exercised in tests.
 - **`job_number ↔ spm_projects` is soft** — `spm_project_id` stays null when `project_number` isn't populated; `job_number` is the real key regardless.
 - **Expansion is via real columns** — add typed columns when a field is actually needed; no jsonb catch-all unless the column count ever becomes genuinely unwieldy.

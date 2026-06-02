@@ -4,46 +4,43 @@
     {
       "id": 0,
       "name": "init-project",
-      "prompt": "I just opened up the Schedules folder for a new project — W9990 Salt Flats Test Temple — and want to set it up. Initialize the project context with: contractual completion 2028-03-15, SmartPM workspace https://live.smartpmtech.com/projects/saltflats/workspace, signer Camron Walker (Scheduler), Procore project ID 5550000. TO recipients: Morne Wilken <mwilken@westlandconstruction.com>; Trent Christensen <tchristensen@westlandconstruction.com>. CC: Camron Walker <camron@westlandconstruction.com>. Use the Westland default graph list. The Schedules folder is at {SCHEDULES_PATH}.",
-      "expected_output": "A project-context.html file written into the Schedules folder with all the supplied values. The file must be created via generate_project_context_html.py — never via Write/Edit on raw HTML.",
+      "prompt": "I just opened up the Schedules folder for a new project — W9990 Salt Flats Test Temple — and want to set it up. Initialize the project with: SmartPM workspace https://live.smartpmtech.com/projects/saltflats/workspace, SmartPM card name 'Salt Flats Test Temple', Procore project ID 5550000. The Schedules folder is at {SCHEDULES_PATH}.",
+      "expected_output": "The agent checks get_project(W9990), finds no row, gathers the binding fields conversationally, and persists them by calling the upsert_project MCP tool with job_number='W9990' and source='init'. It derives the SmartPM trends and changelog URLs from the workspace URL. It does NOT generate a project-context.html file. It drops the Write Weekly Schedule Email launcher scripts into the Schedules folder.",
       "expectations": [
-        "project-context.html exists in the Schedules folder",
-        "The agent invoked generate_project_context_html (the canonical generator)",
-        "The agent did NOT use the Edit tool on project-context.html",
-        "The agent did NOT use the Write tool to author project-context.html directly (Write is fine if the agent saves a Python script, just not the HTML itself)",
-        "The final HTML round-trips cleanly through parse_project_context_html",
-        "The signer name 'Camron Walker' appears in the parsed values",
-        "The Procore project ID '5550000' appears in the parsed values"
+        "The agent called get_project with job_number 'W9990' before writing anything",
+        "The agent called upsert_project with job_number 'W9990' and the gathered bindings (source='init')",
+        "The agent did NOT create or generate a project-context.html file",
+        "The agent derived smartpm_trends_url (/trends?tab=Graphs) and smartpm_changelog_url (/changelog) from the workspace URL",
+        "The agent passed procore_company_id='11093' and procore_project_id='5550000'",
+        "The agent did NOT ask for contractual completion, recipients, or signer info (those are not stored in wnd_projects)",
+        "The agent copied 'Write Weekly Schedule Email.bat' (and the .ps1) into the Schedules folder"
       ]
     },
     {
       "id": 1,
-      "name": "update-signer",
-      "prompt": "Update the signer on this project's context to Camron Walker, Scheduler. Mobile is +1 801.555.0199. The Schedules folder is at {SCHEDULES_PATH}. project-context.html already exists there.",
-      "expected_output": "project-context.html with signer_name='Camron Walker', signer_title='Scheduler', signer_mobile='+1 801.555.0199'. All other fields preserved exactly. The change must go through parse → mutate dict → generate. No direct Edit/Write on the HTML file.",
+      "name": "update-smartpm-url",
+      "prompt": "Update the SmartPM workspace URL on W9990 — it moved to https://live.smartpmtech.com/projects/saltflats-v2/workspace. The Schedules folder is at {SCHEDULES_PATH}. The project is already initialized.",
+      "expected_output": "The agent reads the existing row via get_project(W9990), then calls upsert_project with only the changed SmartPM URL fields (workspace + derived trends/changelog). Partial update — other bindings untouched. No HTML is generated.",
       "expectations": [
-        "The agent invoked parse_project_context_html (read-side of CRUD)",
-        "The agent invoked generate_project_context_html (write-side of CRUD)",
-        "The agent did NOT use the Edit tool on project-context.html",
-        "The agent did NOT use the Read tool on project-context.html",
-        "The signer_name in the resulting file equals 'Camron Walker'",
-        "The signer_title in the resulting file equals 'Scheduler'",
-        "Recipients, SmartPM URLs, and graph list are preserved unchanged from the seed"
+        "The agent called get_project with job_number 'W9990'",
+        "The agent called upsert_project with the updated smartpm_url (and re-derived smartpm_trends_url / smartpm_changelog_url)",
+        "The agent did NOT generate a project-context.html file",
+        "The agent did NOT re-send unrelated bindings it was not asked to change (partial upsert)"
       ]
     },
     {
       "id": 2,
-      "name": "fix-context",
-      "prompt": "The contractual completion date in this project's context is wrong. It says 2026-12-01 but should be 2027-06-30. Fix it. The Schedules folder is at {SCHEDULES_PATH}.",
-      "expected_output": "project-context.html with contractual_completion='2027-06-30'. All other fields untouched. CRUD discipline strictly enforced.",
+      "name": "lazy-migrate-legacy-html",
+      "prompt": "Set up W9990 for the weekly update. The Schedules folder is at {SCHEDULES_PATH} and there's an old project-context.html sitting in it from before we moved to the database.",
+      "expected_output": "The agent calls get_project(W9990), gets null, finds the legacy project-context.html, parses it with parse_project_context_html, maps bindings via parsed_context_to_project_row and upserts them with source='migrated', replays each log entry via append_project_log (preserving dates), then retires the file to project-context-migrated.html via retire_context_html. It does NOT regenerate the HTML and does NOT Read/Edit/Write the HTML directly.",
       "expectations": [
-        "The agent invoked parse_project_context_html",
-        "The agent invoked generate_project_context_html",
-        "The agent did NOT use the Edit tool on project-context.html",
-        "The agent did NOT use the Read tool on project-context.html",
-        "The contractual_completion in the resulting file equals '2027-06-30'",
-        "The signer_name 'Camron Walker' is preserved unchanged from the seed",
-        "Recipients are preserved unchanged from the seed"
+        "The agent called get_project with job_number 'W9990' and got no row",
+        "The agent parsed the legacy file via parse_project_context_html (not a direct Read of the HTML)",
+        "The agent called upsert_project with source='migrated' using the mapped binding columns",
+        "The agent replayed any project log entries via append_project_log",
+        "The agent retired the file to project-context-migrated.html (did not leave a live project-context.html)",
+        "The agent did NOT generate a new project-context.html",
+        "The agent did NOT use Edit or Write on the HTML file"
       ]
     }
   ]

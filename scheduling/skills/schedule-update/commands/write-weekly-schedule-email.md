@@ -13,7 +13,7 @@ Get the week-over-week deltas before doing anything else. Order:
 1. **Resolve** (Bash/Glob) — find `dated_folder`, `prev_dated_folder`, `current_xer`, `prev_xer`. See `phases/report.md` step 1.
 2. **Parallel fetch** — one turn, three calls overlapping:
    - `weekly_update_review(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)` — one MCP call that returns activity changes, milestone slip, expected updates, critical-path changes, and gain/loss attribution. Feeds `build_seed_dict`.
-   - `load_project_context(schedules_root)` — recipients, signer, SmartPM URLs.
+   - `get_project(job_number)` → `project_context_db_mapping.project_row_to_context(row)` — the SmartPM URLs + Procore id bindings (lazy-migrate a legacy `project-context.html` on a miss; see `phases/report.md` Step 1b). Recipients / signer come from carry-forward, not bindings.
    - Read transcript if present.
 3. Read what came back; let the `review` dict pick what to ask the colleague.
 
@@ -40,7 +40,7 @@ Then execute the `report` flow as documented in `phases/report.md`, starting fro
 - Do not `Read` the underlying Python scripts. The phase files inline every signature you need.
 - Do not hand-construct the seed dict — call `build_seed_dict`. The Worker schema is rich and drift-prone; the helper is the single source of truth.
 - Do not skip the Procore publish unless the colleague has the **⏭ Skip Procore this week** toggle ticked in the editor.
-- Do not re-prompt for Procore project ID or documents folder ID — `procore.md`'s preflight handles auto-resolution and write-back to `project-context.html`.
+- Do not re-prompt for Procore project ID or documents folder ID — `procore.md`'s preflight handles auto-resolution and write-back via `upsert_project`.
 
 ## Launcher (for reference)
 

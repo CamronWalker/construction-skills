@@ -34,7 +34,7 @@ TaskCreate({
   subject: "[re-read] phases/report.md",
   description: "Re-read the full phases/report.md file. Do not start any step until it is loaded in current context."
 })
-TaskCreate({ subject: "Resolve folder + read project-context.html", ... })
+TaskCreate({ subject: "Resolve folder + load project bindings via get_project", ... })
 TaskCreate({
   subject: "[re-read] phases/_carry_forward.md",
   description: "Re-read the full phases/_carry_forward.md file before invoking carry_forward.reconcile_items / transition_attachments."
@@ -83,22 +83,22 @@ Enforced at the tool layer by the `westland` plugin's PreToolUse hook (`westland
 
 ---
 
-## ⚠️ Absolute rule — HTML artifacts go through their parse/generate scripts
+## ⚠️ Absolute rule — project state lives in Supabase; the weekly email JSON is read via its parser
 
-**Every editable HTML artifact in this pipeline is read via its parser and written via its generator.** Applies to every phase below:
+**Project bindings are read from Supabase via MCP; the weekly-email JSON is read via its parser.** Applies to every phase below:
 
-- **READ** via the parser. Never `Read` / `Grep` / `cat` the HTML directly.
-- **WRITE** via the generator. Never `Edit` / `Write` / `MultiEdit` / `sed` / hand-typed HTML patches.
-- Even one-line changes (a checkbox flip, an attachment add, a recipient swap) round-trip through **parse → mutate dict → generate**.
+- **READ bindings** with `get_project(job_number)` and map the row via `project_context_db_mapping.project_row_to_context(row)`. Never `Read` / `Grep` / `cat` `project-context.html` as a live source — it is **retired**.
+- **WRITE bindings** with `upsert_project(job_number, ...fields)`. There is no `project-context.html` generator anymore (`generate_project_context_html.py` is deleted).
+- **READ the weekly email** via `email_draft_io.load_draft(path)`. The Worker (`finalize_weekly_schedule_update_email`) is the only writer.
 
 | Artifact | Lives at | Read with | Write with |
 |----------|----------|-----------|------------|
-| `project-context.html` | Schedules root | `parse_project_context_html.parse_project_context_html(path)` | `generate_project_context_html.generate_project_context_html(path, ctx)` |
+| Project bindings + log | Supabase (`wnd_projects` / `wnd_project_log`) | `get_project(job_number)` → `project_context_db_mapping.project_row_to_context(row)`; `list_project_log(job_number)` | `upsert_project(job_number, ...)`; `append_project_log(job_number, body, category)` |
 | `{YYYY-MM-DD}-email.json` | dated folder | `email_draft_io.load_draft(path)` | Worker-side: `finalize_weekly_schedule_update_email` (no local writer) |
 
-**Why:** `project-context.html` is ~47 KB with an embedded base64 logo that has historically corrupted mid-payload during direct tool I/O (W1177 Lubumbashi, 2026-05-07). Keep all HTML I/O inside the script pair. The weekly email no longer round-trips through HTML — content lives in the cloud editor and ships back as `{YYYY-MM-DD}-email.json` per the contract in scheduling/CLAUDE.md.
+**Why:** project state moved out of `project-context.html` into Supabase per the contract in scheduling/CLAUDE.md ("project-context.html is RETIRED"). A *legacy* `project-context.html` is migrated **once** by `schedule-project-init` (parse → `upsert_project(source='migrated')` → replay log → rename to `project-context-migrated.html`); it is never the per-run source and is never regenerated. The base64-logo corruption lesson (W1177 Lubumbashi, 2026-05-07) still means any legacy HTML must never be hand `Read`/`Edit`/`Write`. The weekly email never round-trips through HTML — content lives in the cloud editor and ships back as `{YYYY-MM-DD}-email.json`.
 
-**Cowork note:** when the Schedules / dated folder lives on a non-`C:\` drive (e.g. `\\orem-fs\Common\Westland Project Files` mounted as `G:\`), the bash sandbox may not see it. The discipline still holds. Run the generator with `output_path` pointing at the real destination if reachable; otherwise hand the invocation to a local Claude Code session — never round-trip the HTML through `Write` to "deliver" it.
+**Cowork note:** when the Schedules / dated folder lives on a non-`C:\` drive (e.g. `\\orem-fs\Common\Westland Project Files` mounted as `G:\`), the bash sandbox may not see it. Bindings come from `get_project` regardless of drive. If a one-time lazy migration must run and the sandbox can't see the legacy HTML, hand the migration to a local Claude Code session.
 
 ---
 
@@ -123,41 +123,35 @@ All phases use this logic to find the Schedules root:
 
 The grandparent of the Schedules root should match `W\d+ - .+` (e.g., `W1134 - Neiafu Tonga Temple Construction`).
 
-### project-context.html — dict shape
+### Project bindings — the `ctx` dict shape
 
-Lives in the **root Schedules folder**. Created and maintained by the `schedule-project-init` skill. Read via:
+Project bindings live in Supabase (`wnd_projects`), not in `project-context.html`. Parse `{job_number}` from the `W#### - Name` Schedules-root folder (e.g. `W1177 - Project Name` → `W1177`), then read the row via the `get_project` MCP tool and map it to a `ctx` dict:
 
 ```python
-from parse_project_context_html import load_project_context
-ctx, html_path = load_project_context(schedules_root)
+import project_context_db_mapping
+row = get_project(job_number=<job_number>)   # MCP tool; returns the row, or None
+ctx = project_context_db_mapping.project_row_to_context(row)   # binding keys only
 ```
 
-Returns `(None, None)` if the file doesn't exist — in that case, stop and tell the user to run `schedule-project-init`.
+`project_row_to_context` emits **only** the binding set (missing/None columns default to `''`):
 
 ```python
 {
   'project_name': str,
-  'job_number': str,
-  'contractual_completion': str,
   'smartpm_url': str, 'smartpm_trends_url': str, 'smartpm_changelog_url': str,
   'smartpm_project_name': str,
-  'signer_name': str, 'signer_title': str, 'signer_mobile': str,
-  'procore_company_id': str,            # locked in UI; always Westland '11093'
+  'procore_company_id': str,            # always Westland '11093'
   'procore_project_id': str,            # auto-resolved on first Procore run
   'procore_documents_folder_id': str,   # auto-resolved on first Procore run
-  'graph_screenshots': list[str],
-  'to_recipients': list[{'name': str, 'email': str}],
-  'cc_recipients': list[{'name': str, 'email': str}],
-  'to_recipients_str': str,   # legacy "Name <email>; …" form
-  'cc_recipients_str': str,
-  'project_log': list[{'date': 'YYYY-MM-DD', 'body': str}],
 }
 ```
 
-Every phase reads `project-context.html` first. If it is missing, stop with:
-> "No project-context.html found in the Schedules root. Run the `schedule-project-init` skill first."
+`ctx` does **not** carry recipients / signer / `graph_order` / `contractual_completion` — those live in the weekly-email JSON (carry-forward or week-1 gather) and `contractual_completion` is fetched from Procore at email-build time. `job_number` is the key column, handled separately (not in the binding dict).
 
-If `procore_project_id` or `procore_documents_folder_id` is empty, the `procore` phase will resolve them on first run and write them back via the generator. No manual setup required.
+Every phase loads project bindings via `get_project(job_number)` first. On a `get_project` miss (`None`) with a legacy `project-context.html` in the Schedules root, **lazy-migrate** it (parse → `upsert_project(source='migrated')` → replay the log via `append_project_log` → rename with `retire_context_html`; see `schedule-project-init`), then continue. On a miss with **no** legacy HTML, stop with:
+> "No project bindings found for `{job_number}` in Supabase and no `project-context.html` to migrate. Run the `schedule-project-init` skill first."
+
+If `procore_project_id` or `procore_documents_folder_id` is empty, the `procore` phase will resolve them on first run and write them back via `upsert_project`. No manual setup required.
 
 ### Weekly email file
 
