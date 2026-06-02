@@ -27,9 +27,9 @@ The `wnd_projects` row is **lean** — only the stable bindings that aren't alre
 | Field | Notes |
 |-------|-------|
 | `project_name` | parsed from the folder; confirm with user |
-| `smartpm_url` | workspace URL — must end in `/workspace` |
-| `smartpm_trends_url` | derived: `/workspace` → `/trends?tab=Graphs` |
-| `smartpm_changelog_url` | derived: `/workspace` → `/changelog` |
+| `smartpm_url` | SmartPM **v2** base: `https://live.smartpmtech.com/#/v2/{companyUuid}/projects/{projectId}` (hash-routed SPA; auto-redirects to the default workspace). Prefer this bare base — it survives model/scenario churn. |
+| `smartpm_trends_url` | trends off the workspace deep path: `…/trends?view=Graphs` (note `?view=`, **not** `?tab=`) |
+| `smartpm_changelog_url` | change log off the workspace deep path: `…/changes` (note `/changes`, **not** `/changelog`) |
 | `smartpm_project_name` | exact SmartPM v2 card title (may differ from folder) |
 | `procore_company_id` | always `11093` for Westland |
 | `procore_project_id` | the project's Procore ID |
@@ -82,7 +82,11 @@ Confirm:
 
 Walk the binding fields in a single conversational pass (use AskUserQuestion where helpful). Collect them into one `bindings` dict keyed by the column names above. Only the binding set — do **not** ask for contractual completion, recipients, signer, or graph order (see *What is stored where*).
 
-1. **SmartPM workspace URL** — must end in `/workspace`. Derive `smartpm_trends_url` (replace `/workspace` with `/trends?tab=Graphs`) and `smartpm_changelog_url` (replace with `/changelog`). Show all three for confirmation.
+1. **SmartPM URLs (v2 shape).** SmartPM's web app is a **hash-routed SPA** — the old `live.smartpmtech.com/projects/{id}/workspace` host is the API backend and **404s**. Build the real shape from the project's `smartpm_list_projects` row:
+   - **Base** (store as `smartpm_url`): `https://live.smartpmtech.com/#/v2/{companyUuid}/projects/{projectId}` — auto-redirects to the default workspace. `companyUuid` is the Westland tenant `39032af1-4b5c-4d22-a81e-9f7c7aabfbc5` (= the `companyId` on every row); `projectId` is the SmartPM project id.
+   - **Trends / change log** hang off the deep workspace path `…/projects/{projectId}/analysis/model/{modelId}/milestone/{scenarioId}/workspace/{workspaceUuid}` — trends = that path + `/trends?view=Graphs`; change log = + `/changes`. (`modelId`=`currentModelId`, `scenarioId`=`defaultScenarioId`, same row.)
+   - **The deep IDs drift** as new schedules are uploaded, so don't bake hand-built deep links in blindly. Prefer the bare base for `smartpm_url` (it redirects) and **capture the trends + change-log URLs live from the browser at init**. Confirm all three actually open before saving.
+   - **Never set `spm_project_id`.** It's a foreign key to the internal `spm_projects.id` (the Power BI sync row id) — **not** the SmartPM project id. Setting it to the SmartPM id fails with FK violation `23503` unless a sync row exists. Leave it unset; `smartpm_url` + `smartpm_project_name` are the SmartPM bindings the skill stores.
 2. **SmartPM project name** — the **exact** title shown on SmartPM v2's `/projects/cards` page. The screenshot capture script uses this to find the right card. Default to the parsed project name from Step 2; ask the user to confirm or override if SmartPM's spelling differs (e.g., `"Anchorage AK Temple"` in folders, but `"Anchorage Alaska Temple"` on SmartPM).
 3. **Procore project ID** — the project's Procore ID. (Company ID is always `11093` for Westland; pass it as `procore_company_id='11093'` — it isn't user-editable.)
 4. **Procore Documents folder ID** *(optional)* — the folder weekly uploads land in. If the user doesn't know it yet, leave it blank; the `schedule-update` Procore phase discovers and writes it later.
@@ -95,9 +99,9 @@ Call the **`upsert_project`** MCP tool with `job_number` plus the gathered bindi
 upsert_project(
   job_number="W1134",
   project_name="Neiafu Tonga Temple Construction",
-  smartpm_url="https://live.smartpmtech.com/projects/abc/workspace",
-  smartpm_trends_url="https://live.smartpmtech.com/projects/abc/trends?tab=Graphs",
-  smartpm_changelog_url="https://live.smartpmtech.com/projects/abc/changelog",
+  smartpm_url="https://live.smartpmtech.com/#/v2/39032af1-4b5c-4d22-a81e-9f7c7aabfbc5/projects/156237",
+  smartpm_trends_url="<live trends URL from the browser — ends in /trends?view=Graphs>",
+  smartpm_changelog_url="<live change-log URL from the browser — ends in /changes>",
   smartpm_project_name="Neiafu Tonga Temple",
   procore_company_id="11093",
   procore_project_id="2646569",

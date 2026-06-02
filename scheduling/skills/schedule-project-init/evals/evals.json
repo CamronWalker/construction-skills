@@ -4,13 +4,14 @@
     {
       "id": 0,
       "name": "init-project",
-      "prompt": "I just opened up the Schedules folder for a new project — W9990 Salt Flats Test Temple — and want to set it up. Initialize the project with: SmartPM workspace https://live.smartpmtech.com/projects/saltflats/workspace, SmartPM card name 'Salt Flats Test Temple', Procore project ID 5550000. The Schedules folder is at {SCHEDULES_PATH}.",
-      "expected_output": "The agent checks get_project(W9990), finds no row, gathers the binding fields conversationally, and persists them by calling the upsert_project MCP tool with job_number='W9990' and source='init'. It derives the SmartPM trends and changelog URLs from the workspace URL. It does NOT generate a project-context.html file. It drops the Write Weekly Schedule Email launcher scripts into the Schedules folder.",
+      "prompt": "I just opened up the Schedules folder for a new project — W9990 Salt Flats Test Temple — and want to set it up. Initialize the project with: SmartPM project URL https://live.smartpmtech.com/#/v2/39032af1-4b5c-4d22-a81e-9f7c7aabfbc5/projects/990123, SmartPM card name 'Salt Flats Test Temple', Procore project ID 5550000. The Schedules folder is at {SCHEDULES_PATH}.",
+      "expected_output": "The agent checks get_project(W9990), finds no row, gathers the binding fields conversationally, and persists them by calling the upsert_project MCP tool with job_number='W9990' and source='init'. It stores the SmartPM v2 base URL (live.smartpmtech.com/#/v2/...) and the trends (?view=Graphs) / change-log (/changes) URLs — NOT the old /projects/{id}/workspace host or ?tab=Graphs / /changelog derivation. It does NOT set spm_project_id to the SmartPM project id. It does NOT generate a project-context.html file. It drops the Write Weekly Schedule Email launcher scripts into the Schedules folder.",
       "expectations": [
         "The agent called get_project with job_number 'W9990' before writing anything",
         "The agent called upsert_project with job_number 'W9990' and the gathered bindings (source='init')",
         "The agent did NOT create or generate a project-context.html file",
-        "The agent derived smartpm_trends_url (/trends?tab=Graphs) and smartpm_changelog_url (/changelog) from the workspace URL",
+        "The agent stored SmartPM v2 URLs (live.smartpmtech.com/#/v2/...) — trends ending in ?view=Graphs and change log ending in /changes — NOT the old /projects/{id}/workspace host, ?tab=Graphs, or /changelog",
+        "The agent did NOT set spm_project_id to the SmartPM project id (it is a FK to spm_projects.id)",
         "The agent passed procore_company_id='11093' and procore_project_id='5550000'",
         "The agent did NOT ask for contractual completion, recipients, or signer info (those are not stored in wnd_projects)",
         "The agent copied 'Write Weekly Schedule Email.bat' (and the .ps1) into the Schedules folder"
@@ -19,11 +20,11 @@
     {
       "id": 1,
       "name": "update-smartpm-url",
-      "prompt": "Update the SmartPM workspace URL on W9990 — it moved to https://live.smartpmtech.com/projects/saltflats-v2/workspace. The Schedules folder is at {SCHEDULES_PATH}. The project is already initialized.",
-      "expected_output": "The agent reads the existing row via get_project(W9990), then calls upsert_project with only the changed SmartPM URL fields (workspace + derived trends/changelog). Partial update — other bindings untouched. No HTML is generated.",
+      "prompt": "Update the SmartPM URL on W9990 — it moved to https://live.smartpmtech.com/#/v2/39032af1-4b5c-4d22-a81e-9f7c7aabfbc5/projects/990456. The Schedules folder is at {SCHEDULES_PATH}. The project is already initialized.",
+      "expected_output": "The agent reads the existing row via get_project(W9990), then calls upsert_project with only the changed SmartPM URL fields (the v2 base plus the matching trends ?view=Graphs / change-log /changes URLs). Partial update — other bindings untouched. No HTML is generated.",
       "expectations": [
         "The agent called get_project with job_number 'W9990'",
-        "The agent called upsert_project with the updated smartpm_url (and re-derived smartpm_trends_url / smartpm_changelog_url)",
+        "The agent called upsert_project with the updated smartpm_url (the v2 base) and the matching smartpm_trends_url (?view=Graphs) / smartpm_changelog_url (/changes)",
         "The agent did NOT generate a project-context.html file",
         "The agent did NOT re-send unrelated bindings it was not asked to change (partial upsert)"
       ]
