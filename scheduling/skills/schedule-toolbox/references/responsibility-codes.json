@@ -1,0 +1,1542 @@
+{
+  "code_type_name": "Responsibility - Global",
+  "note": "Westland global Responsibility activity codes. keywords power the name-based first-pass matcher (responsibility_match.py); edit freely.",
+  "codes": [
+    {
+      "code": "ACT",
+      "name": "Acoustical Ceiling",
+      "keywords": [
+        "absorbing",
+        "ceiling tile",
+        "ceiling grid",
+        "sound absorbing",
+        "absorbing ceiling",
+        "ceiling panel",
+        "tile felt",
+        "acoustical",
+        "ceiling"
+      ],
+      "weak_keywords": [
+        "grid"
+      ]
+    },
+    {
+      "code": "AGLS",
+      "name": "Art Glass",
+      "keywords": [
+        "art glass",
+        "glass window",
+        "window inserts",
+        "procure art",
+        "art",
+        "glass"
+      ]
+    },
+    {
+      "code": "APP",
+      "name": "Residential Appliances",
+      "keywords": [
+        "appliance package",
+        "package paquete",
+        "residential",
+        "appliances"
+      ]
+    },
+    {
+      "code": "ARCH",
+      "name": "Architect",
+      "keywords": [
+        "revised",
+        "ndy",
+        "consent",
+        "paquete",
+        "submittall",
+        "revison",
+        "planner",
+        "town",
+        "farsight",
+        "draft",
+        "docs",
+        "report",
+        "development",
+        "finalise"
+      ],
+      "weak_keywords": [
+        "review",
+        "por",
+        "temple",
+        "package",
+        "with",
+        "studio",
+        "diseno",
+        "and",
+        "landscape",
+        "primary"
+      ]
+    },
+    {
+      "code": "ASPH",
+      "name": "Asphalt",
+      "keywords": [
+        "sweep",
+        "concrete paving",
+        "asphalt"
+      ],
+      "weak_keywords": [
+        "paving",
+        "striping"
+      ]
+    },
+    {
+      "code": "AUDS",
+      "name": "Audience Seating",
+      "keywords": [
+        "seating asientos",
+        "sillones bancas",
+        "seating sillones",
+        "audience",
+        "seating"
+      ]
+    },
+    {
+      "code": "AV",
+      "name": "Audio Visual",
+      "keywords": [
+        "projections",
+        "intrusion",
+        "projections screens",
+        "audio",
+        "visual"
+      ],
+      "weak_keywords": [
+        "screens"
+      ]
+    },
+    {
+      "code": "BLE",
+      "name": "Bleachers & Stadium Seating",
+      "keywords": [
+        "bleachers",
+        "stadium",
+        "seating"
+      ]
+    },
+    {
+      "code": "CDHDW",
+      "name": "Custom Door Hardware",
+      "keywords": [
+        "custom",
+        "door",
+        "hardware"
+      ]
+    },
+    {
+      "code": "CLFENC",
+      "name": "Chain Link Fence",
+      "keywords": [
+        "chain",
+        "link",
+        "fence"
+      ]
+    },
+    {
+      "code": "CLN",
+      "name": "Cleaning",
+      "keywords": [
+        "limpieza",
+        "limpeza",
+        "limpia",
+        "final clean",
+        "lista para",
+        "para limpieza",
+        "clean limpieza",
+        "para limpeza",
+        "clean listo",
+        "listo para",
+        "ready construction",
+        "construccion limpia",
+        "clean construccion",
+        "cleaning"
+      ],
+      "weak_keywords": [
+        "clean",
+        "lista",
+        "listo"
+      ]
+    },
+    {
+      "code": "COMMI",
+      "name": "Commissioning",
+      "keywords": [
+        "ballance",
+        "test ballance",
+        "final commissioning",
+        "ballance final",
+        "system commissioning",
+        "system test",
+        "mechanical early",
+        "early startup",
+        "commissioning"
+      ],
+      "weak_keywords": [
+        "functional"
+      ]
+    },
+    {
+      "code": "CONC-SIT",
+      "name": "Concrete Site",
+      "keywords": [
+        "walks",
+        "aprons",
+        "hardscape",
+        "pavers",
+        "gutter",
+        "guarniciones",
+        "banquetas",
+        "rodapies",
+        "adoquines",
+        "asfalto",
+        "sidewalk",
+        "pavimentos",
+        "bands",
+        "maintenace"
+      ],
+      "weak_keywords": [
+        "planters",
+        "subrough",
+        "elements",
+        "jardineras",
+        "curb",
+        "preparaciones",
+        "gravel"
+      ]
+    },
+    {
+      "code": "CONC-STRU",
+      "name": "Concrete Structural",
+      "keywords": [
+        "slabs",
+        "elevated",
+        "spot",
+        "mat",
+        "vapor",
+        "continuous",
+        "forms",
+        "shore",
+        "back",
+        "pour",
+        "sumps",
+        "spread",
+        "approach",
+        "shoring"
+      ],
+      "weak_keywords": [
+        "slab",
+        "footings",
+        "footing",
+        "font",
+        "cure",
+        "place",
+        "pads",
+        "mezzanine",
+        "pit",
+        "form"
+      ]
+    },
+    {
+      "code": "CURT",
+      "name": "Curtains",
+      "keywords": [
+        "curtains"
+      ]
+    },
+    {
+      "code": "DECP",
+      "name": "Decorative Paint & Gold Leaf",
+      "keywords": [
+        "decorative painting",
+        "pintura decorativa",
+        "decorative paint",
+        "hoists pintura",
+        "decorativa alrededor",
+        "paint around",
+        "room pintura",
+        "paint seailing",
+        "decorativa sellamiento",
+        "paint instruction",
+        "decorativa instruccion",
+        "decorative",
+        "paint",
+        "gold"
+      ],
+      "weak_keywords": [
+        "decorativa"
+      ]
+    },
+    {
+      "code": "DEMO",
+      "name": "Demolition",
+      "keywords": [
+        "demolicion muros",
+        "demolish existing",
+        "perimetrales existentes",
+        "perimeter walls",
+        "muros perimetrales",
+        "existing perimeter",
+        "walls demolicion",
+        "demolition"
+      ]
+    },
+    {
+      "code": "DHDW",
+      "name": "Doors & Hardware Supply",
+      "keywords": [
+        "architraves",
+        "doors architraves",
+        "architraves fabrication",
+        "architraves shipping",
+        "herrajes puertas",
+        "hardware herrajes",
+        "puertas edificio",
+        "puertas especiales",
+        "procuracion jaladeras",
+        "pulls procuracion",
+        "door procuracion",
+        "procuracion puertas",
+        "entrada principal",
+        "doors"
+      ]
+    },
+    {
+      "code": "DRINST",
+      "name": "Door & Hardware Install",
+      "keywords": [
+        "casings",
+        "openings",
+        "herrajes",
+        "finished",
+        "definitivos",
+        "componentes",
+        "final fit",
+        "hardware final",
+        "permanent entry",
+        "entry system",
+        "hardware specialties",
+        "doors casings",
+        "fit puertas",
+        "finished openings"
+      ],
+      "weak_keywords": [
+        "fit",
+        "permanent"
+      ]
+    },
+    {
+      "code": "DRYW",
+      "name": "Drywall",
+      "keywords": [
+        "drywall",
+        "hang",
+        "tape",
+        "gib",
+        "tablaroca",
+        "texture",
+        "insulate",
+        "top",
+        "cornice",
+        "estructuracion",
+        "acabado",
+        "encintado",
+        "gypsum",
+        "face"
+      ],
+      "weak_keywords": [
+        "framing",
+        "gauge",
+        "light",
+        "suspended",
+        "sheathing",
+        "attachment",
+        "aislamiento",
+        "framework",
+        "repair",
+        "veil"
+      ]
+    },
+    {
+      "code": "EARTH",
+      "name": "Earthwork",
+      "keywords": [
+        "excavation",
+        "afine",
+        "terracerias",
+        "clear",
+        "grub",
+        "excavaciones",
+        "import",
+        "foundations",
+        "utility",
+        "catch",
+        "vaults",
+        "basins",
+        "terraceria",
+        "drainage"
+      ],
+      "weak_keywords": [
+        "backfill",
+        "excavate",
+        "fill",
+        "pad",
+        "cimentacion",
+        "cerco",
+        "produce",
+        "replace",
+        "natural"
+      ]
+    },
+    {
+      "code": "ELEC",
+      "name": "Electrical",
+      "keywords": [
+        "electrical",
+        "lighting",
+        "bollards",
+        "gen",
+        "ats",
+        "electric",
+        "mts",
+        "receptacles",
+        "shutdown",
+        "iluminacion",
+        "bolardos",
+        "lmu",
+        "dentro",
+        "wiring"
+      ],
+      "weak_keywords": [
+        "electricos",
+        "chandeliers",
+        "generator",
+        "power",
+        "conduit",
+        "demo",
+        "sitio",
+        "wire",
+        "assembly",
+        "service"
+      ]
+    },
+    {
+      "code": "ELEV",
+      "name": "Elevator",
+      "keywords": [
+        "cab",
+        "rails",
+        "ascensor",
+        "passenger",
+        "commisioning",
+        "cabina",
+        "rieles",
+        "ascensores",
+        "doors trim",
+        "elevator doors",
+        "cab rails",
+        "elevator cab",
+        "elevator commissioning",
+        "passenger lift"
+      ],
+      "weak_keywords": [
+        "lift"
+      ]
+    },
+    {
+      "code": "EXT-GFRC",
+      "name": "Exterior GFRC",
+      "keywords": [
+        "gfrc cladding",
+        "gfrc panels",
+        "casting gfrc",
+        "gfrc"
+      ]
+    },
+    {
+      "code": "EXT-PRE",
+      "name": "Exterior Precast",
+      "keywords": [
+        "caulking",
+        "fachadas",
+        "pretiles",
+        "fapresa",
+        "parapetos",
+        "cast cladding",
+        "cladding prefabricados",
+        "concreto fachadas",
+        "caulking calafateo",
+        "procuracion prefabricados",
+        "precast procuracion",
+        "impact fapresa",
+        "pretiles prefabricados",
+        "precast caps"
+      ],
+      "weak_keywords": [
+        "prefabricados",
+        "cladding",
+        "calafateo",
+        "parapets"
+      ]
+    },
+    {
+      "code": "EXT-STONE",
+      "name": "Exterior Stone",
+      "keywords": [
+        "harvest",
+        "fabicate",
+        "cubic",
+        "plinths",
+        "surrounds",
+        "plinth",
+        "shape",
+        "harvest fabicate",
+        "field stone",
+        "cubic stone",
+        "surrounds cubic",
+        "cladding plinths",
+        "plinths surrounds",
+        "stone veneer"
+      ],
+      "weak_keywords": [
+        "field",
+        "inspectons"
+      ]
+    },
+    {
+      "code": "EXT-WALL",
+      "name": "Exterior Wall",
+      "keywords": [
+        "wall"
+      ]
+    },
+    {
+      "code": "FENC",
+      "name": "Fencing",
+      "keywords": [
+        "fencing",
+        "gates",
+        "fase",
+        "posts",
+        "iron",
+        "wrought",
+        "hierro",
+        "forjado",
+        "postes",
+        "procure site",
+        "procuracion cerca",
+        "propiedad fase",
+        "wrought iron",
+        "entry gates"
+      ],
+      "weak_keywords": [
+        "cerca",
+        "propiedad",
+        "security"
+      ]
+    },
+    {
+      "code": "FIN",
+      "name": "Finish Carpentry",
+      "keywords": [
+        "countertops backsplash",
+        "mouldings final",
+        "final paint",
+        "acclimate millwork",
+        "finish",
+        "carpentry"
+      ],
+      "weak_keywords": [
+        "mouldings",
+        "countertops",
+        "specialty",
+        "backsplash",
+        "altars"
+      ]
+    },
+    {
+      "code": "FIRE",
+      "name": "Fire Suppression",
+      "keywords": [
+        "sprinkler",
+        "firestop",
+        "fire sprinkler",
+        "sprinkler finishes",
+        "sprinkler finish",
+        "wall firestop",
+        "fire extinguishers",
+        "fire",
+        "suppression"
+      ],
+      "weak_keywords": [
+        "stopping"
+      ]
+    },
+    {
+      "code": "FIRE-DR",
+      "name": "Fire Door",
+      "keywords": [
+        "fire",
+        "door"
+      ]
+    },
+    {
+      "code": "FLO-CAR",
+      "name": "Flooring Carpet",
+      "keywords": [
+        "carpet",
+        "alfombra",
+        "modular",
+        "loose",
+        "suelta",
+        "flooring carpet",
+        "carpet tile",
+        "alfombra modular",
+        "loose carpet",
+        "tile loose",
+        "carpet alfombra",
+        "tile alfombra",
+        "track flooring",
+        "indoor track"
+      ]
+    },
+    {
+      "code": "FLO-EPO",
+      "name": "Flooring Epoxy",
+      "keywords": [
+        "flooring",
+        "epoxy"
+      ]
+    },
+    {
+      "code": "FLO-LVT",
+      "name": "Flooring LVT",
+      "keywords": [
+        "lvt",
+        "flooring lvt",
+        "epoxy painted",
+        "painted floor",
+        "lvt rooms",
+        "flooring"
+      ]
+    },
+    {
+      "code": "FLO-PCON",
+      "name": "Flooring Polished Concrete",
+      "keywords": [
+        "floor finish",
+        "concrete floor",
+        "flooring",
+        "polished",
+        "concrete"
+      ]
+    },
+    {
+      "code": "FLO-SPE",
+      "name": "Flooring Specialty",
+      "keywords": [
+        "flooring",
+        "specialty"
+      ]
+    },
+    {
+      "code": "FLO-WOOD",
+      "name": "Flooring Wood",
+      "keywords": [
+        "wood flooring",
+        "acclimate wood",
+        "gymnasium wood",
+        "flooring gym",
+        "flooring cure",
+        "flooring",
+        "wood"
+      ],
+      "weak_keywords": [
+        "acclimate"
+      ]
+    },
+    {
+      "code": "FLOOR",
+      "name": "Flooring",
+      "keywords": [
+        "rubber",
+        "cardio",
+        "tack",
+        "mondo",
+        "flooring rubber",
+        "rubber base",
+        "rubber flooring",
+        "cardio rubber",
+        "gym cardio",
+        "tack mondo",
+        "mondo flooring",
+        "lvt carpet",
+        "carpet base",
+        "flooring"
+      ]
+    },
+    {
+      "code": "FRAME",
+      "name": "Framing",
+      "keywords": [
+        "awning canopy",
+        "canopy supports",
+        "framing"
+      ],
+      "weak_keywords": [
+        "awning",
+        "canopy"
+      ]
+    },
+    {
+      "code": "HVAC",
+      "name": "HVAC",
+      "keywords": [
+        "climatizacion",
+        "locker",
+        "chiller",
+        "unidad",
+        "enfriamiento",
+        "condensers",
+        "rtus",
+        "hvac finishes",
+        "hvac finish",
+        "hvac above",
+        "hvac concluir",
+        "concluir climatizacion",
+        "mechanical units",
+        "hvac balance"
+      ],
+      "weak_keywords": [
+        "grilles"
+      ]
+    },
+    {
+      "code": "IMPACTS",
+      "name": "IMPACTS",
+      "keywords": [
+        "conditions",
+        "cleaning",
+        "impact weather",
+        "weather conditions",
+        "impact fire",
+        "fire pilaster",
+        "impacts"
+      ]
+    },
+    {
+      "code": "INSUL",
+      "name": "Insulation",
+      "keywords": [
+        "thermal",
+        "insulation sound",
+        "sound thermal",
+        "spray foam",
+        "wall spray",
+        "insulation"
+      ],
+      "weak_keywords": [
+        "sound"
+      ]
+    },
+    {
+      "code": "LAND",
+      "name": "Landscaping",
+      "keywords": [
+        "plantings",
+        "irrigation",
+        "trees",
+        "amendments",
+        "topsoil",
+        "large",
+        "mow",
+        "medium",
+        "turf",
+        "shrubs",
+        "seasonal",
+        "detail",
+        "sleeves",
+        "arboles"
+      ],
+      "weak_keywords": [
+        "early",
+        "strip"
+      ]
+    },
+    {
+      "code": "LCTP",
+      "name": "Lockers & Toilet Partitions",
+      "keywords": [
+        "lockers",
+        "changing",
+        "cambiadores",
+        "taquillas",
+        "mamparas",
+        "bano",
+        "toilet partitions",
+        "lockers changing",
+        "changing toilet",
+        "taquillas cambiadores",
+        "partitions taquillas",
+        "toilet",
+        "partitions"
+      ]
+    },
+    {
+      "code": "LND",
+      "name": "Commercial Laundry Eqp",
+      "keywords": [
+        "laundry equipment",
+        "startup laundry",
+        "equipment equipo",
+        "commercial",
+        "laundry",
+        "eqp"
+      ]
+    },
+    {
+      "code": "MASON",
+      "name": "Masonry",
+      "keywords": [
+        "masonry",
+        "veneer",
+        "height",
+        "albanileria",
+        "rabar",
+        "mamposteria",
+        "ims",
+        "supported",
+        "masonry walls",
+        "brick veneer",
+        "structural masonry",
+        "cast elements",
+        "veneer pre",
+        "submittal masonry"
+      ],
+      "weak_keywords": [
+        "cmu",
+        "brick",
+        "rebar",
+        "low",
+        "shaft",
+        "north",
+        "piso"
+      ]
+    },
+    {
+      "code": "MECH",
+      "name": "Mechanical",
+      "keywords": [
+        "mecanico",
+        "vav",
+        "ductwork",
+        "grds",
+        "racking",
+        "equipamiento",
+        "refrigerant",
+        "rack",
+        "ahus",
+        "mechanical equipment",
+        "startup mechanical",
+        "overhead first",
+        "hvac final",
+        "equipment puesta"
+      ],
+      "weak_keywords": [
+        "startup",
+        "puesta",
+        "wet",
+        "arranque"
+      ]
+    },
+    {
+      "code": "MEP",
+      "name": "Mechanical / Electrical / Plumbing",
+      "keywords": [
+        "penetrations",
+        "pozo",
+        "casa",
+        "well",
+        "house",
+        "ispecciones",
+        "dampers",
+        "bajar",
+        "adicional",
+        "intregar",
+        "oco",
+        "impact asi",
+        "roof penetrations",
+        "well house"
+      ],
+      "weak_keywords": [
+        "mepf",
+        "asi",
+        "clips",
+        "penetration",
+        "hangers",
+        "deep",
+        "added",
+        "sanitario",
+        "drenaje",
+        "cambios"
+      ]
+    },
+    {
+      "code": "MET-PAN",
+      "name": "Metal Panel",
+      "keywords": [
+        "panal",
+        "metal panal",
+        "panal system",
+        "panel system",
+        "metal panel",
+        "metal",
+        "panel"
+      ]
+    },
+    {
+      "code": "MFENC",
+      "name": "Masonry Fence",
+      "keywords": [
+        "masonry",
+        "fence"
+      ]
+    },
+    {
+      "code": "MILL",
+      "name": "Millwork & Cabinetry",
+      "keywords": [
+        "millwork",
+        "grado",
+        "template",
+        "esmalte",
+        "perfiles",
+        "stainless",
+        "cubiertas",
+        "madera",
+        "gabinetes",
+        "gabinetas",
+        "pza",
+        "apartments",
+        "salpicaderos",
+        "template fabricate"
+      ],
+      "weak_keywords": [
+        "counter",
+        "tops",
+        "molduras",
+        "fabricate",
+        "marcos",
+        "purchasing",
+        "carpinteria",
+        "retoque",
+        "corrridors",
+        "especiales"
+      ]
+    },
+    {
+      "code": "MISC",
+      "name": "Miscellaneous Metals",
+      "keywords": [
+        "guard",
+        "marco",
+        "bronce",
+        "bronze",
+        "railings barandales",
+        "procure baptistry",
+        "baptistry handrails",
+        "hand guard",
+        "guard railings",
+        "handrails procuracion",
+        "bronce escalera",
+        "bronze railings",
+        "gaurd railings",
+        "hand gaurd"
+      ],
+      "weak_keywords": [
+        "barandales",
+        "handrails",
+        "hand",
+        "baptistry"
+      ]
+    },
+    {
+      "code": "NONE",
+      "name": "NOT YET ASSIGNED",
+      "keywords": [
+        "seleccion",
+        "propuesta",
+        "proposal",
+        "analisis",
+        "riesgo",
+        "div",
+        "formats",
+        "fss",
+        "preliminary",
+        "cee",
+        "cse",
+        "formatos",
+        "interferencias",
+        "coordinacion"
+      ],
+      "weak_keywords": [
+        "aprobacion",
+        "notice",
+        "payment",
+        "proceed",
+        "anticipo",
+        "down",
+        "estimado",
+        "breaking",
+        "ground",
+        "ceremony"
+      ]
+    },
+    {
+      "code": "OIFENC",
+      "name": "Ornamental Iron Fence",
+      "keywords": [
+        "ornamental",
+        "iron",
+        "fence"
+      ]
+    },
+    {
+      "code": "OWNER",
+      "name": "Owner",
+      "keywords": [
+        "entraga",
+        "caminata",
+        "proposals",
+        "contracting",
+        "part",
+        "bid",
+        "agency",
+        "marshal",
+        "spd review",
+        "owner final",
+        "final owner",
+        "approve sssf",
+        "proceed with",
+        "with construction"
+      ],
+      "weak_keywords": [
+        "walk",
+        "documents"
+      ]
+    },
+    {
+      "code": "OXEN",
+      "name": "Fiberglass Oxen & Panels",
+      "keywords": [
+        "fiberglass",
+        "oxen",
+        "fibra",
+        "vidrio",
+        "bueyes",
+        "fiberglass panels",
+        "panels trim",
+        "fiberglass oxen",
+        "procure oxen",
+        "trim paneles",
+        "bueyes fibra",
+        "oxen bueyes",
+        "oxen procuracion",
+        "panels"
+      ]
+    },
+    {
+      "code": "PAINT",
+      "name": "Painting",
+      "keywords": [
+        "prime",
+        "block",
+        "filler",
+        "primaria",
+        "calidad",
+        "epoxico",
+        "pisos",
+        "corridors",
+        "tough",
+        "pintar",
+        "sealer",
+        "polish",
+        "floors",
+        "vct"
+      ],
+      "weak_keywords": [
+        "ceilings",
+        "touch",
+        "epoxy",
+        "acabados",
+        "control",
+        "accessories"
+      ]
+    },
+    {
+      "code": "PILE",
+      "name": "Piles",
+      "keywords": [
+        "bored",
+        "spoils",
+        "micro",
+        "lieu",
+        "bored piles",
+        "membrane under",
+        "waterproofing membrane",
+        "remove spoils",
+        "piles remove",
+        "trim piles",
+        "structural piles",
+        "under grade",
+        "under embedded",
+        "micro piles"
+      ],
+      "weak_keywords": [
+        "under"
+      ]
+    },
+    {
+      "code": "PLEX",
+      "name": "Exterior Plaster",
+      "keywords": [
+        "sealant",
+        "aplanado",
+        "coating",
+        "scaffolding removal",
+        "joint sealant",
+        "plaster system",
+        "system enjarre",
+        "calafateo juntas",
+        "sealant calafateo",
+        "wall sections",
+        "plaster coating",
+        "coating system",
+        "plaster columns",
+        "columns wall"
+      ],
+      "weak_keywords": [
+        "scaffolding",
+        "removal",
+        "andamios",
+        "enjarre",
+        "sections"
+      ]
+    },
+    {
+      "code": "PLIN",
+      "name": "Interior Plaster",
+      "keywords": [
+        "smooth",
+        "plaster walls",
+        "gypsum smooth",
+        "smooth coat",
+        "plaster gypsum",
+        "walls cementitious",
+        "enjarre paredes",
+        "walls enjarre",
+        "plaster"
+      ]
+    },
+    {
+      "code": "PLUM",
+      "name": "Plumbing",
+      "keywords": [
+        "plumbing",
+        "pressure",
+        "tests",
+        "subdrains",
+        "pumps",
+        "pumbing",
+        "presion",
+        "ppal",
+        "subterranea",
+        "pull",
+        "boiler",
+        "plumbing finishes",
+        "finish plumbing",
+        "finishes counter"
+      ],
+      "weak_keywords": [
+        "plomeria",
+        "sis",
+        "connection",
+        "drain",
+        "housings",
+        "gas",
+        "pump",
+        "bomba",
+        "etc",
+        "heaters"
+      ]
+    },
+    {
+      "code": "POOL",
+      "name": "Pool",
+      "keywords": [
+        "cem",
+        "myrtha",
+        "liner",
+        "aquatics",
+        "toy",
+        "fill pool",
+        "myrtha wall",
+        "wall panels",
+        "pool concrete",
+        "pool liner",
+        "aquatics plumbing",
+        "cem aquatics",
+        "toy structure",
+        "pool"
+      ]
+    },
+    {
+      "code": "ROOF",
+      "name": "Roofing",
+      "keywords": [
+        "roofing",
+        "build",
+        "fascia",
+        "downspouts",
+        "soffit",
+        "gutters",
+        "cubierta",
+        "awnings",
+        "canopies",
+        "tapered",
+        "bajantes",
+        "covers",
+        "inferior",
+        "roofing system"
+      ],
+      "weak_keywords": [
+        "soffits",
+        "upper"
+      ]
+    },
+    {
+      "code": "ROUGH",
+      "name": "Rough Carpentry / Framing",
+      "keywords": [
+        "backing",
+        "blocking",
+        "eifs",
+        "backing blocking",
+        "steel stud",
+        "stud framing",
+        "west metal",
+        "frame walls",
+        "carpentry",
+        "framing"
+      ],
+      "weak_keywords": [
+        "stud",
+        "hollow",
+        "frame"
+      ]
+    },
+    {
+      "code": "SEAT",
+      "name": "Seating",
+      "keywords": [
+        "seating"
+      ]
+    },
+    {
+      "code": "SIGN",
+      "name": "Signage",
+      "keywords": [
+        "signage",
+        "senalizacion",
+        "signage senalizacion"
+      ]
+    },
+    {
+      "code": "SPECI",
+      "name": "Specialty",
+      "keywords": [
+        "specialties",
+        "mirrors",
+        "robe",
+        "hooks",
+        "expansion",
+        "extinguisher",
+        "espejos",
+        "percheros",
+        "bleachers",
+        "tables",
+        "plastic",
+        "vidor",
+        "specialties hardware",
+        "hooks mirrors"
+      ],
+      "weak_keywords": [
+        "joints",
+        "cabinets",
+        "especialidades",
+        "gymnasium"
+      ]
+    },
+    {
+      "code": "SPIRE",
+      "name": "Spire / Steeple",
+      "keywords": [
+        "procure spire",
+        "procure submittal",
+        "procure linternario",
+        "spire procure",
+        "spire base",
+        "spire",
+        "steeple"
+      ],
+      "weak_keywords": [
+        "prefabricated"
+      ]
+    },
+    {
+      "code": "STR-STEEL",
+      "name": "Structural Steel",
+      "keywords": [
+        "decking",
+        "resubmittal",
+        "trusses",
+        "opening",
+        "fale",
+        "brackets",
+        "ntc",
+        "holmes",
+        "eyebrow",
+        "ledgers",
+        "edge",
+        "structural steel",
+        "columns beams",
+        "steel columns"
+      ],
+      "weak_keywords": [
+        "beams",
+        "columns",
+        "embedded",
+        "joists",
+        "east",
+        "screen",
+        "angles"
+      ]
+    },
+    {
+      "code": "STRIP",
+      "name": "Site Striping",
+      "keywords": [
+        "site",
+        "striping"
+      ]
+    },
+    {
+      "code": "SURV",
+      "name": "Surveying",
+      "keywords": [
+        "survey",
+        "verification",
+        "survey verification",
+        "site survey",
+        "final site",
+        "survey trazo",
+        "nivelacion edificio",
+        "surveying"
+      ]
+    },
+    {
+      "code": "TILE",
+      "name": "Tile",
+      "keywords": [
+        "ceramic",
+        "restroom",
+        "porcelain",
+        "piedra",
+        "azulejo",
+        "zoclo",
+        "corridor",
+        "ceramicos",
+        "mosaics",
+        "thick",
+        "bed",
+        "azulejos",
+        "procelanicos",
+        "facility"
+      ],
+      "weak_keywords": [
+        "stone",
+        "base",
+        "recubrimientos",
+        "grout",
+        "lounge",
+        "restrooms"
+      ]
+    },
+    {
+      "code": "TILT",
+      "name": "Tilt Up",
+      "keywords": [
+        "pedestals",
+        "blockouts",
+        "reinforcement",
+        "plates",
+        "position",
+        "verify",
+        "placement",
+        "surfaces",
+        "sack",
+        "surface",
+        "preparation",
+        "forming",
+        "mesh",
+        "embeds blockouts"
+      ],
+      "weak_keywords": [
+        "panel",
+        "beds",
+        "embeds",
+        "layer",
+        "demolish"
+      ]
+    },
+    {
+      "code": "UTIL",
+      "name": "Utilities",
+      "keywords": [
+        "retention",
+        "contech",
+        "water system",
+        "potable water",
+        "water piping",
+        "sanitary sewer",
+        "fire supression",
+        "supression supply",
+        "suppression supply",
+        "underground retention",
+        "system underground",
+        "procure piping",
+        "piping contech",
+        "sistema contra"
+      ],
+      "weak_keywords": [
+        "storm",
+        "piping",
+        "supply",
+        "potable",
+        "sanitary",
+        "supression",
+        "suppression",
+        "revisar"
+      ]
+    },
+    {
+      "code": "WATER",
+      "name": "Waterproofing",
+      "keywords": [
+        "damproofing",
+        "impermeabilizacion",
+        "membrane underslab",
+        "waterproof membrane",
+        "waterproofing slab",
+        "foundation waterproofing",
+        "grade waterproofing",
+        "moisture test",
+        "test windows",
+        "damproofing impermeabilizacion",
+        "underslab membrana",
+        "membrana impermeable",
+        "impermeable bajo",
+        "bajo losa"
+      ],
+      "weak_keywords": [
+        "waterproof",
+        "underslab",
+        "moisture"
+      ]
+    },
+    {
+      "code": "WB",
+      "name": "Weather Barrier",
+      "keywords": [
+        "barrera",
+        "climatica",
+        "rigido",
+        "barrera climatica",
+        "barrier barrera",
+        "aislamiento rigido",
+        "weather",
+        "barrier"
+      ]
+    },
+    {
+      "code": "WEST",
+      "name": "Westland Construction",
+      "keywords": [
+        "contractor",
+        "correction",
+        "contratista",
+        "westland",
+        "correcciones",
+        "conclusion",
+        "pauqete",
+        "substantial",
+        "onboard",
+        "manuals",
+        "execute",
+        "record",
+        "contracts",
+        "instalaciones"
+      ],
+      "weak_keywords": [
+        "inspections",
+        "corrections",
+        "inspection",
+        "way",
+        "punch",
+        "list",
+        "sistemas",
+        "equipos",
+        "mecanicos",
+        "inspeccion"
+      ]
+    },
+    {
+      "code": "WIN-TR",
+      "name": "Window Treatments",
+      "keywords": [
+        "window",
+        "treatments"
+      ]
+    },
+    {
+      "code": "WIND",
+      "name": "Window & Storefront",
+      "keywords": [
+        "window",
+        "temporary",
+        "glazing",
+        "inserts",
+        "temporales",
+        "cristales",
+        "louvers",
+        "insertos",
+        "window frames",
+        "window glazing",
+        "temporary inserts",
+        "frames temporary",
+        "temporary entry",
+        "entry systems"
+      ],
+      "weak_keywords": [
+        "windows",
+        "ventanas"
+      ]
+    }
+  ]
+}

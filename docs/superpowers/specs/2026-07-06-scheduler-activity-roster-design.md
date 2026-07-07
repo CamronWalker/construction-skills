@@ -98,3 +98,43 @@ Every tool wrapped with `@wrap_tool_errors(tool_name=<name>, lib_script="schedul
 ## Release
 
 Per repo convention: bump `scheduling` **9.4.1 → 9.5.0** (minor = new tools) in `scheduling/.claude-plugin/plugin.json` **and** the matching `.claude-plugin/marketplace.json` entry (lockstep). Add the four tools to the schedule-toolbox `SKILL.md` tool inventory. Build + distribute happen from the main checkout after merge. Flip report `dd45d9d8` status via `update_report_status` once merged.
+
+---
+
+## Addendum — name-based Responsibility (trade) assignment (same PR)
+
+Follow-on ask: a first pass at each activity's **Responsibility - Global**
+trade code from its name, backed by a remembered standard code list, assigning
+what's clear and asking on the rest (~95% by name).
+
+### What shipped
+
+- **`references/responsibility-codes.json`** — the canonical 79-code global
+  Responsibility dictionary + a keyword map. Extracted/validated from 187 real
+  Westland schedules (30,728 assignments); the code list itself was confirmed
+  against P6. This is the durable, plugin-shipped "memory."
+- **`lib/responsibility_match.py`** — pure two-tier keyword matcher (strong vs
+  supporting keywords, phrase bonus, accent/Spanish-tolerant normalize),
+  confidence-gated. `match_activity` + `suggest_assignments`.
+- **`suggest_responsibility` MCP tool** — first-pass accelerator: `assigned`
+  (confident) + `unsure` (with candidates) + `all_codes`, skipping already-coded
+  activities.
+- **`set_responsibility` change type** on `apply_xer_changes` — writes the
+  ACTVTYPE → ACTVCODE → TASKACTV chain; prefers the global code (never creates a
+  project-scoped duplicate of a global code); replaces any existing assignment.
+- **`resolve_responsibility_type` fix** — now matches the real type name
+  `"Responsibility - Global"` (prefix `responsib`, prefer global scope), not the
+  exact `"Responsibility"` it shipped with; this also corrects the roster
+  `trade_filter` / `responsibility` surfacing on real schedules.
+
+### Key finding — it's Claude-primary, tool-accelerator
+
+Held-out measurement (train on 2/3 of schedules, test on 1/3): pure keyword
+matching tops out ~85% precision / ~60% coverage, and top-3 shortlist recall
+~73%. The ceiling is **label inconsistency in the gold data** — the same
+activity name is coded to different trades across projects. So the tool is an
+*accelerator*; Claude does the actual assignment (name + shortlist + full list),
+and the human is asked only on genuine ambiguity. Workflow documented in
+`references/responsibility-assignment.md`. Curating the keyword map further and
+cleaning the global dictionary (duplicate SPIRE, description drift) are left as
+future continuous-improvement passes.

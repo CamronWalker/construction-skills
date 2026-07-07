@@ -38,6 +38,8 @@ EXCEPTION: Explicit user instruction to generate or modify a specific file.
 | One activity + expanded predecessors/successors | `get_activity(activity_id)` — full WBS path plus each linked activity's path, rel type, and lag — for building logic and verifying each link |
 | Activities in a WBS branch (adjacency) | `get_wbs_branch(wbs_id, include_descendants=?, include_logic=?)` — the "adjacent activities in this WBS" view; accepts a WBS id, short name, or name |
 | Next collision-free activity code | `next_free_activity_code(prefix, step=10)` — max existing + step, formatted to match |
+| First-pass Responsibility (trade) codes by name | `suggest_responsibility(only_unassigned=True)` — keyword matcher over `references/responsibility-codes.json`; returns confident `assigned` + `unsure` (with candidates) + `all_codes`. Accelerator: you confirm/adjudicate, then write with `set_responsibility` |
+| Write a Responsibility (trade) code onto activities | `apply_xer_changes` with `set_responsibility` changes — see `references/xer-modify.md` |
 | SC / milestone path coverage | `get_milestone_path_coverage(milestone_id=?)` |
 | Delay impact analysis | `get_delay_impacts(milestone_id=?)` |
 | Gantt review HTML for proposal iteration | `render_gantt_html` (writes HTML, returns path); or `get_gantt_json` for structured chart data |

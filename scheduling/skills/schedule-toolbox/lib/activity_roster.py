@@ -91,13 +91,25 @@ def resolve_responsibility_type(actvtype_rows: list, code_type: Optional[str] = 
     the name, a global-scope (``AS_Global``) type wins over EPS/project scope.
     Returns ``None`` when no type matches.
     """
-    target = (code_type or "Responsibility").strip().lower()
-    matches = [
-        t for t in (actvtype_rows or [])
-        if (t.get("actv_code_type", "") or "").strip().lower() == target
-    ]
+    rows = actvtype_rows or []
+    if code_type:
+        # Explicit type name: exact (case-insensitive) match.
+        target = code_type.strip().lower()
+        matches = [
+            t for t in rows
+            if (t.get("actv_code_type", "") or "").strip().lower() == target
+        ]
+    else:
+        # Default: Westland's global trade code is named "Responsibility - Global";
+        # also tolerate a bare "Responsibility" and the "Responsibilty" typo seen
+        # in some project-scoped types. Prefix match catches all three.
+        matches = [
+            t for t in rows
+            if (t.get("actv_code_type", "") or "").strip().lower().startswith("responsib")
+        ]
     if not matches:
         return None
+    # Prefer a global-scope type over EPS/project when several match.
     matches.sort(key=lambda t: 0 if t.get("actv_code_type_scope") == "AS_Global" else 1)
     return str(matches[0].get("actv_code_type_id"))
 

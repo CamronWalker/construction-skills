@@ -146,6 +146,16 @@ class TestResponsibility(unittest.TestCase):
     def test_prefers_global_responsibility(self):
         self.assertEqual(resolve_responsibility_type(_actvtype()), "50")
 
+    def test_matches_responsibility_global_named_type(self):
+        # Westland's real global type is literally named "Responsibility - Global".
+        rows = [
+            {"actv_code_type_id": "148", "actv_code_type": "Responsibility - Global",
+             "actv_code_type_scope": "AS_Global"},
+            {"actv_code_type_id": "200", "actv_code_type": "Responsibilty",
+             "actv_code_type_scope": "AS_Project"},  # typo variant, project scope
+        ]
+        self.assertEqual(resolve_responsibility_type(rows), "148")
+
     def test_named_code_type_override(self):
         self.assertEqual(resolve_responsibility_type(_actvtype(), code_type="Phase"), "51")
 

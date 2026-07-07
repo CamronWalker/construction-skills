@@ -93,6 +93,9 @@ _FILE_TO_TOOLS = {
         'get_wbs_branch',
         'next_free_activity_code',
     ],
+    'responsibility_match.py': [
+        'suggest_responsibility',
+    ],
     'cross_baseline.py': [
         'get_critical_path_changes',
         'get_float_consumption',
