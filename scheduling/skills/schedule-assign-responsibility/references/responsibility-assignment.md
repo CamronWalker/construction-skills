@@ -6,10 +6,11 @@ assigning them, asking the human only on genuine ambiguity.
 
 ## The remembered code list
 
-`references/responsibility-codes.json` holds the canonical global code list
-(code + description) plus a keyword map that powers the name matcher. It ships
-with the plugin, so it's available on every install. Edit it to add codes or
-tune keywords — it's plain, human-editable JSON.
+`schedule-toolbox/references/responsibility-codes.json` holds the canonical
+global code list (code + description) plus a keyword map that powers the name
+matcher. It ships with the plugin, so it's available on every install, and is
+also returned as `all_codes` by `suggest_responsibility`. Edit it to add codes
+or tune keywords — it's plain, human-editable JSON.
 
 ## Division of labor (why it's hybrid)
 
