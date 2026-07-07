@@ -14,6 +14,7 @@ from tools import (  # noqa: E402
     delay_analysis,
     omnibus,
     quality,
+    roster,
     structure,
     update_analytics,
     update_review,
@@ -33,6 +34,7 @@ def ping() -> dict:
 
 # Register all tool modules.
 structure.register(mcp, _cache)
+roster.register(mcp, _cache)
 cpm_path.register(mcp, _cache)
 update_analytics.register(mcp, _cache)
 delay_analysis.register(mcp, _cache)

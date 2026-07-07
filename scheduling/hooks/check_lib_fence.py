@@ -87,6 +87,12 @@ _FILE_TO_TOOLS = {
     'milestones.py': [
         'get_milestones',
     ],
+    'activity_roster.py': [
+        'list_activities',
+        'get_activity',
+        'get_wbs_branch',
+        'next_free_activity_code',
+    ],
     'cross_baseline.py': [
         'get_critical_path_changes',
         'get_float_consumption',
