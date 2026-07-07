@@ -15,7 +15,7 @@ The old line-slicing write-back recipe that previously lived in this file is gon
 
 All change records are tagged unions discriminated by `"type"`. Pass them as a list to `apply_xer_changes(xer_path, changes=[...])`.
 
-### Activity-level (6 types)
+### Activity-level (7 types)
 
 **`set_duration`** — change an activity's remaining and target duration.
 
@@ -88,6 +88,17 @@ See "Notes on dissolve and pop" below for the cartesian-product semantics.
 - `"drop"` — both new edges get lag 0.
 
 Both new edges inherit the relationship type of the original `A -> B` edge.
+
+**`set_responsibility`** — assign a Responsibility (trade) activity code to an activity. Writes the `ACTVTYPE` → `ACTVCODE` → `TASKACTV` chain: resolves the global "Responsibility - Global" type (preferring global scope), creates the trade code value there if it's not already in the file, and adds/replaces the activity's assignment (one trade per activity). Prefers the global code so it never creates a project-scoped duplicate of a global code. Requires the activity-code sections to exist (they do in any schedule that uses activity codes); errors if the schedule has no activity-code framework yet.
+
+```json
+{ "type": "set_responsibility",
+  "activity_id": "A1050",
+  "code": "ELEC",
+  "name": "Electrical" }
+```
+
+`code` is the short code (e.g. `ELEC`); `name` (optional) is the description, used only when the value must be created. See the `suggest_responsibility` MCP tool for name-based first-pass suggestions to feed this change, and `references/responsibility-codes.json` for the canonical code list.
 
 ---
 

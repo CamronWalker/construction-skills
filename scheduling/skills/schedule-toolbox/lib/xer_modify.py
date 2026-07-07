@@ -318,7 +318,8 @@ def _activity_id_for_change(change: dict) -> Optional[str]:
     activity whose dates shift.
     """
     ct = change.get("type")
-    if ct in ("set_duration", "set_calendar", "remove_activity", "dissolve_activity"):
+    if ct in ("set_duration", "set_calendar", "remove_activity",
+              "dissolve_activity", "set_responsibility"):
         return change.get("activity_id")
     if ct in ("add_logic", "remove_logic", "modify_logic"):
         return change.get("successor_id")
@@ -1987,6 +1988,140 @@ def _handle_set_calendar(doc, change: dict, state: ChangeState) -> dict:
         "activity_end_after": None,
         "milestone_impact_days": None,
         "now_on_critical_path": None,
+    }
+
+
+@_register_handler("set_responsibility")
+def _handle_set_responsibility(doc, change: dict, state: ChangeState) -> dict:
+    """Assign a Responsibility (trade) activity code to an activity.
+
+    Writes the activity-code chain: ACTVTYPE (the "Responsibility - Global"
+    type) -> ACTVCODE (the trade value) -> TASKACTV (the per-activity
+    assignment). Prefers the GLOBAL type and creates the code value there when
+    missing, so we never create a project-scoped duplicate of a global code.
+    Replaces any existing Responsibility assignment on the activity (one trade
+    per activity).
+
+    Required change keys:
+        activity_id — task_code of the activity to code.
+        code        — Responsibility short code (e.g. "ELEC").
+    Optional:
+        name        — code description (used only when creating a new code
+                      value); defaults to the short code.
+        code_type   — activity-code type name; defaults to
+                      "Responsibility - Global".
+
+    Requires the ACTVTYPE / ACTVCODE / TASKACTV sections to exist (they do in
+    every schedule that uses activity codes). Raises if the schedule has no
+    activity-code framework yet — add the code in P6 once, then this can drive
+    the bulk assignment.
+    """
+    activity_id = change["activity_id"]
+    code = change["code"]
+    name = change.get("name") or code
+    type_name = change.get("code_type") or "Responsibility - Global"
+
+    task_section = doc.section("TASK")
+    task_row = None
+    if task_section is not None:
+        for row in task_section.rows:
+            if row.get("task_code") == activity_id:
+                task_row = row
+                break
+        if task_row is None and activity_id in state.new_activity_id_map:
+            tid = state.new_activity_id_map[activity_id]
+            for row in task_section.rows:
+                if row.get("task_id") == tid:
+                    task_row = row
+                    break
+    if task_row is None:
+        raise ValidationFailure(
+            f"set_responsibility: activity_id {activity_id!r} not found in TASK section"
+        )
+    task_id = task_row["task_id"]
+    proj_id = task_row.get("proj_id", "")
+
+    actvtype = doc.section("ACTVTYPE")
+    actvcode = doc.section("ACTVCODE")
+    taskactv = doc.section("TASKACTV")
+    for sec, nm in ((actvtype, "ACTVTYPE"), (actvcode, "ACTVCODE"), (taskactv, "TASKACTV")):
+        if sec is None:
+            raise ValidationFailure(
+                f"set_responsibility: {nm} section not found — this schedule has no "
+                "activity-code framework yet. Add the Responsibility - Global code "
+                "in P6 once (and assign one activity), then re-run."
+            )
+
+    # 1) Resolve (or append) the Responsibility type row, preferring global scope.
+    resp_types = [
+        r for r in actvtype.rows
+        if (r.get("actv_code_type", "") or "").strip().lower().startswith("responsib")
+    ]
+    resp_types.sort(key=lambda r: 0 if r.get("actv_code_type_scope") == "AS_Global" else 1)
+    if resp_types:
+        type_id = resp_types[0]["actv_code_type_id"]
+    else:
+        type_id = str(max((int(r["actv_code_type_id"]) for r in actvtype.rows), default=0) + 1)
+        new_t = {f: "" for f in actvtype.field_order}
+        new_t["actv_code_type_id"] = type_id
+        new_t["actv_code_type"] = type_name
+        new_t["actv_code_type_scope"] = "AS_Global"
+        if "actv_short_len" in new_t:
+            new_t["actv_short_len"] = "20"
+        if "seq_num" in new_t:
+            new_t["seq_num"] = str(len(actvtype.rows) + 1)
+        actvtype.append_row(new_t)
+
+    # 2) Resolve (or append) the trade code value under that type.
+    code_u = code.strip().upper()
+    code_id = None
+    for r in actvcode.rows:
+        if (r.get("actv_code_type_id") == type_id
+                and (r.get("short_name", "") or "").strip().upper() == code_u):
+            code_id = r["actv_code_id"]
+            break
+    created_code = False
+    if code_id is None:
+        code_id = str(max((int(r["actv_code_id"]) for r in actvcode.rows), default=0) + 1)
+        new_c = {f: "" for f in actvcode.field_order}
+        new_c["actv_code_id"] = code_id
+        new_c["actv_code_type_id"] = type_id
+        new_c["short_name"] = code
+        new_c["actv_code_name"] = name
+        if "seq_num" in new_c:
+            same = sum(1 for r in actvcode.rows if r.get("actv_code_type_id") == type_id)
+            new_c["seq_num"] = str(same + 1)
+        actvcode.append_row(new_c)
+        created_code = True
+
+    # 3) Replace any existing Responsibility assignment on this activity, then add.
+    replaced = False
+    dup_idxs = [
+        i for i, r in enumerate(taskactv.rows)
+        if r.get("task_id") == task_id and r.get("actv_code_type_id") == type_id
+    ]
+    for i in reversed(dup_idxs):
+        taskactv.rows.pop(i)
+        if taskactv.raw_lines is not None and i < len(taskactv.raw_lines):
+            taskactv.raw_lines.pop(i)
+        taskactv._dirty = {d - 1 if d > i else d for d in taskactv._dirty if d != i}
+        replaced = True
+    new_a = {f: "" for f in taskactv.field_order}
+    new_a["task_id"] = task_id
+    new_a["actv_code_type_id"] = type_id
+    new_a["actv_code_id"] = code_id
+    if "proj_id" in new_a:
+        new_a["proj_id"] = proj_id
+    taskactv.append_row(new_a)
+
+    return {
+        "activity_id": activity_id,
+        "code": code,
+        "code_name": name,
+        "actv_code_type_id": type_id,
+        "actv_code_id": code_id,
+        "created_code_value": created_code,
+        "replaced_existing": replaced,
     }
 
 
