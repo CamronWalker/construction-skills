@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-14
 **Skill:** `scheduling/skills/schedule-update`
-**Target version:** scheduling **9.7.0** (minor — new capability)
+**Target version:** scheduling **10.0.0** (major — breaking: COM/`.msg` path removed)
 **Branch:** `feat/schedule-update-m365-connector`
 
 ## Summary
@@ -33,8 +33,9 @@ draft for this email.
 
 ## Goals
 
-1. Auto-pull the weekly Teams meeting transcript into `{dated_folder}/meeting-transcript.md`,
-   replacing the manual "human copies transcript" step, with graceful fallback to manual.
+1. Auto-pull the weekly Teams meeting transcript into a **dated, project-named** file
+   `{dated_folder}/{project} meeting transcript {YYYY-MM-DD}.md`, replacing the manual
+   "human copies transcript" step, with graceful fallback to manual.
 2. Pull the previous week's project mail for **two** uses: (a) narrative enrichment of the
    draft, (b) a carry-forward fallback when last week's `-email.json` is missing.
 3. Retire the COM/`.msg` draft path entirely; standardize on `.eml`. The motivation is
@@ -73,9 +74,42 @@ finding and the roadmap note.
 | File | Change |
 |------|--------|
 | `SKILL.md` | Add `_m365_inputs.md` to the Command Matrix rows for `email`, `report`, `draft`. Rewrite pipeline table row 7 (transcript) from Human→Agent-with-fallback. |
-| `phases/draft.md` §2 | In the parallel fetch block, call recipe A (transcript) before "Read `meeting-transcript.md`"; call recipe B (enrichment) feeding §4 narrative. |
-| `phases/report.md` step 2 | Same: recipe A before the transcript read; recipe B feeding the content-source decision. |
+| `phases/draft.md` §2 | Replace the ad-hoc fetch prose with the **Fast path** sequence below; recipe A (transcript) + recipe B run inside the one parallel batch; transcript read switches to the `*transcript*.md` glob. |
+| `phases/report.md` step 2 | Same Fast-path batch; recipe A + B feed the content-source decision; transcript read switches to the glob. |
 | `phases/_carry_forward.md` | Add recipe B's Sent-Items recovery as the new first rung of the fallback chain. |
+
+## Fast path — the explicit sequence (fixes the hangs)
+
+The weekly draft has historically **stalled for a long time** because Claude explores
+open-endedly instead of following a tight recipe. The happy path must be a **fixed,
+mostly-parallel sequence** the phase files prescribe step-by-step — no ad-hoc XER poking, no
+generic "anything new?" rounds, no retry-looping. `phases/draft.md` owns the canonical
+recipe; `report.md` references it.
+
+1. **Resolve paths** — Bash/Glob only, no thinking: `dated_folder`, `prev_dated_folder`,
+   `current_xer`, `prev_xer`.
+2. **One parallel batch** — fire all of these in a single message, never serialized:
+   - `weekly_update_review(baseline_xer_path=prev_xer, current_xer_path=current_xer)` — the
+     **one** call that bundles the ~5 XER analyses (activity changes, milestone slip, DCMA
+     delta, critical-path changes, gain/loss attribution). This *is* the "5 schedule
+     commands" collapsed into one round-trip.
+   - `get_project(job_number)` — bindings.
+   - `list_prime_contracts(project_id=…)` — contractual completion (Procore).
+   - **Recipe A** — `outlook_calendar_search(...)` to locate the transcript event.
+   - **Recipe B** — `outlook_email_search(...)` for last week's project mail.
+3. **Read once** — the transcript file (`*transcript*.md` glob) + the top mail hits from the
+   URIs the batch returned. Cross-check against the `weekly_update_review` dict. Q&A only
+   fills genuine gaps the transcript/mail/XER didn't cover.
+4. **Build the seed** — one `build_seed_dict(...)` call.
+5. **Write** `{date}-email.seed.json`, then **POST** `generate_weekly_schedule_update_email_draft`.
+
+Rules that keep it fast and un-stuck:
+- Step 2 is one parallel batch. Serializing those five is the main historical time sink.
+- Every connector call is **best-effort with a hard fallback**. If the connector is
+  unauthorized or returns nothing, fall back and proceed — **never** retry-loop it.
+- After the POST, SmartPM graphs may render async (~20 min). That is expected, not a hang —
+  hand off the editor URL immediately; the editor's Refresh (or a later `finalize`) picks up
+  the graphs. Do not block waiting on graph readiness.
 
 ## Recipe A — transcript auto-pull
 
@@ -94,10 +128,18 @@ Steps:
    (on or just before) the dated-folder date.
 3. `read_resource("calendar:///events/{id}")` → read the `meetingTranscriptUrl` field.
 4. `read_resource(meetingTranscriptUrl)` (a `meeting-transcript:///…` URI) → write the text
-   to `{dated_folder}/meeting-transcript.md`.
+   to `{dated_folder}/{project} meeting transcript {YYYY-MM-DD}.md`, where `{project}` is a
+   filesystem-safe form of `ctx['project_name']` and `{YYYY-MM-DD}` is the dated-folder date
+   (e.g. `Neiafu Tonga Temple meeting transcript 2026-07-08.md`). The dated, project-named
+   filename keeps a machine-wide file search from returning a wall of identical
+   `meeting-transcript.md` files.
 5. **Fallback:** no calendar match, empty/absent `meetingTranscriptUrl`, or connector not
-   authorized → skip silently and use the manual `meeting-transcript.md` if the human placed
-   one, exactly as today.
+   authorized → skip silently and use whatever transcript the human placed in the folder,
+   exactly as today.
+
+**Reading the transcript (both phases):** the consumers glob the dated folder for
+`*transcript*.md` (newest wins) rather than a hardcoded name, so they pick up both the
+auto-pulled dated file and any manually-dropped transcript regardless of exact name.
 
 The project-name token derives from `ctx['project_name']`; the date window + "Schedule
 Update" filter disambiguate across projects.
@@ -185,9 +227,12 @@ badges).
 **Test:** extend `tests/test_email_eml.py` to assert a narrative field containing
 `<br>`/`<div>`/`<b>` renders verbatim in the HTML body (not escaped to `&lt;…&gt;`).
 
-## Sweep — remove holdovers
+## Sweep — remove ALL old means and methods
 
-Audit and fix every remaining reference to the old ways:
+The user's explicit ask is a **clean skill**: no lingering mention of any retired approach.
+Audit and fix every remaining reference to the old ways, then **verify with a grep** that the
+terms are gone from the skill tree (except where a "retired/removed" note is deliberately
+kept for history):
 
 - `SKILL.md` — pipeline table row 7 (manual transcript), any COM/`.msg`/draft-path mention,
   Command Matrix.
@@ -196,8 +241,15 @@ Audit and fix every remaining reference to the old ways:
   "Classic Outlook must be open" preconditions.
 - `references/email-template.md` — any COM/`.msg` reference.
 - `commands/write-weekly-schedule-email.md` — transcript step wording.
+- `phases/draft.md`, `phases/report.md` — remove any COM "alternative" mention; the `.eml`
+  is the only build target.
+- `scheduling/CLAUDE.md` — the "When you change the shape" step-3 reference to
+  `generate_email_msg._build_html_body` → point at the new `.eml`-owned body module.
 - Memory files: update `project_msg_email.md` (→ `.eml`-only + connector inputs) and
   `feedback_outlook_com.md` (COM retired; delete or mark superseded).
+
+**Verification grep** (must return only intentional "retired" notes):
+`grep -rin "win32com\|pywin32\|\.msg\b\|COM Outlook\|Outlook must be open\|generate_email_msg\|generate_update_email_msg" scheduling/skills/schedule-update/`
 
 ## Future work (roadmap — not built here)
 
@@ -210,8 +262,8 @@ scope for this pass; recorded so it isn't lost.
 
 Per repo release convention:
 
-1. Bump `scheduling/.claude-plugin/plugin.json` → `9.7.0`.
-2. Bump the `scheduling` entry in `.claude-plugin/marketplace.json` → `9.7.0` (lockstep).
+1. Bump `scheduling/.claude-plugin/plugin.json` → `10.0.0`.
+2. Bump the `scheduling` entry in `.claude-plugin/marketplace.json` → `10.0.0` (lockstep).
 3. Commit all changes on `feat/schedule-update-m365-connector`.
 4. PR to `main`; CI (`version-bump`, `forbid-personal-paths`) must pass.
 5. Post-merge build + distribute happens from the main checkout, not this worktree.
