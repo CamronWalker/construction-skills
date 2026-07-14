@@ -11,7 +11,7 @@ description: >
   the email", "copy schedule folder", "update status", "where are we in the update",
   "generate email", "create draft", "procore upload", or any schedule update workflow.
   Two main entry points: `copy` for pre-meeting folder setup, and `report` for the
-  colleague-friendly post-meeting flow (steps 6-10 as a guided conversation with an
+  colleague-friendly post-meeting flow (steps 9-12 as a guided conversation with an
   editable HTML email preview, ending with .eml + Procore publish).
 ---
 
@@ -57,7 +57,7 @@ Phase files all open with an identical preamble (next section) so when you hit o
 |---|---|---|
 | `/schedule-update copy` | `phases/copy.md` | Pre-meeting folder setup |
 | `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_m365_inputs.md`, `phases/_render_graphs.md` | Camron's email draft path |
-| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_m365_inputs.md`, `phases/draft.md`, `phases/_render_graphs.md`, `phases/procore.md` | Colleague flow, steps 10–12 |
+| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_m365_inputs.md`, `phases/draft.md`, `phases/_render_graphs.md`, `phases/procore.md` | Colleague flow, steps 9–12 |
 | `/schedule-update draft` | `phases/draft.md`, `phases/_m365_inputs.md`, `phases/_attachments.md`, `phases/_render_graphs.md`, `phases/procore.md` | `.eml` draft + Procore publish |
 | `/schedule-update procore` | `phases/procore.md`, `phases/_attachments.md` | Retry / standalone Procore publish |
 | `/schedule-update status` | `phases/status.md` | Phase detection |
@@ -172,12 +172,12 @@ Each dated folder gets a `YYYY-MM-DD-update-email.md` with two sections:
 | 4 | Make corrections, discussion, complete update | Human | (in meeting) |
 | 5 | Export schedule files | Human | — |
 | 6 | Upload XER to SmartPM (Worker ingests it server-side after the seed POST) | Human | — |
-| 7 | Meeting transcript (auto-pulled via M365 connector; manual drop as fallback) | Agent | — |
-| 8 | Export PDF attachments from schedule software | Human | — |
-| 9 | Create next week's Excel files | Human | — |
+| 7 | Export PDF attachments from schedule software | Human | — |
+| 8 | Create next week's Excel files | Human | — |
+| 9 | Meeting transcript — auto-pulled via M365 connector (manual drop as fallback) | Agent | — (within `report`) |
 | 10 | Build seed, POST to MCP, hand editor URL to colleague | Agent | `report` (drives `draft`) |
 | 11 | Colleague edits in browser; Worker renders graphs async | Human + Worker | — |
 | 12 | Colleague says "done"; finalize draft, build `.eml`, publish Procore | Agent | `draft` (auto-fans into `procore`) |
 | 13 | Open `.eml`, review, Send | Human | — |
 
-Colleague-friendly shortcut: `report` covers rows 10–12 in a single guided conversation.
+Colleague-friendly shortcut: `report` covers rows 9–12 in a single guided conversation — it opens by auto-pulling the meeting transcript (step 9), then builds the seed and drives the editor. Steps 1–8 are the human/P6 pre-work; the everyday team entry point is `report` (or the `write-weekly-schedule-email` launcher) once the folder is ready and the files are exported.

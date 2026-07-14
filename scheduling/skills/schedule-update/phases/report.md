@@ -1,10 +1,10 @@
-# Phase: `report` — Colleague Post-Meeting Flow (Steps 10–12)
+# Phase: `report` — Colleague Post-Meeting Flow (Steps 9–12)
 
 > **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `report` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update report`.
 > Also requires `_carry_forward.md`, `_attachments.md`, `draft.md`, `_render_graphs.md`, and `procore.md`.
 
-End-to-end conversational flow that takes a colleague from "meeting is done" to "Outlook draft in Drafts folder + files in Procore." Covers steps 10–12 of the full pipeline.
+End-to-end conversational flow that takes a colleague from "meeting is done" to "a reviewed `.eml` draft + files in Procore." Covers steps 9–12 of the full pipeline: it opens by auto-pulling the meeting transcript (step 9), builds the seed and hands off the editor URL (step 10), waits while the colleague edits (step 11), then finalizes — `.eml` + Procore (step 12). Step 13 (open the `.eml`, review, Send) stays with the human.
 
 ## The goal in one sentence
 
@@ -129,7 +129,7 @@ Short version:
 
 ## Step 4: Hand the editor URL to the colleague
 
-> "Editor at `{editor_url}`. Open it in your browser; edits autosave. Use the toolbar's **B** (bold) and the brand-red priority span to mark high-priority items — they render `<strong>` and a Westland-red span verbatim in the email. Use the **P** toggle next to each attachment to control which files go to Procore. When you're done, come back here and say `done` and I'll build the Outlook draft + push the selected files to Procore."
+> "Editor at `{editor_url}`. Open it in your browser; edits autosave. Use the toolbar's **B** (bold) and the brand-red priority span to mark high-priority items — they render `<strong>` and a Westland-red span verbatim in the email. Use the **P** toggle next to each attachment to control which files go to Procore. When you're done, come back here and say `done` and I'll build the `.eml` draft + push the selected files to Procore."
 
 ### JSON-paste regeneration (escape hatch)
 

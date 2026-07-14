@@ -1,6 +1,6 @@
 # Write Weekly Schedule Email (Cowork drop-in)
 
-> Bundled launcher for cowork sessions. Lands in a dated `YYYY-MM-DD` folder where steps 1–5 (folder copy, schedule update, export) have already been done by a human, then runs the `report` flow for steps 10–12.
+> Bundled launcher for cowork sessions. Lands in a dated `YYYY-MM-DD` folder where the human/P6 pre-work (folder, schedule update, export, PDF attachments, next-week Excel — steps 1–8) is done, then runs the `report` flow for steps 9–12.
 
 ## The goal in one sentence
 

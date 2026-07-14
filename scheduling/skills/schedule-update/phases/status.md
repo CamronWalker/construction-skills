@@ -11,7 +11,7 @@ Shows where the project is in the weekly update pipeline based on what files exi
 |-------|-----------|
 | Today's dated folder exists | Step 1 (copy) done |
 | `{dated_folder}/*.xer` exists | Export done (step 5) |
-| `{dated_folder}/*transcript*.md` exists | Transcript present (step 7 — auto-pulled or manual) |
+| `{dated_folder}/*transcript*.md` exists | Transcript present (step 9 — auto-pulled or manual) |
 | `{dated_folder}/screenshots/{job_number}-{YYYY-MM-DD}-all-graphs-stacked.png` exists | Stacked PNG built (post-finalize) |
 | `{dated_folder}/YYYY-MM-DD-email.json` exists | Cloud-editor draft finalized (step 11) |
 | `{dated_folder}/YYYY-MM-DD-update-email.md` exists | Email archived after review |
