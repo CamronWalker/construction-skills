@@ -3,7 +3,7 @@ name: schedule-update
 description: >
   Full weekly schedule update pipeline for Westland Construction. Handles all post-meeting
   steps: folder setup, SmartPM screenshot capture, email draft generation, editable HTML
-  preview, Outlook draft, and Procore publish (XER + Documents upload). Progressively
+  preview, .eml draft, and Procore publish (XER + Documents upload). Progressively
   disclosed -- routes by command arg or detects current phase from file system. Use for:
   "schedule update", "weekly update", "update email", "weekly schedule report email",
   "weekly report email", "schedule report email", "prep the update email", "help me
@@ -11,7 +11,7 @@ description: >
   the email", "copy schedule folder", "update status", "where are we in the update",
   "generate email", "create draft", "procore upload", or any schedule update workflow.
   Two main entry points: `copy` for pre-meeting folder setup, and `report` for the
-  colleague-friendly post-meeting flow (steps 6-10 as a guided conversation with an
+  colleague-friendly post-meeting flow (steps 9-12 as a guided conversation with an
   editable HTML email preview, ending with .eml + Procore publish).
 ---
 
@@ -56,9 +56,9 @@ Phase files all open with an identical preamble (next section) so when you hit o
 | Invocation | Phase files (re-read each at phase entry) | Purpose |
 |---|---|---|
 | `/schedule-update copy` | `phases/copy.md` | Pre-meeting folder setup |
-| `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_render_graphs.md` | Camron's email draft path |
-| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/draft.md`, `phases/_render_graphs.md`, `phases/procore.md` | Colleague flow, steps 10–12 |
-| `/schedule-update draft` | `phases/draft.md`, `phases/_attachments.md`, `phases/_render_graphs.md`, `phases/procore.md` | `.eml` / COM draft + Procore publish |
+| `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_m365_inputs.md`, `phases/_render_graphs.md` | Camron's email draft path |
+| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_m365_inputs.md`, `phases/draft.md`, `phases/_render_graphs.md`, `phases/procore.md` | Colleague flow, steps 9–12 |
+| `/schedule-update draft` | `phases/draft.md`, `phases/_m365_inputs.md`, `phases/_attachments.md`, `phases/_render_graphs.md`, `phases/procore.md` | `.eml` draft + Procore publish |
 | `/schedule-update procore` | `phases/procore.md`, `phases/_attachments.md` | Retry / standalone Procore publish |
 | `/schedule-update status` | `phases/status.md` | Phase detection |
 | `/schedule-update` (no arg) | `phases/status.md` | Auto-detect, route to recommended step |
@@ -123,6 +123,15 @@ All phases use this logic to find the Schedules root:
 
 The grandparent of the Schedules root should match `W\d+ - .+` (e.g., `W1134 - Neiafu Tonga Temple Construction`).
 
+### Dated-folder selection (which week's folder to work in)
+
+The weekly email flow works off the **most recent** dated folder under the Schedules root — it does **not** require a folder named for *today*. Creating today's folder (`copy`, step 1) is **optional**; schedulers usually make it themselves.
+
+- If CWD is already a dated folder → use it.
+- Otherwise take the newest `YYYY-MM-DD` folder under the root. If it's today or within the last couple of working days — e.g. running the email the business day after the meeting — **just use it, no prompt.** That is the normal case; don't make a fuss about there being no folder named for today.
+- Only stop and confirm if the newest folder is **≥ 3 working days old or more than a week stale**: "The most recent schedule folder is `{folder}` ({N} working days ago). Send that update, or set up a fresh folder with `copy`?"
+- If **no dated folder exists at all** → offer `copy` (or let the scheduler create one).
+
 ### Project bindings — the `ctx` dict shape
 
 Project bindings live in Supabase (`wnd_projects`), not in `project-context.html`. Parse `{job_number}` from the `W#### - Name` Schedules-root folder (e.g. `W1177 - Project Name` → `W1177`), then read the row via the `get_project` MCP tool and map it to a `ctx` dict:
@@ -166,18 +175,18 @@ Each dated folder gets a `YYYY-MM-DD-update-email.md` with two sections:
 
 | # | Step | Owner | Command |
 |---|------|-------|---------|
-| 1 | Copy schedule folder for today's date | Agent | `copy` |
+| 1 | Copy schedule folder for today's date — **optional** (schedulers usually create it themselves) | Agent | `copy` |
 | 2 | Email reminder to get Excel update file | Human | — |
 | 3 | Update schedule using Excel file | Human | — |
 | 4 | Make corrections, discussion, complete update | Human | (in meeting) |
 | 5 | Export schedule files | Human | — |
 | 6 | Upload XER to SmartPM (Worker ingests it server-side after the seed POST) | Human | — |
-| 7 | Copy meeting transcript to meeting folder | Human | — |
-| 8 | Export PDF attachments from schedule software | Human | — |
-| 9 | Create next week's Excel files | Human | — |
+| 7 | Export PDF attachments from schedule software | Human | — |
+| 8 | Create next week's Excel files | Human | — |
+| 9 | Meeting transcript — auto-pulled via M365 connector (manual drop as fallback) | Agent | — (within `report`) |
 | 10 | Build seed, POST to MCP, hand editor URL to colleague | Agent | `report` (drives `draft`) |
 | 11 | Colleague edits in browser; Worker renders graphs async | Human + Worker | — |
 | 12 | Colleague says "done"; finalize draft, build `.eml`, publish Procore | Agent | `draft` (auto-fans into `procore`) |
 | 13 | Open `.eml`, review, Send | Human | — |
 
-Colleague-friendly shortcut: `report` covers rows 10–12 in a single guided conversation.
+Colleague-friendly shortcut: `report` covers rows 9–12 in a single guided conversation — it opens by auto-pulling the meeting transcript (step 9), then builds the seed and drives the editor. Steps 1–8 are the human/P6 pre-work; the everyday team entry point is `report` (or the `write-weekly-schedule-email` launcher) once the folder is ready and the files are exported.

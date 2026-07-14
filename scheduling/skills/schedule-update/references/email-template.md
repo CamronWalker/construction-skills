@@ -1,6 +1,6 @@
 # Westland Schedule Update Email Template
 
-This template defines the structure, sections, and formatting for the weekly schedule update email per Westland procedures. The email is assembled section by section, then output as an Outlook .msg draft file (HTML email with inline images). Double-click the .msg to open in Outlook, review, and click Send. Fallback: .docx output if Outlook is unavailable.
+This template defines the structure, sections, and formatting for the weekly schedule update email per Westland procedures. The email is assembled section by section, then output as a `.eml` file (HTML email with inline images). Double-click the `.eml` to open in Outlook, review, and click Send.
 
 ---
 
@@ -123,7 +123,7 @@ Include individual graph screenshots from SmartPM View Trends, in this default o
 6. SPI Over Time (`09-spi-over-time.png`)
 7. Activity Hit Rate (%) (`10-activity-hit-rate.png`)
 
-This order can be customized per project via the `graph_screenshots` list in `project-context.md`.
+This order can be customized per project via `graph_order` in the weekly-email JSON (carry-forward).
 Each screenshot is hyperlinked to the SmartPM View Trends URL.
 
 ### 12. Attachments & Closing
@@ -164,22 +164,11 @@ Include the following with each update email:
 
 ---
 
-## Email Options (per Westland procedure)
-
-### Option A: Reply-All Method
-Paste the master template into an email. Every update, reply-all to the last email update, then copy and edit the information.
-
-### Option B: Document Method
-Create a project-specific schedule update email document using this template. Save to your computer with the day's date. Each update, duplicate the document, update the information, save with the new date. Copy and paste into email.
-
----
-
 ## Formatting Notes
 
-- Output targets HTML email (.msg format) with inline styles only — no `<style>` blocks (Outlook's Word renderer strips them)
+- Output targets HTML email (`.eml`) with inline styles only — no `<style>` blocks (Outlook's Word renderer strips them)
 - Font: Calibri 11pt to match Outlook's default compose font
 - Section headers should be **bold** (12pt)
 - Days behind/ahead and gain/loss: **entire line** colored red or green, bold
 - High-priority red flags / stalled tasks / key items use the inline HTML spans documented under "High-priority styling" above
 - Screenshots embedded as inline CID images, hyperlinked to their SmartPM source URLs
-- The `schedule-screenshots` skill automates SmartPM screenshot capture via Playwright

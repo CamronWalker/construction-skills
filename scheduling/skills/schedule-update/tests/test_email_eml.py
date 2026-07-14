@@ -22,7 +22,7 @@ _HERE = pathlib.Path(__file__).resolve().parent
 _REFS = _HERE.parent / 'references'
 sys.path.insert(0, str(_REFS))
 
-import generate_email_msg as gen_msg  # noqa: E402
+import email_body as gen_body  # noqa: E402
 import generate_email_eml as gen_eml  # noqa: E402
 
 
@@ -226,20 +226,18 @@ class EmlEnvelopeTests(unittest.TestCase):
 
 
 class CrossPathParityTests(unittest.TestCase):
-    """The .eml path and the COM Outlook path must produce the same
-    HTML body — they share `_build_html_body`. The COM path itself
-    requires Outlook + pywin32 to actually run, but its body builder
-    can be exercised directly in tests."""
+    """The .eml path builds its HTML body via the shared
+    `email_body._build_html_body`. Confirm that builder is
+    deterministic and that its output is what the .eml ships."""
 
     def test_html_body_byte_identical_across_paths(self):
         """The body rendered by `_build_html_body` (with the same
-        kwargs) is what both `generate_email_eml` and
-        `generate_email_msg` ship to the wire. Confirm a representative
-        kwargs set produces an identical body string when invoked
-        through the shared builder."""
-        # Emulate what each path does: strip kwargs the body builder
+        kwargs) is what `generate_email_eml` ships to the wire. Confirm a
+        representative kwargs set produces an identical body string when
+        invoked through the shared builder."""
+        # Emulate what the .eml path does: strip kwargs the body builder
         # doesn't accept, then call _build_html_body directly with the
-        # same shape both paths construct.
+        # same shape the path constructs.
         common_body_kw = dict(
             project_info=SAMPLE_KW['project_info'],
             days_behind=SAMPLE_KW['days_behind'],
@@ -262,8 +260,8 @@ class CrossPathParityTests(unittest.TestCase):
             signer_mobile='',
             has_logo=False,
         )
-        body_a = gen_msg._build_html_body(**common_body_kw)
-        body_b = gen_msg._build_html_body(**common_body_kw)
+        body_a = gen_body._build_html_body(**common_body_kw)
+        body_b = gen_body._build_html_body(**common_body_kw)
         self.assertEqual(body_a, body_b)
         # And the .eml writer feeds this same builder, so the rendered
         # body in the .eml must match too.
@@ -289,7 +287,7 @@ class TestSubjectDateSuffix(unittest.TestCase):
     def test_appends_today_when_no_date_present(self):
         from datetime import date
         fixed_today = date(2026, 5, 20)
-        result = gen_msg._ensure_subject_has_date(
+        result = gen_body._ensure_subject_has_date(
             'Sample Project — Schedule Update', today=fixed_today,
         )
         self.assertEqual(result, 'Sample Project — Schedule Update - 2026-05-20')
@@ -297,7 +295,7 @@ class TestSubjectDateSuffix(unittest.TestCase):
     def test_leaves_subject_alone_when_already_ends_with_date(self):
         from datetime import date
         fixed_today = date(2026, 5, 20)
-        result = gen_msg._ensure_subject_has_date(
+        result = gen_body._ensure_subject_has_date(
             'Schedule Update - Lubumbashi DRC Temple - 2026-04-09',
             today=fixed_today,
         )
@@ -308,7 +306,7 @@ class TestSubjectDateSuffix(unittest.TestCase):
     def test_trailing_whitespace_does_not_defeat_detection(self):
         from datetime import date
         fixed_today = date(2026, 5, 20)
-        result = gen_msg._ensure_subject_has_date(
+        result = gen_body._ensure_subject_has_date(
             'Subject - 2026-04-09   ', today=fixed_today,
         )
         self.assertEqual(result, 'Subject - 2026-04-09   ')
@@ -316,8 +314,8 @@ class TestSubjectDateSuffix(unittest.TestCase):
     def test_empty_subject_passes_through(self):
         # Callers that intentionally leave the subject blank (so Outlook
         # picks its default) shouldn't suddenly get a bare date.
-        self.assertEqual(gen_msg._ensure_subject_has_date(''), '')
-        self.assertIsNone(gen_msg._ensure_subject_has_date(None))
+        self.assertEqual(gen_body._ensure_subject_has_date(''), '')
+        self.assertIsNone(gen_body._ensure_subject_has_date(None))
 
     def test_eml_writer_stamps_subject_with_today(self):
         """End-to-end through the .eml path — confirm the written Subject
@@ -354,7 +352,7 @@ class BuildHtmlBodyV2Tests(unittest.TestCase):
         )
 
     def test_closing_paragraphs_html_renders_verbatim(self):
-        from generate_email_msg import _build_html_body
+        from email_body import _build_html_body
         kwargs = self._common_kwargs()
         kwargs['closing_paragraphs_html'] = '<div>Please ask questions.</div><div>Owner directive applied.</div>'
         html = _build_html_body(**kwargs)
@@ -363,12 +361,30 @@ class BuildHtmlBodyV2Tests(unittest.TestCase):
 
     def test_no_closing_line_kwarg_required(self):
         """The signature must not require closing_line."""
-        from generate_email_msg import _build_html_body
+        from email_body import _build_html_body
         kwargs = self._common_kwargs()
         kwargs['closing_paragraphs_html'] = ''
         # If closing_line were still required, this raises TypeError.
         html = _build_html_body(**kwargs)
         self.assertIsInstance(html, str)
+
+    def test_narrative_fields_render_verbatim_not_escaped(self):
+        """gain_loss_narrative / eot_recovery / logic_changes arrive as
+        Trix HTML — their <br>/<div>/<b> must render as tags, not be
+        escaped into visible &lt;br&gt; text."""
+        from email_body import _build_html_body
+        kwargs = self._common_kwargs()
+        kwargs['gain_loss_narrative'] = 'Lost time to weather.<br>Recovery filed.'
+        kwargs['eot_recovery'] = '<div>EOT pending owner review.</div>'
+        kwargs['logic_changes'] = 'Resequenced MEP.<div>Added tie-in.</div>'
+        html = _build_html_body(**kwargs)
+        # Tags pass through verbatim...
+        self.assertIn('Lost time to weather.<br>Recovery filed.', html)
+        self.assertIn('<div>EOT pending owner review.</div>', html)
+        self.assertIn('Resequenced MEP.<div>Added tie-in.</div>', html)
+        # ...and are NOT escaped into visible text.
+        self.assertNotIn('&lt;br&gt;', html)
+        self.assertNotIn('&lt;div&gt;', html)
 
 
 if __name__ == '__main__':

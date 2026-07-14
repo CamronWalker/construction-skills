@@ -48,16 +48,6 @@ This orchestrator does three things end-to-end:
 
 All charts are embedded as one stacked PNG; per-chart artifacts are not used in the `.eml` body.
 
-### 2 (alternative): COM Outlook draft
-
-If the colleague explicitly asks to skip the `.eml` ("save it straight to Outlook Drafts" / "use the Outlook draft path"), call `generate_update_email_msg` instead. Same kwargs, same body — just writes via Outlook COM automation rather than to disk. `email_draft_io.editorial_to_kwargs()` returns a dict compatible with both builders.
-
-**Pre-conditions for COM path:**
-- Classic Outlook must be open (not just installed — open it from Start menu so it syncs to Exchange and the draft shows up in new Outlook).
-- `pywin32` must be installed (`pip install pywin32`).
-
-If `pywin32` is missing, prompt: "Install pywin32 with `pip install pywin32`, then retry." If Outlook COM fails entirely, fall back to the `.eml` path automatically and tell the colleague.
-
 ### 3. Verify the .eml opens in Outlook
 
 Double-click `eml_path`. Outlook should open in compose mode with To/Cc/Subject editable. Inline images (logo + stacked graphs PNG) render. Attachments appear in the attachment pane.
@@ -76,5 +66,5 @@ Double-click `eml_path`. Outlook should open in compose mode with To/Cc/Subject 
 
 - `phases/draft.md` — produces the `{YYYY-MM-DD}-email.json` this phase consumes.
 - `phases/procore.md` — separate publish step driven by the same JSON.
-- `references/email_draft_io.py` — the seam between `{YYYY-MM-DD}-email.json` and the existing `.eml` / COM builders.
+- `references/email_draft_io.py` — the seam between `{YYYY-MM-DD}-email.json` and the `.eml` builder.
 - scheduling/CLAUDE.md "Email JSON shape — single source of truth."

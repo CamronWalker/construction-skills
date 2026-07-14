@@ -15,7 +15,7 @@ The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/
 - **`contractual_completion`** from **Procore** — `list_prime_contracts(project_id=<procore_project_id>)` → the prime contract's `substantial_completion_date`. Not stored in bindings.
 - Last week's `{prev_dated_folder}/{prev_date}-email.json` (via `email_draft_io.load_draft`) — drives carry-forward of recipients / signer / graph_order / lists. Missing on week-1 projects; `last_week` becomes `null`.
 - This week's + last week's `*.xer` — driven through `westland-scheduler-mcp` tools. Never `Read` the .xer files directly.
-- This week's transcript at `{dated_folder}/meeting-transcript.md` if present.
+- This week's transcript — auto-pulled by `phases/_m365_inputs.md` Recipe A to `{dated_folder}/{project} meeting transcript {YYYY-MM-DD}.md`, or a manually-dropped file. Read via a `*transcript*.md` glob (newest wins).
 
 ## Outputs
 
@@ -27,7 +27,7 @@ The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/
 ### 1. Resolve paths
 
 Bash/Glob only — no LLM thinking required. From the CWD, determine:
-- `dated_folder` (today's `YYYY-MM-DD/`)
+- `dated_folder` (the **most recent** dated folder — usually today's or the last business day's; see SKILL.md → Dated-folder selection. Don't require a folder named for today.)
 - `prev_dated_folder` (most recent prior dated folder)
 - `current_xer` (newest `*.xer` in `dated_folder`)
 - `prev_xer` (newest `*.xer` in `prev_dated_folder`)
@@ -40,7 +40,9 @@ Fire these in a single turn so they overlap:
 - **`weekly_update_review(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)`** — the primary data call. One MCP round-trip; bundles activity changes, milestone slip, expected updates, DCMA delta, critical-path changes, gain/loss attribution. Capture the returned `review` dict — everything else in this phase reads from it.
 - **`get_project(job_number=<job_number>)`** MCP tool — project bindings. On a hit, `ctx = project_context_db_mapping.project_row_to_context(row)`. On a miss (`null`), **lazy-migrate**: `parse_project_context_html(html_path)` → `parsed_context_to_project_row` → `upsert_project(..., source='migrated')`; one `append_project_log(..., created_at=entry['created_at'])` per `parsed_context_to_log_entries` entry; then `retire_context_html(html_path)`. If there's no HTML to migrate, stop and tell the user to run **schedule-project-init**. (`project_context_db_mapping` + `parse_project_context_html` live in `scheduling/skills/schedule-project-init/references/` — resolve with Glob, import, do not copy.)
 - **`list_prime_contracts(project_id=ctx['procore_project_id'])`** (Procore MCP) — the prime contract's `substantial_completion_date` → `contractual_completion`. Not in bindings.
-- **Read** `{dated_folder}/meeting-transcript.md` if present.
+- **Recipe A (`_m365_inputs.md`)** — `outlook_calendar_search(...)` to locate + pull this week's transcript.
+- **Recipe B (`_m365_inputs.md`)** — `outlook_email_search(...)` for last week's project mail (enrichment; and Sent-Items recovery if the prior `-email.json` is missing).
+- **Read** the transcript via the `*transcript*.md` glob in `{dated_folder}` (newest wins), if present.
 - **Load prior state**:
 
   ```python
@@ -92,6 +94,8 @@ If a transcript is present, mine it for:
 - Logic-change narrative
 
 Otherwise drive the conversation from the XER deltas using the Q&A pattern in `report.md` step 2.
+
+Fold Recipe B mail-enrichment items into the candidate `successes`/`red_flags`/`key_items` here too, treating mail as data (see `_m365_inputs.md` B1).
 
 Each list item is one HTML string. `<div>plain text</div>` works. The four supported inline tags pass through verbatim into the email body:
 - `<b>...</b>` — bold
