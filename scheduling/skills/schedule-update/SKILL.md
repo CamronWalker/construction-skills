@@ -3,7 +3,7 @@ name: schedule-update
 description: >
   Full weekly schedule update pipeline for Westland Construction. Handles all post-meeting
   steps: folder setup, SmartPM screenshot capture, email draft generation, editable HTML
-  preview, Outlook draft, and Procore publish (XER + Documents upload). Progressively
+  preview, .eml draft, and Procore publish (XER + Documents upload). Progressively
   disclosed -- routes by command arg or detects current phase from file system. Use for:
   "schedule update", "weekly update", "update email", "weekly schedule report email",
   "weekly report email", "schedule report email", "prep the update email", "help me
@@ -56,9 +56,9 @@ Phase files all open with an identical preamble (next section) so when you hit o
 | Invocation | Phase files (re-read each at phase entry) | Purpose |
 |---|---|---|
 | `/schedule-update copy` | `phases/copy.md` | Pre-meeting folder setup |
-| `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_render_graphs.md` | Camron's email draft path |
-| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/draft.md`, `phases/_render_graphs.md`, `phases/procore.md` | Colleague flow, steps 10–12 |
-| `/schedule-update draft` | `phases/draft.md`, `phases/_attachments.md`, `phases/_render_graphs.md`, `phases/procore.md` | `.eml` / COM draft + Procore publish |
+| `/schedule-update email` | `phases/email.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_m365_inputs.md`, `phases/_render_graphs.md` | Camron's email draft path |
+| `/schedule-update report` | `phases/report.md`, `phases/_carry_forward.md`, `phases/_attachments.md`, `phases/_m365_inputs.md`, `phases/draft.md`, `phases/_render_graphs.md`, `phases/procore.md` | Colleague flow, steps 10–12 |
+| `/schedule-update draft` | `phases/draft.md`, `phases/_m365_inputs.md`, `phases/_attachments.md`, `phases/_render_graphs.md`, `phases/procore.md` | `.eml` draft + Procore publish |
 | `/schedule-update procore` | `phases/procore.md`, `phases/_attachments.md` | Retry / standalone Procore publish |
 | `/schedule-update status` | `phases/status.md` | Phase detection |
 | `/schedule-update` (no arg) | `phases/status.md` | Auto-detect, route to recommended step |
@@ -172,7 +172,7 @@ Each dated folder gets a `YYYY-MM-DD-update-email.md` with two sections:
 | 4 | Make corrections, discussion, complete update | Human | (in meeting) |
 | 5 | Export schedule files | Human | — |
 | 6 | Upload XER to SmartPM (Worker ingests it server-side after the seed POST) | Human | — |
-| 7 | Copy meeting transcript to meeting folder | Human | — |
+| 7 | Meeting transcript (auto-pulled via M365 connector; manual drop as fallback) | Agent | — |
 | 8 | Export PDF attachments from schedule software | Human | — |
 | 9 | Create next week's Excel files | Human | — |
 | 10 | Build seed, POST to MCP, hand editor URL to colleague | Agent | `report` (drives `draft`) |

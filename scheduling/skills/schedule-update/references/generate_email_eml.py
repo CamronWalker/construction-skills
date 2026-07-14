@@ -1,18 +1,11 @@
 """
 Generate a `.eml` file from a reviewed weekly schedule update preview.
 
-Mirrors `generate_email_msg.generate_update_email_msg` (same kwargs,
-same HTML body via the shared `_build_html_body`) but writes RFC 5322
-to disk via `email.message.EmailMessage` instead of using Outlook COM.
-
-Why this exists alongside the COM path:
-    - Cowork sessions have no local Outlook to script. The `.eml` path
-      writes a file the user double-clicks to open in classic or new
-      Outlook for review and sending.
-    - The `.eml` is portable — easy to archive, attach to a ticket, or
-      hand to a colleague.
-    - The COM path remains for users who want the draft auto-saved to
-      Exchange Drafts (no double-click); see `generate_email_msg.py`.
+Builds the HTML body via `email_body._build_html_body`, then writes
+RFC 5322 to disk via `email.message.EmailMessage`. The user
+double-clicks the resulting file to open it in classic or new Outlook
+for review and sending; the `.eml` is portable — easy to archive,
+attach to a ticket, or hand to a colleague.
 
 Implementation notes baked in from the W1177 2026-05-07 test session:
     1. **Encode the HTML body as base64** (`cte='base64'`). Outlook's
@@ -36,11 +29,8 @@ import os
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 
-# Reuse the canonical HTML body builder from the COM path so the email
-# bytes are identical regardless of which output format the caller
-# picks. If the body ever needs to diverge (e.g. .eml-specific quirks),
-# revisit — but right now the lesson is "two paths, one body".
-from generate_email_msg import (
+# The HTML body builder lives in email_body.py (the .eml path owns it).
+from email_body import (
     _build_html_body,
     _ensure_subject_has_date,
     DEFAULT_LOGO_PATH,
@@ -54,11 +44,9 @@ _INLINE_SUMMARY_CID = 'summary_report'
 def _normalize_recipients(value):
     """Translate Outlook-style `a@x; b@y` into RFC 5322 `a@x, b@y`.
 
-    The `parse_project_context_html` parser emits semicolon-joined
-    strings (Outlook's UI convention) and `generate_email_msg` passes
-    those straight to `mail.To = ...` because Outlook COM accepts
-    them. RFC 5322 wants comma-separated, so the .eml writer
-    translates here. Empty / None fall through unchanged.
+    The upstream editorial layer emits semicolon-joined strings
+    (Outlook's UI convention). RFC 5322 wants comma-separated, so the
+    .eml writer translates here. Empty / None fall through unchanged.
     """
     if not value:
         return ''
@@ -124,9 +112,9 @@ def generate_update_email_eml(
 ):
     """Write a Westland schedule update email as a `.eml` file on disk.
 
-    Same kwargs as `generate_update_email_msg`. The user double-clicks
-    the resulting file to open it in Outlook (compose mode), reviews,
-    and clicks Send.
+    The user double-clicks the resulting file to open it in Outlook
+    (compose mode), reviews, and clicks Send. The HTML body is built by
+    `email_body._build_html_body`.
 
     Args:
         output_path: Absolute path to write. Convention is
@@ -136,7 +124,11 @@ def generate_update_email_eml(
             re-derives the actual sender from the active profile when
             the file is opened, so this is mostly cosmetic — handy for
             archives or if the message is forwarded as-is.
-        ...all other kwargs identical to `generate_update_email_msg`.
+        ...all other kwargs are the editorial/body fields (project_info,
+            days_behind, gain_loss, successes, red_flags, stalled_tasks,
+            key_items, the narrative fields, recipients, signer, etc.),
+            flattened from the draft JSON by
+            `email_draft_io.editorial_to_kwargs`.
 
     Returns:
         The absolute path to the written `.eml` file.

@@ -11,12 +11,11 @@ Shows where the project is in the weekly update pipeline based on what files exi
 |-------|-----------|
 | Today's dated folder exists | Step 1 (copy) done |
 | `{dated_folder}/*.xer` exists | Export done (step 5) |
-| `{dated_folder}/meeting/` has files | Transcript copied (step 7) |
+| `{dated_folder}/*transcript*.md` exists | Transcript present (step 7 — auto-pulled or manual) |
 | `{dated_folder}/screenshots/{job_number}-{YYYY-MM-DD}-all-graphs-stacked.png` exists | Stacked PNG built (post-finalize) |
 | `{dated_folder}/YYYY-MM-DD-email.json` exists | Cloud-editor draft finalized (step 11) |
 | `{dated_folder}/YYYY-MM-DD-update-email.md` exists | Email archived after review |
-| `{dated_folder}/YYYY-MM-DD-update-email.eml` exists | `.eml` draft created (step 13, default path) |
-| Outlook draft exists in Drafts folder | COM draft created (step 13, alternative path — only detectable while Outlook is open) |
+| `{dated_folder}/YYYY-MM-DD-update-email.eml` exists | `.eml` draft created (step 13) |
 | **Procore publish ran today** | check via `procore_get` on the dated folder under `procore_documents_folder_id`; presence of today's `YYYY-MM-DD` subfolder = ran |
 
 Report each phase as DONE / PENDING / NOT STARTED, and name the recommended next step.

@@ -301,7 +301,7 @@ The Worker schema is the source of truth. To extend the shape:
 2. **Update the Worker** — add the field to the validator, the editor SPA's render path, and the `PUT /editorial` ingest. Coordinate via a PR in `westland-mcps`.
 3. **Update the skill in lockstep:**
    - `email_draft_io.editorial_to_kwargs` — pass the new field through to the `.eml` builder kwargs.
-   - `generate_email_msg._build_html_body` — render the field if it affects the email body.
+   - `email_body._build_html_body` — render the field if it affects the email body.
    - `carry_forward.reconcile_items` / `transition_attachments` — handle it across week boundaries if it's per-row state.
 4. **Add a test** to `tests/test_email_draft_io.py` asserting the new field round-trips through `editorial_to_kwargs`.
 5. **Run** `python -m unittest discover -s scheduling/skills/schedule-update/tests` before claiming done.

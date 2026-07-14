@@ -22,7 +22,11 @@ Order of operations:
    - **`weekly_update_review(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)`** — the data call. Bundles activity changes, milestone slip, critical-path changes, gain/loss attribution, expected updates. Capture the returned dict; you'll reuse it in `draft.md` step 3.
    - **`get_project(job_number=<job_number>)`** MCP tool — the project **bindings** row (`project_name`, SmartPM URLs + project name, Procore ids). On a hit, map the row via `project_context_db_mapping.project_row_to_context(row)` to get the `ctx` bindings dict. On a miss (`null`), lazy-migrate (Step 1b). `ctx` no longer carries recipients / signer / graph_order / contractual_completion — those come from carry-forward / Procore / Q&A (see Step 3).
    - **`list_prime_contracts(project_id=ctx['procore_project_id'])`** (Procore MCP) — fetch the prime contract's **Substantial Completion** date for `contractual_completion`. (Can also be deferred to Step 3 when you build the seed.)
-   - **Read transcript** at `{dated_folder}/meeting-transcript.md` if it exists.
+   - **Recipe A (`_m365_inputs.md`)** — `outlook_calendar_search(...)` to locate + pull this week's transcript.
+   - **Recipe B (`_m365_inputs.md`)** — `outlook_email_search(...)` for last week's project mail (enrichment; and Sent-Items recovery if the prior `-email.json` is missing).
+   - **Read transcript** via the `*transcript*.md` glob in `{dated_folder}` (newest wins) — auto-pulled by `_m365_inputs.md` Recipe A or manually dropped.
+
+   This batch is the `_m365_inputs.md` Fast path — fire it in one message.
 
 3. **Read what came back; only then decide what to ask the colleague.** If the review dict shows no SC slip and no completed tasks, you don't need to drive a Q&A — the email is essentially "stable week." If it shows a 12-day slip with three critical-path activities flipping, that's where the conversation goes.
 
@@ -64,6 +68,7 @@ You already have the `review` dict from `weekly_update_review` (fired in the par
 
 - **If a transcript was present** → mine it for narrative, then cross-reference with `review` (transcript catches things the XER doesn't — owner decisions, weather, trade performance; the XER catches things the transcript misses — slips, completions).
 - **If no transcript** → drive the colleague Q&A from `review`. The dict tells you what's worth asking about, so the conversation stays on the actual deltas instead of asking generic "anything new?" questions.
+- Mail enrichment (Recipe B1) contributes candidate items the same way the transcript does — cross-check against `review`.
 
 **Don't write ad-hoc XER-parsing Python.** Everything you need is in `review`. If you need an additional slice (e.g. a specific trade's upcoming activities), call the windowed MCP tools — never read `.xer` bytes directly. If `ToolSearch select:<tool_name>` returns nothing, invoke the `westland-scheduler-mcp-troubleshoot` skill — do not fall back to reading `schedule-toolbox/lib/*.py` (the PreToolUse hook blocks that read).
 

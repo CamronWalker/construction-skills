@@ -11,10 +11,7 @@ POST one MCP call — `generate_weekly_schedule_update_email_draft` — with a v
 Get the week-over-week deltas before doing anything else. Order:
 
 1. **Resolve** (Bash/Glob) — find `dated_folder`, `prev_dated_folder`, `current_xer`, `prev_xer`. See `phases/report.md` step 1.
-2. **Parallel fetch** — one turn, three calls overlapping:
-   - `weekly_update_review(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)` — one MCP call that returns activity changes, milestone slip, expected updates, critical-path changes, and gain/loss attribution. Feeds `build_seed_dict`.
-   - `get_project(job_number)` → `project_context_db_mapping.project_row_to_context(row)` — the SmartPM URLs + Procore id bindings (lazy-migrate a legacy `project-context.html` on a miss; see `phases/report.md` Step 1b). Recipients / signer come from carry-forward, not bindings.
-   - Read transcript if present.
+2. **Fast path** — run the `_m365_inputs.md` **Fast path** batch (schedule review + bindings + Procore + transcript pull + last-week mail) in one message. Transcript is auto-pulled by `_m365_inputs.md` Recipe A; read via the `*transcript*.md` glob.
 3. Read what came back; let the `review` dict pick what to ask the colleague.
 
 If last week's `email.json` isn't there, see `phases/_carry_forward.md` "Fallback chain" — PDF / old preview HTML / archive markdown can each yield a usable `prev_draft`.
@@ -30,8 +27,9 @@ Read these phase files in full **before** taking any action — same set as `/sc
 1. `phases/report.md`
 2. `phases/_carry_forward.md` (reference only — `build_seed_dict` calls these helpers internally)
 3. `phases/_attachments.md` (same)
-4. `phases/draft.md`
-5. `phases/procore.md`
+4. `phases/_m365_inputs.md` (the M365 connector Fast path — transcript pull + last-week mail)
+5. `phases/draft.md`
+6. `phases/procore.md`
 
 Then execute the `report` flow as documented in `phases/report.md`, starting from step 1 (Resolve Folder). Folder resolution defaults to CWD/parent — no human pre-prompt needed.
 
