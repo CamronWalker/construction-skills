@@ -34,10 +34,11 @@ The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/
 
 ## Step 1: Resolve Folder + Load Project Bindings
 
-Apply folder resolution from **Shared Setup**.
-- Default target folder: `{Schedules root}/{today's date in YYYY-MM-DD}/`
-- If today's folder does not exist, list the most recent 3 dated folders and ask: "I don't see a folder for today. Is this week's update in `{most_recent}` or should I create today's folder first? (Run `copy` to create today's folder.)"
-- If today's folder exists but is empty or missing the XER, note what's missing and ask whether to proceed or wait for the human steps (5–9) to finish.
+Apply folder resolution from **Shared Setup**, including **Dated-folder selection**.
+- Work in the **most recent** dated folder under the Schedules root — not necessarily one named for today. `copy` (step 1) is optional and usually already done by the scheduler.
+- If the newest folder is today or within the last couple of working days → **just use it, no prompt.** Running the email the business day after the meeting is normal — don't make a big deal of there being no folder for today.
+- Only if the newest folder is **≥ 3 working days old or more than a week stale** → confirm first: "The most recent schedule folder is `{folder}` ({N} working days ago). Send that update, or set up a fresh folder with `copy`?"
+- If the chosen folder is missing its `.xer`, note what's missing and ask whether to proceed or wait for the export.
 
 Parse `{job_number}` from the Schedules-root folder name (e.g. `W1177 - Project Name` → `W1177`).
 

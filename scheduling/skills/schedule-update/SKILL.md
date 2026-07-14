@@ -123,6 +123,15 @@ All phases use this logic to find the Schedules root:
 
 The grandparent of the Schedules root should match `W\d+ - .+` (e.g., `W1134 - Neiafu Tonga Temple Construction`).
 
+### Dated-folder selection (which week's folder to work in)
+
+The weekly email flow works off the **most recent** dated folder under the Schedules root — it does **not** require a folder named for *today*. Creating today's folder (`copy`, step 1) is **optional**; schedulers usually make it themselves.
+
+- If CWD is already a dated folder → use it.
+- Otherwise take the newest `YYYY-MM-DD` folder under the root. If it's today or within the last couple of working days — e.g. running the email the business day after the meeting — **just use it, no prompt.** That is the normal case; don't make a fuss about there being no folder named for today.
+- Only stop and confirm if the newest folder is **≥ 3 working days old or more than a week stale**: "The most recent schedule folder is `{folder}` ({N} working days ago). Send that update, or set up a fresh folder with `copy`?"
+- If **no dated folder exists at all** → offer `copy` (or let the scheduler create one).
+
 ### Project bindings — the `ctx` dict shape
 
 Project bindings live in Supabase (`wnd_projects`), not in `project-context.html`. Parse `{job_number}` from the `W#### - Name` Schedules-root folder (e.g. `W1177 - Project Name` → `W1177`), then read the row via the `get_project` MCP tool and map it to a `ctx` dict:
@@ -166,7 +175,7 @@ Each dated folder gets a `YYYY-MM-DD-update-email.md` with two sections:
 
 | # | Step | Owner | Command |
 |---|------|-------|---------|
-| 1 | Copy schedule folder for today's date | Agent | `copy` |
+| 1 | Copy schedule folder for today's date — **optional** (schedulers usually create it themselves) | Agent | `copy` |
 | 2 | Email reminder to get Excel update file | Human | — |
 | 3 | Update schedule using Excel file | Human | — |
 | 4 | Make corrections, discussion, complete update | Human | (in meeting) |

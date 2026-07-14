@@ -27,7 +27,7 @@ The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/
 ### 1. Resolve paths
 
 Bash/Glob only — no LLM thinking required. From the CWD, determine:
-- `dated_folder` (today's `YYYY-MM-DD/`)
+- `dated_folder` (the **most recent** dated folder — usually today's or the last business day's; see SKILL.md → Dated-folder selection. Don't require a folder named for today.)
 - `prev_dated_folder` (most recent prior dated folder)
 - `current_xer` (newest `*.xer` in `dated_folder`)
 - `prev_xer` (newest `*.xer` in `prev_dated_folder`)
