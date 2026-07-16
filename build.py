@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SRC_DIR = ROOT / "src"
 
-PLUGINS = ["westland", "scheduling", "preconstruction", "project-management", "site-operations", "safety"]
+PLUGINS = ["westland", "scheduling", "preconstruction", "construction", "safety"]
 
 # Claude Code rejects plugin installs whose description exceeds 500 chars.
 # Validated for both the plugin's own plugin.json and its entry in the

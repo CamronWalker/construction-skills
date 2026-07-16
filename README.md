@@ -10,8 +10,7 @@ Browse available plugins and install the ones you need:
 /plugin marketplace add CamronWalker/construction-skills
 /plugin install scheduling@construction-skills
 /plugin install preconstruction@construction-skills
-/plugin install project-management@construction-skills
-/plugin install site-operations@construction-skills
+/plugin install construction@construction-skills
 /plugin install safety@construction-skills
 ```
 
@@ -36,18 +35,25 @@ Business development, estimating, and proposals — the teams that share Buildr.
 - **estimating-bid-leveling** (TODO) — Level and compare subcontractor bids side-by-side — normalize inclusions/exclusions, flag qualifications, and highlight pricing outliers.
 - **estimating-spec-assignments** (TODO) — Read the project specs and generate a summary of which spec sections each subcontractor is carrying.
 
-### Project Management
+### Construction
 
-- **pm-submittal-review** (TODO) — Review product data submittals against spec requirements — check compliance, flag deviations, and draft review comments.
-- **pm-submittal-requirements** (TODO) — Read the specs and generate a trade-specific submittal requirements list with section references for subs to check off.
-- **pm-subcontractor-spec-reader** (TODO) — Parse contract specs for a specific subcontractor and produce their custom checklist — obligations, hold points, testing requirements, closeout docs.
-- **pm-change-event** — Analyze incoming change events (PRs, CCDs, ASIs, bulletins) and distribute scope to affected subcontractors — identifies who's affected, writes scope descriptions per trade, and outputs a formatted distribution summary. Optional Procore MCP integration for direct posting.
-- **pm-change-order-docs** (TODO) — Help document and justify change orders — draft cover letters, organize backup, reference contract provisions.
+Construction-phase skills — Procore-native workflows plus a Procore MCP toolkit. Merges the former **project-management** and **site-operations** plugins. Every Procore write is two-stage (dry-run preview → confirm).
 
-### Site Operations
-
-- **site-rfi-writing** — Guide RFI writing through an interactive Q&A process — searches project documents first (no RFI is the best RFI), then builds clear, actionable RFIs with proper spec references, drawing references, suggested resolution, and impact assessment. Optional Procore MCP integration for direct posting.
-- **site-daily-log** (TODO) — Assist with daily log entries — manpower, equipment, work performed, delays, and a scheduled-vs-actual work analysis. Optional Procore MCP integration for direct posting.
+- **construction-procore-toolbox** — The Procore MCP toolkit and dispatcher: how to read/write Procore, project resolution, pagination, the two-stage write contract, the raw endpoint escape hatch, and which skill owns which workflow. The anchor for everything below.
+- **construction-daily-log-review** — Review and grade a project's daily logs over a window: the Procore quality chart, a thoroughness scorecard, and an Executive Insights narrative of the month plus growth areas.
+- **construction-project-pulse** — 30-second project-health snapshot from Procore's executive widgets — open/overdue RFIs, submittal aging, and turnaround vs. target.
+- **construction-rfi-followup** — Drill overdue RFIs by ball-in-court and draft chase nudges (or suggest what to draft).
+- **construction-submittal-followup** — Drill overdue/pending submittals by ball-in-court — sorted by need-by/lead-time risk — and draft chase nudges.
+- **construction-daily-log-entry** — Draft and post manpower / call / photo daily-log entries; optional scheduled-vs-actual read.
+- **construction-email-to-log** — Turn important recent emails into Procore call-log entries on the right day (call-log capture; no inbox forwarding).
+- **construction-observations-import** — Batch-import observations from an architect/engineer/commissioning report — reasoned type and location per item, deduped against existing.
+- **construction-submittal-review** — Review submittals against spec requirements — compliance table plus draft review comments.
+- **construction-rfi-writing** — Guide RFI writing through an interactive Q&A process — searches project documents first (no RFI is the best RFI), then builds a clear, actionable RFI. Optional direct create in Procore.
+- **construction-change-event** — Analyze incoming change events (PRs, CCDs, ASIs, bulletins) and distribute scope to affected subcontractors. Optional direct create in Procore.
+- **construction-closeout-status-dashboard** — Build and update interactive HTML closeout status dashboards from Excel trackers or Procore submittal-log exports.
+- **construction-submittal-requirements** (TODO) — Read the specs and generate a trade-specific submittal requirements list with section references for subs to check off.
+- **construction-subcontractor-spec-reader** (TODO) — Parse contract specs for a specific subcontractor and produce their custom checklist — obligations, hold points, testing requirements, closeout docs.
+- **construction-change-order-docs** (TODO) — Help document and justify change orders — draft cover letters, organize backup, reference contract provisions.
 
 ### Safety
 

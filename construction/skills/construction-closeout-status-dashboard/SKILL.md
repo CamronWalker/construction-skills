@@ -1,5 +1,5 @@
 ---
-name: pm-closeout-status-dashboard
+name: construction-closeout-status-dashboard
 description: >
   Build and update interactive HTML closeout status dashboards from Excel tracking spreadsheets.
   Use this skill whenever the user mentions closeout tracking, closeout dashboard, closeout status,
