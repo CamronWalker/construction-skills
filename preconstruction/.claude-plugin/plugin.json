@@ -1,0 +1,18 @@
+{
+  "name": "preconstruction",
+  "version": "0.2.0",
+  "description": "Claude Code skills for construction preconstruction — business development, estimating, and proposals. Includes buildr-toolbox, a companion/usage skill for the remote Buildr MCP connector: win/loss reporting, workforce availability, pipeline/pursuit snapshots, and account 360 lookups across Buildr's CRM, projects, financials, and workforce data. Future estimating skills (bid-docs review, scope-gap analysis, bid leveling, spec assignments) land here too.",
+  "author": {
+    "name": "Camron Walker"
+  },
+  "repository": "https://github.com/CamronWalker/construction-skills",
+  "license": "MIT",
+  "keywords": [
+    "construction",
+    "preconstruction",
+    "estimating",
+    "business-development",
+    "proposals",
+    "buildr"
+  ]
+}

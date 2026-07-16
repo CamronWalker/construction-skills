@@ -9,7 +9,7 @@ Browse available plugins and install the ones you need:
 ```
 /plugin marketplace add CamronWalker/construction-skills
 /plugin install scheduling@construction-skills
-/plugin install estimating@construction-skills
+/plugin install preconstruction@construction-skills
 /plugin install project-management@construction-skills
 /plugin install site-operations@construction-skills
 /plugin install safety@construction-skills
@@ -26,8 +26,11 @@ Browse available plugins and install the ones you need:
 - **schedule-update-report** (TODO) — Generate schedule narrative reports from XER data — weekly update narratives, critical path discussion, and milestone summaries.
 - **schedule-delay-analysis** (TODO) — Analyze schedule versions to identify and document delays, compare baselines, and draft time impact analyses.
 
-### Estimating
+### Preconstruction
 
+Business development, estimating, and proposals — the teams that share Buildr.
+
+- **buildr-toolbox** — Companion skill for the remote Buildr MCP connector. Routes Buildr's read/write tools and ships four report recipes: win/loss reporting, workforce availability, pipeline/pursuit snapshot, and account 360. Read-and-report first; writes are fenced and confirm-gated.
 - **estimating-bid-docs-review** (TODO) — Review bid documents for completeness — flag missing drawings, specs, addenda, or conflicting information before bid day.
 - **estimating-scope-gap-review** (TODO) — Analyze scopes across trades to identify gaps, overlaps, and ambiguous responsibility areas between subcontractor proposals.
 - **estimating-bid-leveling** (TODO) — Level and compare subcontractor bids side-by-side — normalize inclusions/exclusions, flag qualifications, and highlight pricing outliers.
