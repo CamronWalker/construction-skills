@@ -1,10 +1,10 @@
-# Phase: `report` — Colleague Post-Meeting Flow (Steps 10–12)
+# Phase: `report` — Colleague Post-Meeting Flow (Steps 9–12)
 
 > **Phase preamble — on entering this phase, re-read this file in full before any tool call. Do not rely on summarized recall from earlier in the session.** This file is the procedure for the `report` phase; any divergence from it is a bug.
 > Loaded by SKILL.md's router when the user invokes `/schedule-update report`.
 > Also requires `_carry_forward.md`, `_attachments.md`, `draft.md`, `_render_graphs.md`, and `procore.md`.
 
-End-to-end conversational flow that takes a colleague from "meeting is done" to "Outlook draft in Drafts folder + files in Procore." Covers steps 10–12 of the full pipeline.
+End-to-end conversational flow that takes a colleague from "meeting is done" to "a reviewed `.eml` draft + files in Procore." Covers steps 9–12 of the full pipeline: it opens by auto-pulling the meeting transcript (step 9), builds the seed and hands off the editor URL (step 10), waits while the colleague edits (step 11), then finalizes — `.eml` + Procore (step 12). Step 13 (open the `.eml`, review, Send) stays with the human.
 
 ## The goal in one sentence
 
@@ -22,7 +22,11 @@ Order of operations:
    - **`weekly_update_review(baseline_xer_path=<prev_xer>, current_xer_path=<current_xer>)`** — the data call. Bundles activity changes, milestone slip, critical-path changes, gain/loss attribution, expected updates. Capture the returned dict; you'll reuse it in `draft.md` step 3.
    - **`get_project(job_number=<job_number>)`** MCP tool — the project **bindings** row (`project_name`, SmartPM URLs + project name, Procore ids). On a hit, map the row via `project_context_db_mapping.project_row_to_context(row)` to get the `ctx` bindings dict. On a miss (`null`), lazy-migrate (Step 1b). `ctx` no longer carries recipients / signer / graph_order / contractual_completion — those come from carry-forward / Procore / Q&A (see Step 3).
    - **`list_prime_contracts(project_id=ctx['procore_project_id'])`** (Procore MCP) — fetch the prime contract's **Substantial Completion** date for `contractual_completion`. (Can also be deferred to Step 3 when you build the seed.)
-   - **Read transcript** at `{dated_folder}/meeting-transcript.md` if it exists.
+   - **Recipe A (`_m365_inputs.md`)** — `outlook_calendar_search(...)` to locate + pull this week's transcript.
+   - **Recipe B (`_m365_inputs.md`)** — `outlook_email_search(...)` for last week's project mail (enrichment; and Sent-Items recovery if the prior `-email.json` is missing).
+   - **Read transcript** via the `*transcript*.md` glob in `{dated_folder}` (newest wins) — auto-pulled by `_m365_inputs.md` Recipe A or manually dropped.
+
+   This batch is the `_m365_inputs.md` Fast path — fire it in one message.
 
 3. **Read what came back; only then decide what to ask the colleague.** If the review dict shows no SC slip and no completed tasks, you don't need to drive a Q&A — the email is essentially "stable week." If it shows a 12-day slip with three critical-path activities flipping, that's where the conversation goes.
 
@@ -30,10 +34,11 @@ The Worker schema at <https://westland-mcps.westland.workers.dev/westland-forms/
 
 ## Step 1: Resolve Folder + Load Project Bindings
 
-Apply folder resolution from **Shared Setup**.
-- Default target folder: `{Schedules root}/{today's date in YYYY-MM-DD}/`
-- If today's folder does not exist, list the most recent 3 dated folders and ask: "I don't see a folder for today. Is this week's update in `{most_recent}` or should I create today's folder first? (Run `copy` to create today's folder.)"
-- If today's folder exists but is empty or missing the XER, note what's missing and ask whether to proceed or wait for the human steps (5–9) to finish.
+Apply folder resolution from **Shared Setup**, including **Dated-folder selection**.
+- Work in the **most recent** dated folder under the Schedules root — not necessarily one named for today. `copy` (step 1) is optional and usually already done by the scheduler.
+- If the newest folder is today or within the last couple of working days → **just use it, no prompt.** Running the email the business day after the meeting is normal — don't make a big deal of there being no folder for today.
+- Only if the newest folder is **≥ 3 working days old or more than a week stale** → confirm first: "The most recent schedule folder is `{folder}` ({N} working days ago). Send that update, or set up a fresh folder with `copy`?"
+- If the chosen folder is missing its `.xer`, note what's missing and ask whether to proceed or wait for the export.
 
 Parse `{job_number}` from the Schedules-root folder name (e.g. `W1177 - Project Name` → `W1177`).
 
@@ -64,6 +69,7 @@ You already have the `review` dict from `weekly_update_review` (fired in the par
 
 - **If a transcript was present** → mine it for narrative, then cross-reference with `review` (transcript catches things the XER doesn't — owner decisions, weather, trade performance; the XER catches things the transcript misses — slips, completions).
 - **If no transcript** → drive the colleague Q&A from `review`. The dict tells you what's worth asking about, so the conversation stays on the actual deltas instead of asking generic "anything new?" questions.
+- Mail enrichment (Recipe B1) contributes candidate items the same way the transcript does — cross-check against `review`.
 
 **Don't write ad-hoc XER-parsing Python.** Everything you need is in `review`. If you need an additional slice (e.g. a specific trade's upcoming activities), call the windowed MCP tools — never read `.xer` bytes directly. If `ToolSearch select:<tool_name>` returns nothing, invoke the `westland-scheduler-mcp-troubleshoot` skill — do not fall back to reading `schedule-toolbox/lib/*.py` (the PreToolUse hook blocks that read).
 
@@ -124,7 +130,7 @@ Short version:
 
 ## Step 4: Hand the editor URL to the colleague
 
-> "Editor at `{editor_url}`. Open it in your browser; edits autosave. Use the toolbar's **B** (bold) and the brand-red priority span to mark high-priority items — they render `<strong>` and a Westland-red span verbatim in the email. Use the **P** toggle next to each attachment to control which files go to Procore. When you're done, come back here and say `done` and I'll build the Outlook draft + push the selected files to Procore."
+> "Editor at `{editor_url}`. Open it in your browser; edits autosave. Use the toolbar's **B** (bold) and the brand-red priority span to mark high-priority items — they render `<strong>` and a Westland-red span verbatim in the email. Use the **P** toggle next to each attachment to control which files go to Procore. When you're done, come back here and say `done` and I'll build the `.eml` draft + push the selected files to Procore."
 
 ### JSON-paste regeneration (escape hatch)
 

@@ -1,81 +1,24 @@
 """
-Generate a Westland Schedule Update Email as an Outlook draft.
+Westland schedule-update email — HTML body builder.
 
-Saves the email directly to the Outlook Drafts folder via COM automation.
-The draft syncs to Exchange and appears in new Outlook — open Drafts, click Send.
+Builds the Outlook-compatible HTML body (inline styles only, for Outlook's
+Word renderer) shared by the .eml writer in generate_email_eml.py. Item
+text, the narrative fields, and closing paragraphs arrive as HTML from the
+cloud editor's Trix surface and are passed through verbatim; _esc() is used
+only for genuine non-HTML inputs (labels, addresses, project-info values,
+URLs, metric badges).
 
-Requires: pip install pywin32
-Requires: Classic Microsoft Outlook installed and open on Windows.
-
-Usage:
-    from generate_email_msg import generate_update_email_msg
-
-    generate_update_email_msg(
-        output_path='Schedule Update Email - 2026-04-09',
-        project_info={
-            'project_name': 'Lubumbashi DRC Temple',
-            'job_number': 'W1177',
-            'contractual_completion': 'May 20, 2026',
-            'projected_completion': 'December 10, 2026',
-        },
-        days_behind=204,
-        gain_loss=-55,
-        successes=['Catwalks and ladders delivered and installed.'],
-        gain_loss_narrative='We lost 55 days since our last update...',
-        eot_recovery='Trade nonperformance has been the primary issue...',
-        logic_changes='Multiple changes to logic, sequencing...',
-        smartpm_changelog_url='https://live.smartpmtech.com/...',
-        red_flags=[
-            '**Extended durations for work that should be complete.**',
-            'Rework for several trades.',
-        ],
-        stalled_tasks=['Framing in each area is still not complete.'],
-        key_items=[
-            '**Material delays have been a constant concern.**',
-            'Review production with OPI every single day.',
-        ],
-        include_compliance_report=True,
-        include_procurement_sheets=True,
-        summary_screenshot_path='screenshots/smartpm-summary-report.png',
-        graph_screenshot_paths=[
-            'screenshots/01-planned-vs-actual-percent-complete.png',
-            'screenshots/07-schedule-compression-index-over-time.png',
-        ],
-        to_recipients='team@example.com',
-        cc_recipients='director@example.com',
-        subject='Schedule Update - Lubumbashi DRC Temple - 2026-04-09',
-        smartpm_project_url='https://live.smartpmtech.com/project/workspace',
-        smartpm_trends_url='https://live.smartpmtech.com/project/trends?tab=Graphs',
-        signer_name='CAMRON WALKER',
-        signer_title='SCHEDULER',
-        signer_mobile='',
-    )
-
-List items carry HTML, not markdown.
-
-    Item text is produced by the cloud editor's Trix surface and arrives
-    here as HTML strings (e.g. `<strong>Steel delivery slipped two
-    weeks.</strong>` or `<span style="color:#C94444;font-weight:bold">…
-    </span>`). The builder passes this HTML through verbatim into the
-    `<li>` element — Outlook's Word renderer respects inline span styles.
-
-    Westland's priority conventions (canonical to scheduling/CLAUDE.md):
-        <b>...</b>                                                       — bold
-        <i>...</i>                                                       — italic
-        <span style="background-color: #FFF4B8">...</span>               — highlight
-        <span style="color: #9B2C2C">...</span>                          — important (Westland red)
+Priority conventions (canonical in scheduling/CLAUDE.md "Email JSON shape"):
+    <b>...</b>                                          — bold
+    <i>...</i>                                          — italic
+    <span style="background-color: #FFF4B8">...</span>  — highlight
+    <span style="color: #9B2C2C">...</span>             — important (Westland red)
 """
 
 import os
 import re
 import html as html_mod
 from datetime import date
-
-try:
-    import win32com.client
-    HAS_WIN32COM = True
-except ImportError:
-    HAS_WIN32COM = False
 
 
 # Subject must end with a YYYY-MM-DD date so each weekly schedule-update
@@ -108,10 +51,6 @@ RED = '#C94444'
 YELLOW = '#D4A030'
 GREEN = '#3A9E6B'
 TEAL = '#0B4F66'
-
-# MAPI property tags for inline image attachments
-PR_ATTACH_CONTENT_ID = "http://schemas.microsoft.com/mapi/proptag/0x3712001F"
-PR_ATTACHMENT_HIDDEN = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
 
 # Default logo path (relative to this script's directory)
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -364,7 +303,7 @@ def _build_html_body(
     if gain_loss_narrative:
         parts.append(
             f'<p style="{font} margin:0 0 6pt 0;">'
-            f'{_esc(gain_loss_narrative)}</p>'
+            f'{gain_loss_narrative}</p>'
         )
 
     # --- Section 6: EOT / Recovery ---
@@ -374,7 +313,7 @@ def _build_html_body(
     )
     if eot_recovery:
         parts.append(
-            f'<p style="{font} margin:0 0 6pt 0;">{_esc(eot_recovery)}</p>'
+            f'<p style="{font} margin:0 0 6pt 0;">{eot_recovery}</p>'
         )
 
     # --- Section 7: Significant Logic Changes ---
@@ -384,7 +323,7 @@ def _build_html_body(
     )
     if logic_changes:
         parts.append(
-            f'<p style="{font} margin:0 0 6pt 0;">{_esc(logic_changes)}</p>'
+            f'<p style="{font} margin:0 0 6pt 0;">{logic_changes}</p>'
         )
     if smartpm_changelog_url:
         parts.append(
@@ -516,202 +455,3 @@ def _build_list(items, font):
         lines.append(_format_list_item(item, font))
     lines.append('</ol>')
     return '\n'.join(lines)
-
-
-def _attach_inline_image(mail, image_path, cid_name):
-    """Attach an image as an inline CID attachment.
-
-    Sets MAPI properties so the image displays in the email body
-    (via cid: reference) and is hidden from the attachment pane.
-    """
-    abs_path = os.path.abspath(image_path)
-    mail.Attachments.Add(abs_path)
-    attachment = mail.Attachments.Item(mail.Attachments.Count)
-    pa = attachment.PropertyAccessor
-    pa.SetProperty(PR_ATTACH_CONTENT_ID, cid_name)
-    pa.SetProperty(PR_ATTACHMENT_HIDDEN, True)
-
-
-def generate_update_email_msg(
-    output_path,
-    project_info,
-    days_behind=0,
-    gain_loss=0,
-    successes=None,
-    gain_loss_narrative='',
-    eot_recovery='',
-    logic_changes='',
-    smartpm_changelog_url='',
-    red_flags=None,
-    stalled_tasks=None,
-    key_items=None,
-    include_compliance_report=False,
-    include_procurement_sheets=False,
-    closing_paragraphs_html='',
-    summary_screenshot_path=None,
-    graph_screenshot_paths=None,
-    to_recipients='',
-    cc_recipients='',
-    subject='',
-    attachment_paths=None,
-    smartpm_project_url='',
-    smartpm_trends_url='',
-    signer_name='CAMRON WALKER',
-    signer_title='SCHEDULER',
-    signer_mobile='',
-    logo_path=None,
-    from_address='',
-    salutation='',
-    prev_days_behind=None,
-    prev_gain_loss=None,
-):
-    """Generate a Westland schedule update email as an Outlook draft.
-
-    Creates an Outlook MailItem via COM automation, populates it with an
-    HTML body containing color-coded status lines, inline CID images,
-    and a Westland email signature, then saves it to the Outlook Drafts
-    folder. The draft syncs to Exchange and appears in new Outlook —
-    open Drafts and click Send.
-
-    Item text arrives as HTML — use inline spans for high priority
-    (see scheduling/CLAUDE.md "Email JSON shape" for the canonical
-    `<strong>` / priority-red / highlight conventions).
-
-    Args:
-        output_path: Identifier for this email (not saved to disk)
-        project_info: Dict with keys: project_name, job_number,
-                      contractual_completion, projected_completion
-        days_behind: Positive = behind (red), negative = ahead (green)
-        gain_loss: Positive = days gained (green), negative = days lost (red)
-        successes: List of item dicts ({text, checked, status, prev_idx})
-        gain_loss_narrative: Explanation of what drove the gain/loss
-        eot_recovery: EOT / recovery efforts narrative
-        logic_changes: Significant logic changes narrative
-        smartpm_changelog_url: URL to SmartPM change log
-        red_flags: List of item dicts
-        stalled_tasks: List of item dicts
-        key_items: List of item dicts
-        include_compliance_report: Whether to include compliance report paragraph
-        include_procurement_sheets: Whether to include procurement sheets paragraph
-        closing_paragraphs_html: Pre-rendered HTML string for the closing
-                                 paragraphs block (from editorial_to_kwargs)
-        summary_screenshot_path: Path to SmartPM summary report PNG (optional)
-        graph_screenshot_paths: List of paths to individual graph PNGs (optional)
-        to_recipients: Semicolon-separated To addresses
-        cc_recipients: Semicolon-separated CC addresses
-        subject: Email subject line
-        attachment_paths: List of file paths to attach (PDFs, Excel, etc.)
-        smartpm_project_url: URL to hyperlink the summary screenshot
-        smartpm_trends_url: URL to hyperlink the performance graph screenshots
-        signer_name: Name for email signature (e.g. 'CAMRON WALKER')
-        signer_title: Title for email signature (e.g. 'SCHEDULER')
-        signer_mobile: Mobile phone for signature (optional, office is hardcoded)
-        logo_path: Path to Westland logo PNG for signature (defaults to
-                   references/westland-logo.png)
-        from_address: Sender address (accepted for editorial_to_kwargs compat;
-                      not applied to the COM MailItem — Outlook uses the
-                      default account).
-        salutation: Closing salutation line (e.g. 'Thanks,')
-        prev_days_behind: Previous week's days_behind for strikethrough badge
-        prev_gain_loss: Previous week's gain_loss for strikethrough badge
-
-    Returns:
-        The output_path identifier.
-
-    Raises:
-        ImportError: If pywin32 is not installed.
-        RuntimeError: If Outlook is not available via COM.
-    """
-    if not HAS_WIN32COM:
-        raise ImportError(
-            'pywin32 is required for .msg generation. '
-            'Install with: pip install pywin32'
-        )
-
-    # Resolve logo path
-    if logo_path is None:
-        logo_path = DEFAULT_LOGO_PATH
-    has_logo = bool(logo_path and os.path.isfile(logo_path))
-
-    # Resolve screenshot availability
-    has_summary = bool(
-        summary_screenshot_path and os.path.isfile(summary_screenshot_path)
-    )
-
-    # Build list of available graph screenshots with CID names
-    graph_images = []  # [(path, cid_name), ...]
-    for i, gpath in enumerate(graph_screenshot_paths or []):
-        if gpath and os.path.isfile(gpath):
-            cid_name = f'graph_{i}'
-            graph_images.append((gpath, cid_name))
-
-    # Build HTML body
-    html_body = _build_html_body(
-        project_info=project_info,
-        days_behind=days_behind,
-        gain_loss=gain_loss,
-        successes=successes,
-        gain_loss_narrative=gain_loss_narrative,
-        eot_recovery=eot_recovery,
-        logic_changes=logic_changes,
-        smartpm_changelog_url=smartpm_changelog_url,
-        red_flags=red_flags,
-        stalled_tasks=stalled_tasks,
-        key_items=key_items,
-        include_compliance_report=include_compliance_report,
-        include_procurement_sheets=include_procurement_sheets,
-        has_summary_screenshot=has_summary,
-        graph_cid_names=[cid for _, cid in graph_images],
-        smartpm_project_url=smartpm_project_url,
-        smartpm_trends_url=smartpm_trends_url,
-        signer_name=signer_name,
-        signer_title=signer_title,
-        signer_mobile=signer_mobile,
-        has_logo=has_logo,
-        closing_paragraphs_html=closing_paragraphs_html,
-        salutation=salutation,
-        prev_days_behind=prev_days_behind,
-        prev_gain_loss=prev_gain_loss,
-    )
-
-    # Create Outlook MailItem via COM
-    try:
-        outlook = win32com.client.Dispatch('Outlook.Application')
-    except Exception as exc:
-        raise RuntimeError(
-            'Could not connect to Outlook. Make sure Outlook is installed '
-            f'and running. Error: {exc}'
-        ) from exc
-
-    mail = outlook.CreateItem(0)  # 0 = olMailItem
-
-    # Set envelope fields
-    if to_recipients:
-        mail.To = to_recipients
-    if cc_recipients:
-        mail.CC = cc_recipients
-    subject = _ensure_subject_has_date(subject)
-    if subject:
-        mail.Subject = subject
-
-    # Attach inline images first (before setting HTMLBody)
-    if has_logo:
-        _attach_inline_image(mail, logo_path, 'westland_logo')
-    if has_summary:
-        _attach_inline_image(mail, summary_screenshot_path, 'summary_report')
-    for img_path, cid_name in graph_images:
-        _attach_inline_image(mail, img_path, cid_name)
-
-    # Set HTML body (CID references resolve against attached images)
-    mail.HTMLBody = html_body
-
-    # Attach file attachments (PDFs, Excel, etc.) — skip Office temp lock files
-    for path in (attachment_paths or []):
-        if os.path.isfile(path) and not os.path.basename(path).startswith('~$'):
-            mail.Attachments.Add(os.path.abspath(path))
-
-    # Save draft to Outlook Drafts folder (syncs to Exchange → new Outlook)
-    mail.Save()
-    mail.Close(1)  # 1 = olDiscard — don't duplicate in Drafts
-
-    return output_path

@@ -3,7 +3,7 @@ Generate the Schedule Update Email (Change Report) — a rendered PDF of the
 full weekly update email with inline red/green diff markup showing what
 changed vs last week.
 
-Structurally mirrors generate_email_msg._build_html_body (same sections,
+Structurally mirrors email_body._build_html_body (same sections,
 inline styles, signature, screenshots) so the reader sees what the email
 actually looks like — plus ins/del markup on narratives/lists where
 Claude's content differed from last week's version.
@@ -45,7 +45,7 @@ def _file_uri(abs_path):
     # lives on the share). See post-mortem 2026-05-07 W1177 #1+#2.
     return Path(abs_path).as_uri()
 
-# Westland brand colors (match generate_email_msg.py)
+# Westland brand colors (match email_body.py)
 RED = '#C94444'
 GREEN = '#3A9E6B'
 TEAL = '#0B4F66'

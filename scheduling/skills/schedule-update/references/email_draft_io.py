@@ -1,11 +1,8 @@
 """
 Read {YYYY-MM-DD}-email.json (produced by the westland-mcps weekly-email
-cloud editor) and orchestrate the existing .eml / COM email builders against
-it.
+cloud editor) and orchestrate the .eml email builder against it.
 
 The cloud editor replaces the legacy {YYYY-MM-DD}-email-preview.html round-trip.
-This module is the local seam between the cloud-produced JSON and the existing
-generate_update_email_eml / generate_update_email_msg functions in references/.
 
 Three responsibilities:
 
@@ -417,7 +414,7 @@ def _flatten_gain_loss(gl):
 
 def editorial_to_kwargs(this_week, project_info=None, last_week=None):
     """Translate v2 this_week + project_info (+ optional last_week) -> kwargs
-    for generate_update_email_eml / generate_update_email_msg.
+    for generate_update_email_eml.
 
     All v2 → builder flattening lives here so the builder signatures stay stable.
 
@@ -428,7 +425,7 @@ def editorial_to_kwargs(this_week, project_info=None, last_week=None):
                       prev_days_behind/prev_gain_loss strikethrough badges.
 
     Returns:
-        Dict suitable for `**kwargs` into the .eml or COM builder.
+        Dict suitable for `**kwargs` into the .eml builder.
     """
     this_week = this_week or {}
     pi = project_info or {}

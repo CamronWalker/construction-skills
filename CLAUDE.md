@@ -1,6 +1,6 @@
 # Construction Skills
 
-Claude Code skills for construction workflows. Each subdirectory (`scheduling/`, `estimating/`, `construction/`, `safety/`) is an independently versioned plugin.
+Claude Code skills for construction workflows. Each subdirectory (`scheduling/`, `preconstruction/`, `construction/`, `safety/`) is an independently versioned plugin.
 
 ## Release Convention
 
@@ -9,7 +9,7 @@ Features and bug fixes go on branches — never commit directly to `main`. Branc
 On the branch:
 
 1. **Bump plugin version** — increment the version in `{category}/.claude-plugin/plugin.json` (semver, patch for fixes, minor for new skills).
-2. **Bump marketplace version to match** — update the matching plugin entry in `.claude-plugin/marketplace.json` at repo root to the **exact same version** as step 1. The two version fields must stay in lockstep: Claude Code reads `marketplace.json` to decide "is there a new version?", then checks `plugin.json` to confirm. If they mismatch, update notifications break (stale marketplace → no notification; ahead-of-plugin marketplace → failed install). Every plugin listed in the marketplace needs its own entry; check `marketplace.json` has all five plugins (westland, scheduling, estimating, construction, safety) when adding a new plugin.
+2. **Bump marketplace version to match** — update the matching plugin entry in `.claude-plugin/marketplace.json` at repo root to the **exact same version** as step 1. The two version fields must stay in lockstep: Claude Code reads `marketplace.json` to decide "is there a new version?", then checks `plugin.json` to confirm. If they mismatch, update notifications break (stale marketplace → no notification; ahead-of-plugin marketplace → failed install). Every plugin listed in the marketplace needs its own entry; check `marketplace.json` has all five plugins (westland, scheduling, preconstruction, construction, safety) when adding a new plugin.
 3. **Commit** — include both version bumps plus all skill changes in one commit.
 4. **Merge to `main`** — via PR or fast-forward merge once the change is reviewed and tested.
 

@@ -8,19 +8,19 @@
       "name": "westland",
       "source": "./westland",
       "description": "Westland organizational plugin — safety hooks, house-style references, and bug-report capture. Install first; required dependency of domain plugins. Contains the Westland Project Files PreToolUse hook (modify-prompt on existing files; .xer in-place changes/deletes denied; .html/.md/.json allowlisted), the westland-house-style skill, and the westland-bug-report skill (Procore-gated bug capture to Supabase via the Westland MCP connector).",
-      "version": "1.6.3"
+      "version": "1.6.4"
     },
     {
       "name": "scheduling",
       "source": "./scheduling",
-      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with self-contained Gantt review HTML + Copy-for-Claude iteration loop, reviewer-feedback download (attribution-tagged JSON), Tier 3 XER modification + generation (validate_xer_structure, apply_xer_changes, fix_duplicate_activity_ids, create_xer_from_template), a WBS-pathed activity roster + adjacency read surface (list_activities, get_activity, get_wbs_branch, next_free_activity_code), name-based Responsibility (trade) code assignment (suggest_responsibility + set_responsibility, backed by a remembered global code list) with a reasoned per-activity workflow in the schedule-assign-responsibility skill, and a single propsched dispatcher (iterate, paths, anchors, diff, score, aggregate-postmortems, durations).",
-      "version": "9.6.0"
+      "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with Gantt review HTML + Copy-for-Claude loop, Tier 3 XER modification + generation, a WBS-pathed activity roster + read surface, name-based Responsibility (trade) code assignment, and the full weekly schedule update pipeline via the westland-mcps cloud editor.",
+      "version": "10.0.1"
     },
     {
-      "name": "estimating",
-      "source": "./estimating",
-      "description": "Claude Code skills for construction estimating — bid reviews, scope gap analysis, and bid leveling.",
-      "version": "0.1.0"
+      "name": "preconstruction",
+      "source": "./preconstruction",
+      "description": "Claude Code skills for construction preconstruction — business development, estimating, and proposals. Includes buildr-toolbox, a companion/usage skill for the remote Buildr MCP connector: win/loss reporting, workforce availability, pipeline/pursuit snapshots, and account 360 lookups across Buildr's CRM, projects, financials, and workforce data. Future estimating skills (bid-docs review, scope-gap analysis, bid leveling, spec assignments) land here too.",
+      "version": "0.2.0"
     },
     {
       "name": "construction",

@@ -5,6 +5,8 @@
 
 Creates a new dated folder for today's schedule update.
 
+> **This step is optional.** Schedulers usually create the dated folder themselves, and the email flow (`report`) works off the most recent dated folder regardless of who made it. Use `copy` only when you want the folder scaffolded for you.
+
 ## Prerequisites
 
 - The project must be initialized in Supabase — `get_project(job_number)` returns a row (created by `schedule-project-init`). Parse `{job_number}` from the `W#### - Name` Schedules-root folder.
