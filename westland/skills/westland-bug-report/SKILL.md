@@ -17,7 +17,7 @@ One-shot bug capture from inside a Claude Code session. The skill drafts a struc
 
 ## When to use
 
-- A Westland skill misbehaved or output something wrong (`scheduling:`, `estimating:`, `project-management:`, `site-operations:`, `safety:`, or `westland:`).
+- A Westland skill misbehaved or output something wrong (`scheduling:`, `estimating:`, `construction:`, `safety:`, or `westland:`).
 - A Westland MCP tool (Procore, BuildingConnected, SmartPM, Buildr, Westland internal tools) returned an error or unexpected shape.
 - A workflow felt confusing, a prompt was missing context, or a step was undocumented.
 - A feature gap surfaced ("I wish this skill could …").
