@@ -48,11 +48,18 @@ Root cause confirmed empirically:
   Linux sandbox (no error, no window) rather than support Mac/Linux users.
 - **Keep** westland's delete protection (Rule 3) — matcher continues to include
   `Bash|PowerShell`.
-- **Fail closed on the Westland share, fail open everywhere else.** The guard
-  must reliably run (via Node) so share protection actually works; on any path
-  outside the share — including the whole Linux sandbox — it stays silent and
-  allows. Unexpected guard crashes fail *open* (exit 0), matching the existing
-  JSON-parse fail-open and the "don't block colleagues" priority.
+- **On the Westland share: fail closed for modifications, fail open for new
+  files.** The share holds corporate records, so the guard defaults to
+  *protective* there — a modification of an existing file (Edit / MultiEdit /
+  NotebookEdit, a Write that overwrites, or a delete) that the guard cannot
+  evaluate cleanly is **denied** ("blocked for safety — file a bug"), never
+  silently allowed. The user's explicit priority: *"I'd rather get bug issues
+  than it failing open and editing files we didn't want."* A **brand-new file**
+  Write on the share, any path **outside the share**, and the entire **Linux
+  sandbox** fail *open* (silent allow) — new content and non-share work must
+  never block colleagues. The one residual fail-open is unparseable stdin (a
+  rare plumbing failure with no tool/path to classify; blocking there would
+  block all work, reintroducing the "block everyone" pain).
 - **Drop both scheduling hooks entirely.** They are advisory-only (never block):
   `check_lib_fence` nudges toward MCP tools; `check_html_discipline` nudges away
   from a retired, migrated `project-context.html`. The MCP-first guidance already
@@ -110,14 +117,23 @@ Behavior to preserve exactly (see the Python source for the reference table):
   substitutions.
 - **Output:** allow → no stdout, exit 0. deny/ask → print
   `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":…,"permissionDecisionReason":…}}`
-  to stdout, exit 0. Invalid stdin JSON or any unexpected error → diagnostic to
-  stderr, **exit 0** (fail open).
+  to stdout, exit 0. Invalid stdin JSON → stderr diagnostic, exit 0 (fail open).
+- **Guard-error fail mode (try/catch around evaluation):** an unexpected error
+  while evaluating a **share modification** — a file-modify tool
+  (Edit/MultiEdit/NotebookEdit, or a Write that isn't confirmed-new) or a delete
+  verb whose target is under a Westland root — returns **deny** (fail closed)
+  with a "guard error — blocked for safety, file a westland-bug-report" reason.
+  An unexpected error in any other case → exit 0 (fail open).
 
 **Path parsing:** use `node:path`'s `win32` variants (`path.win32.extname/basename`)
 so `\`, `/`, drive-letter, and UNC forms parse the same regardless of the OS Node
-runs on — matching Python's `WindowsPath` semantics. Existence check for Write
-uses `fs.existsSync(file_path)` on the path as given (same edge behavior as the
-Python `Path.exists()`; the self-test cases use real tmp paths, not msys mounts).
+runs on — matching Python's `WindowsPath` semantics. **Write overwrite detection**
+normalizes drive/UNC forms (`/g/…`→`G:\…`, `//server`→`\\server`) before
+`fs.existsSync`, so on the Windows host a share Write is treated as *new* (allow)
+only when the file is confirmed absent; if it exists — or existence cannot be
+confirmed for a share path — it is treated as an **overwrite** (ask for
+non-versioned, **deny** for `.xer`). This closes the latent msys fail-open where
+an unresolved `/g/` path made a share overwrite look like a brand-new file.
 
 **Testability:** the module exposes the extra-root injection the Python
 `self_test` relied on (append a tmp dir to the roots list) so tests can exercise
@@ -173,6 +189,11 @@ language and note the Node runner + the known upstream Windows flash limitation.
   cases, outside-root regressions, heredoc/string-literal false-positives, literal
   `G:\`/UNC/msys `/g/` paths, PowerShell cases, non-relevant-tool passthrough).
   Each case asserts the `check()` decision equals the expected `allow`/`deny`/`ask`.
+- **Fail-mode cases:** share Write to a confirmed-new file → allow; share Write
+  to an existing file (normalized) → ask (deny for `.xer`); a simulated guard
+  error on a share modification → **deny**; a simulated guard error outside the
+  share → allow. Exercise the classification helper directly so the error path
+  is covered without having to force a real throw.
 - **End-to-end smoke:** pipe a sample PreToolUse envelope into
   `node westland/hooks/guard.mjs` and confirm: a share `.xer` Edit → deny JSON on
   stdout, exit 0; an outside-root Edit → no stdout, exit 0; malformed stdin →
@@ -188,6 +209,7 @@ language and note the Node runner + the known upstream Windows flash limitation.
 - **Residual window flash on Cowork desktop.** Upstream Claude Code limitation
   (no `windowsHide`); minimized by dropping the powershell→python spawn chain to a
   single `node` spawn. Documented in the hooks.json description.
-- **`fs.existsSync` on msys `/g/` paths for Write-overwrite detection** may not
-  resolve msys mounts — same latent behavior as the Python `Path.exists()`; not
-  exercised by the tests and a benign edge (would treat as new-file → allow).
+- **Write overwrite detection on the share.** Addressed in the design: drive/UNC
+  forms are normalized before `fs.existsSync`, and any share Write whose absence
+  cannot be confirmed is treated as an overwrite (ask / deny), never allowed — so
+  an unresolved path can never fail open into overwriting a corporate record.
