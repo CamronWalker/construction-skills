@@ -1,0 +1,193 @@
+# Westland + scheduling PreToolUse hooks — Node port / cleanup
+
+**Date:** 2026-07-16
+**Plugins:** `westland` (1.6.4 → 1.6.5), `scheduling` (10.0.1 → 10.1.0)
+**Branch:** `claude/westland-plugin-hook-fix-f303cf`
+
+## Problem
+
+The same fragile launcher pattern is copied across three PreToolUse hooks (one in
+`westland`, two in `scheduling`):
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$r=$env:CLAUDE_PLUGIN_ROOT; … & \"$r/hooks/run-hook.ps1\" <script>; exit $LASTEXITCODE"
+```
+
+Three failures stack up:
+
+1. **Broken command / lingering window.** The command wraps PowerShell in
+   escaped quotes (`\"…\"`) and is then run through another shell. In the
+   observed environment the hook runs under an msys/bash-style shell (paths
+   arrive as `/c/Users/...`; that is what the `$r -match '^/([a-zA-Z])/…'`
+   rewrite exists to handle). The nested quoting mangles, PowerShell receives a
+   broken `-Command`, and drops into **interactive mode** — the "empty command
+   prompt that opens up and stays." It also errors `At line:1 char:68` on every
+   matched tool call.
+2. **Windows/Python only.** `powershell`, `run-hook.ps1`, and `python.exe` do
+   not exist in Cowork's Linux sandbox, so there the hook can only error.
+3. **Backwards fail mode.** `run-hook.ps1` exits 2 (blocks *every* Edit/Write/Bash)
+   when it can't find a real Python — the opposite of the intended "invisible
+   unless it's the Westland share" behavior.
+
+The `Read`/`Grep` error spam the user sees comes from the **scheduling** plugin's
+second hook (matcher `Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep`): the
+broken launcher fires on nearly every tool call and errors *before* the Python
+guard runs.
+
+Root cause confirmed empirically:
+- `node` is present (v22) and Claude Code ships it; it is the one guaranteed
+  cross-platform runtime.
+- `node "<path>"` resolves msys `/c/...`, Windows `C:\...`, and Linux paths
+  identically, and pipes the stdin JSON envelope correctly.
+- A `node "<script>"` hook command has **no nested quotes** for a second shell
+  to mangle — which removes the char-68 error and the interactive-window fallback.
+
+## Decisions (from brainstorming)
+
+- **Real users are all on Windows**; the hook must additionally *survive* Cowork's
+  Linux sandbox (no error, no window) rather than support Mac/Linux users.
+- **Keep** westland's delete protection (Rule 3) — matcher continues to include
+  `Bash|PowerShell`.
+- **Fail closed on the Westland share, fail open everywhere else.** The guard
+  must reliably run (via Node) so share protection actually works; on any path
+  outside the share — including the whole Linux sandbox — it stays silent and
+  allows. Unexpected guard crashes fail *open* (exit 0), matching the existing
+  JSON-parse fail-open and the "don't block colleagues" priority.
+- **Drop both scheduling hooks entirely.** They are advisory-only (never block):
+  `check_lib_fence` nudges toward MCP tools; `check_html_discipline` nudges away
+  from a retired, migrated `project-context.html`. The MCP-first guidance already
+  lives in `scheduling/CLAUDE.md`; the retired-html concern is fading. Scheduling
+  ships **no** PreToolUse hook after this change.
+
+## Goals / Non-goals
+
+**Goals**
+- Eliminate the lingering empty-prompt window and the char-68 error spam.
+- One clean hook command that works on the Windows host and the Linux sandbox.
+- Remove the Python + PowerShell dependency chain.
+- Preserve westland's guard behavior exactly (rules 1–3, allowlist, share scope).
+
+**Non-goals**
+- Mac/Linux *users* / share enforcement on non-Windows mounts.
+- Fully eliminating the *brief* subprocess-window flash on the Cowork desktop
+  app — that is an upstream Claude Code limitation (it does not set
+  `windowsHide`/`CREATE_NO_WINDOW` when spawning hooks;
+  <https://github.com/anthropics/claude-code/issues/66540>). Documented, not fixed here.
+
+## Design
+
+### 1. westland — port the guard to Node
+
+**New file:** `westland/hooks/guard.mjs` — a behavior-identical port of
+`westland_share_guard.py`, written as an importable ES module plus a CLI entry.
+
+Behavior to preserve exactly (see the Python source for the reference table):
+
+- **Dispatch (`check`):** `Bash`/`PowerShell` → delete rule only; `Edit`/`Write`/
+  `MultiEdit`/`NotebookEdit` → file rules; any other tool → allow.
+- **File rules (`check_file_tool`):**
+  1. no `file_path`/`notebook_path` → allow
+  2. not under a Westland root → allow
+  3. allowlisted ext (`.html`/`.md`/`.json`) → allow
+  4. versioned ext (`.xer`): Edit/MultiEdit/NotebookEdit → **deny**; Write →
+     **deny if the target exists**, else allow (new `-vN.xer` is the intended path)
+  5. otherwise (non-versioned, in share): Edit/MultiEdit/NotebookEdit → **ask**;
+     Write → **ask if the target exists**, else allow
+- **Delete rule (`check_bash`):** no command → allow; command not touching a
+  Westland root → allow; not a delete verb → allow; delete whose targets are
+  *all* allowlisted ext → allow; otherwise → **deny**.
+- **Westland roots (substring, case-insensitive, `/`→`\` normalized):**
+  `G:\Westland Project Files`, `\\orem-fs\Common\Westland Project Files`,
+  `\\westland-local-dfs1\Common\Westland Project Files`, `/g/Westland Project Files`.
+- **Delete verbs:** `rm [-flags] <arg>`, `del`/`erase <arg>`,
+  `Remove-Item`/`rmdir <arg>`, `unlink <arg>`, `find … -delete`.
+- **Allowlisted-delete enumeration (`_delete_targets_all_allowed_ext`):**
+  `find … -delete` → not enumerable → keep deny; collect quoted paths and
+  unquoted drive/slash tokens ending in `.ext`; no targets → keep deny; all
+  targets allowlisted → allow.
+- **Deny/ask messages:** ported verbatim (versioned-edit, versioned-overwrite,
+  delete, modify-ask), including the emoji and `{tool}/{name}/{stem}/{ext}/{path}/{command}`
+  substitutions.
+- **Output:** allow → no stdout, exit 0. deny/ask → print
+  `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":…,"permissionDecisionReason":…}}`
+  to stdout, exit 0. Invalid stdin JSON or any unexpected error → diagnostic to
+  stderr, **exit 0** (fail open).
+
+**Path parsing:** use `node:path`'s `win32` variants (`path.win32.extname/basename`)
+so `\`, `/`, drive-letter, and UNC forms parse the same regardless of the OS Node
+runs on — matching Python's `WindowsPath` semantics. Existence check for Write
+uses `fs.existsSync(file_path)` on the path as given (same edge behavior as the
+Python `Path.exists()`; the self-test cases use real tmp paths, not msys mounts).
+
+**Testability:** the module exposes the extra-root injection the Python
+`self_test` relied on (append a tmp dir to the roots list) so tests can exercise
+real on-disk paths without a `G:\` drive.
+
+**hooks.json** — replace the command, keep the matcher:
+
+```json
+{
+  "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+  "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.mjs\"" }]
+}
+```
+
+Update the hooks.json `description` to drop the run-hook.ps1 / Python-missing
+language and note the Node runner + the known upstream Windows flash limitation.
+
+**Delete:** `westland/hooks/run-hook.ps1`, `westland/hooks/westland_share_guard.py`.
+
+### 2. scheduling — remove both hooks
+
+- Delete `scheduling/hooks/` entirely: `hooks.json`, `run-hook.ps1`,
+  `check_html_discipline.py`, `check_lib_fence.py`, and `hooks/tests/`
+  (`__init__.py`, `test_check_html_discipline.py`, `test_check_lib_fence.py`).
+- **Doc cleanup — `westland-scheduler-mcp-troubleshoot` skill:** the
+  "worktree-with-hook-disabled" curator workflow (SKILL.md description line ~11
+  and the "Editing lib/ (curator role)" section ~lines 61–72; `diagnose.py:234`)
+  only exists because of the lib-fence. Rewrite it: there is no fence to disable;
+  editing `schedule-toolbox/lib/*.py` is done directly, with MCP-first still the
+  convention for *using* the toolbox. Remove references to `check_lib_fence.py`,
+  `--no-hooks`, and "restore the hook on main."
+
+### 3. Rollout (release convention)
+
+- **westland** `plugin.json` 1.6.4 → **1.6.5**; matching `marketplace.json` entry
+  to 1.6.5 (lockstep). Update the westland `plugin.json` description if the hook
+  wording needs it (still a PreToolUse safety hook — now Node).
+- **scheduling** `plugin.json` 10.0.1 → **10.1.0**; matching `marketplace.json`
+  entry to 10.1.0 (lockstep). Minor: removing a hook is a behavior change.
+- One commit with both plugins' changes. CI `version-bump` gate is satisfied
+  (both changed plugins bumped, strictly greater, plugin==marketplace).
+  `forbid-personal-paths` is satisfied (no `C:\Users\<name>\` in code;
+  `guard.mjs` uses the same share-root constants, and tests use `os.tmpdir()`).
+- Distribution: after merge, `git switch main && git pull --ff-only` in the
+  **main checkout** (not this worktree), `python build.py westland scheduling`,
+  upload the rebuilt zips. Marketplace bump covers direct-from-repo installs. No
+  local `managed-settings.json` exists — the fix lives entirely in plugin source.
+
+## Testing
+
+- **westland:** `westland/hooks/guard.test.mjs`, run with `node --test westland/hooks/`.
+  Port every case from the Python `self_test` (rules 1–3, allowlist file + delete
+  cases, outside-root regressions, heredoc/string-literal false-positives, literal
+  `G:\`/UNC/msys `/g/` paths, PowerShell cases, non-relevant-tool passthrough).
+  Each case asserts the `check()` decision equals the expected `allow`/`deny`/`ask`.
+- **End-to-end smoke:** pipe a sample PreToolUse envelope into
+  `node westland/hooks/guard.mjs` and confirm: a share `.xer` Edit → deny JSON on
+  stdout, exit 0; an outside-root Edit → no stdout, exit 0; malformed stdin →
+  stderr diagnostic, exit 0.
+- **scheduling:** confirm `scheduling/hooks/` is gone and the plugin loads with no
+  PreToolUse hook; confirm the troubleshoot skill no longer references the fence.
+
+## Risks
+
+- **`node` not on PATH in some hook environment.** Mitigated: Node ships with
+  Claude Code and is confirmed present (v22). If ever absent, the hook fails
+  open (tool proceeds) — no block, no window — which is the desired safe default.
+- **Residual window flash on Cowork desktop.** Upstream Claude Code limitation
+  (no `windowsHide`); minimized by dropping the powershell→python spawn chain to a
+  single `node` spawn. Documented in the hooks.json description.
+- **`fs.existsSync` on msys `/g/` paths for Write-overwrite detection** may not
+  resolve msys mounts — same latent behavior as the Python `Path.exists()`; not
+  exercised by the tests and a benign edge (would treat as new-file → allow).
