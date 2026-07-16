@@ -8,7 +8,7 @@
       "name": "westland",
       "source": "./westland",
       "description": "Westland organizational plugin — safety hooks, house-style references, and bug-report capture. Install first; required dependency of domain plugins. Contains the Westland Project Files PreToolUse hook (modify-prompt on existing files; .xer in-place changes/deletes denied; .html/.md/.json allowlisted), the westland-house-style skill, and the westland-bug-report skill (Procore-gated bug capture to Supabase via the Westland MCP connector).",
-      "version": "1.6.2"
+      "version": "1.6.3"
     },
     {
       "name": "scheduling",
@@ -17,10 +17,10 @@
       "version": "10.0.0"
     },
     {
-      "name": "estimating",
-      "source": "./estimating",
-      "description": "Claude Code skills for construction estimating — bid reviews, scope gap analysis, and bid leveling.",
-      "version": "0.1.0"
+      "name": "preconstruction",
+      "source": "./preconstruction",
+      "description": "Claude Code skills for construction preconstruction — business development, estimating, and proposals. Includes buildr-toolbox, a companion/usage skill for the remote Buildr MCP connector: win/loss reporting, workforce availability, pipeline/pursuit snapshots, and account 360 lookups across Buildr's CRM, projects, financials, and workforce data. Future estimating skills (bid-docs review, scope-gap analysis, bid leveling, spec assignments) land here too.",
+      "version": "0.2.0"
     },
     {
       "name": "project-management",
