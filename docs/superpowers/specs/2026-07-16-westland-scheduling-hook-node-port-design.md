@@ -60,6 +60,12 @@ Root cause confirmed empirically:
   never block colleagues. The one residual fail-open is unparseable stdin (a
   rare plumbing failure with no tool/path to classify; blocking there would
   block all work, reintroducing the "block everyone" pain).
+- **Rule table is unchanged from the current Python guard** (confirmed during
+  review): working artifacts `.html`/`.md`/`.json` → allow; records `.xer` →
+  deny (write `-vN` alongside); every other existing file on the share → **ask**
+  (human approval retained); new files of any type → allow. This is a faithful
+  behavior-preserving port — only the *plumbing* (Node vs PowerShell+Python) and
+  the *fail path* (below) change.
 - **Drop both scheduling hooks entirely.** They are advisory-only (never block):
   `check_lib_fence` nudges toward MCP tools; `check_html_discipline` nudges away
   from a retired, migrated `project-context.html`. The MCP-first guidance already
