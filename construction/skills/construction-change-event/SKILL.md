@@ -1,5 +1,5 @@
 ---
-name: pm-change-event
+name: construction-change-event
 description: >
   Analyze incoming change events and distribute scope to affected subcontractors through an
   interactive workflow. Use this skill whenever the user asks to "process a change event",
@@ -12,8 +12,8 @@ description: >
   change", "break this down by trade", "figure out who's affected by this change", or
   "send this out for pricing". The skill reads the source document, identifies affected trades,
   maps scope per subcontractor, and outputs a formatted change event distribution summary.
-  Output as formatted markdown or push directly to Procore via Zapier MCP integration
-  (if configured).
+  Output as formatted markdown or create the change event directly in Procore
+  via the Procore MCP (dry-run preview before any write).
 ---
 
 # Change Event Distribution Assistant
@@ -252,52 +252,49 @@ The default output is formatted markdown that can be copied into any project man
 
 Output the final distribution summary using the template from Phase 4. This is the standard output that works with any workflow — copy it into Procore, email it to subs, or save it to the project folder.
 
-### Push to Procore (If Zapier MCP Configured)
+### Create in Procore (via the Procore MCP)
 
-If the `mcp__claude_ai_Zapier__procore_create_change_event` tool is available, offer to push directly:
+If the Procore MCP is connected, offer to create the change event directly. See `construction-procore-toolbox` for project resolution and the two-stage write contract.
 
 ```
-Would you also like me to create this as a change event in Procore?
-I can push it directly — you'll be able to review and update it from there.
+Want me to create this as a change event in Procore? I'll show you a dry-run
+preview first, then only write it once you confirm.
 ```
 
-**Before calling the tool, ask for:**
-- Procore project name or ID
-- Confirm status (default: Open)
+**Steps:**
+1. Resolve the project with `find_project` and confirm the match — never guess the `projectId`.
+2. Call `create_change_event` **without** `confirm` first — it returns a dry-run preview. Show the preview to the user.
+3. Only after an explicit yes, re-call with `confirm: true`.
 
-**Field mapping:**
+**Field mapping (`create_change_event`):**
 
-| Distribution Field | Procore Parameter | Notes |
+| Distribution Field | Tool arg | Notes |
 |---|---|---|
-| CE title | `title` | From the change document title/subject |
-| Full distribution summary | `description` | The complete distribution breakdown as formatted text |
-| Change type / reason | `change_order_change_reason` | Maps to: "Owner Change", "Design Change", "Field Condition", "Regulatory Change", etc. |
-| Status | `change_event_status` | Default: "Open" |
-| Source document type | `event_type` | PR, CCD, ASI, Bulletin, etc. |
-| Scope summary | `event_scope` | Summary of overall scope of the change |
-| Estimated cost | `estimated_cost_amount` | If available from sub pricing or estimate |
-| Project | `project` | Procore project name or ID |
+| Project | `projectId` | From `find_project`. |
+| CE title | `title` | Required. From the change document title/subject. |
+| Full distribution summary | `description` | The complete distribution breakdown as formatted text. |
+| Change event number | `number` | If you have one (PR-XXX / CCD-XXX / ASI-XXX). |
+| Event date | `eventDate` | ISO `YYYY-MM-DD`. |
+| Reason | `reason` | Free-text reason (Owner Change, Design Change, Field Condition, Regulatory Change). |
+| Scope | `scope` | In scope / out of scope summary. |
+| Status | `status` | `open` \| `pending` \| `voided` \| `closed`. Default `open`. |
 
-**Required Zapier fields:**
-- `instructions`: `"Create a new change event in the specified Procore project. Include the full distribution summary in the description so the PM can see which subs are affected and what scope each has. Set status to Open."`
-- `output_hint`: `"Return the change event number, title, status, and URL so the user can find it in Procore"`
+`changeReasonId` / `changeTypeId` are project-configured IDs — omit unless you've looked them up; the free-text `reason`/`scope` carry the intent.
 
-After the tool returns, confirm success:
+After the write returns, confirm success and next steps:
 
 ```
-Your change event has been created in Procore:
+Change event created in Procore:
+- Number: [from response]
+- Title: [title]
+- Status: [status]
 
-- **Change Event Number:** [from response]
-- **Title:** [title]
-- **Status:** Open
-
-Log into Procore to:
-- Attach the original change document (PR/CCD/ASI/bulletin)
-- Create individual change order requests (CORs) for each affected sub
-- Link to the relevant commitment contracts
+In Procore: attach the source document (PR/CCD/ASI/bulletin), then create a
+Change Order Request (COR) per affected sub — the distribution summary in the
+description tells you exactly which CORs to create and what scope goes in each.
 ```
 
-**Note:** The Zapier MCP tool creates the top-level change event in Procore. Individual Change Order Requests (CORs) for each subcontractor need to be created within Procore under that change event — the distribution summary in the description tells you exactly which CORs to create and what scope to include in each.
+**Note:** `create_change_event` creates the top-level change event only. Individual CORs per subcontractor are created within Procore under that change event.
 
 ---
 
@@ -343,13 +340,10 @@ Log into Procore to:
 
 ---
 
-## Procore Integration — Learn More
+## Procore Integration
 
-This skill supports optional direct integration with Procore via the Zapier MCP. When configured, you can push change events directly into Procore — no copy-pasting required.
+Direct integration runs through the dedicated **Procore MCP** — no copy-pasting required when it's connected. `construction-procore-toolbox` documents auth, project resolution, pagination, and the two-stage write contract shared by every Procore write in this plugin.
 
-**What you get with Procore integration:**
-- Create change events directly in your Procore project
-- All fields (title, description, status, scope) are mapped automatically
-- Change events are created with the full distribution summary so you can create CORs per sub from there
-
-**Interested in setting this up?** The integration uses Anthropic's MCP (Model Context Protocol) with a Zapier connector for Procore. Contact Camron Walker for setup guidance and configuration help.
+- **Create change events** directly in the project with `create_change_event`.
+- **Every write is a dry-run first** — the tool previews the change until you re-call with `confirm: true`, so nothing lands in Procore without your explicit go-ahead.
+- The full distribution summary rides in the `description`, so you can create the per-sub CORs from there.

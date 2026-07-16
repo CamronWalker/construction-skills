@@ -17,7 +17,7 @@ Originally scoped as a standalone `procore` plugin. Reframed after review: these
 **In scope**
 - New `construction` plugin (`construction/`), version `0.1.0`.
 - Merge all `project-management` + `site-operations` skills into it, re-prefixed `construction-*`.
-- Add 8 new Procore-native skills (below).
+- Add 9 new Procore-native skills (below).
 - Retire the `project-management` and `site-operations` plugins (delete dirs, drop marketplace entries).
 - Update the repo plumbing: `marketplace.json`, `CLAUDE.md`, root `README.md`, `.github/workflows/lint.yml`, `build.py`.
 
@@ -39,7 +39,7 @@ A second agent is preparing the `preconstruction` PR (renaming `estimating`). Bo
 | `westland` | unchanged | Org plugin, install-first dependency. |
 | `scheduling` | unchanged | Own MCP, v9.6.0. |
 | `estimating` | **untouched by this PR** | Being renamed to `preconstruction` by another agent. |
-| `construction` | **new (0.1.0)** | PM + Site + 8 new Procore skills. |
+| `construction` | **new (0.1.0)** | PM + Site + 9 new Procore skills. |
 | `safety` | unchanged | |
 | ~~`project-management`~~ | **retired** | Skills moved into `construction`. |
 | ~~`site-operations`~~ | **retired** | Skills moved into `construction`. |
@@ -48,27 +48,30 @@ Net plugin count in `marketplace.json` after this PR: westland, scheduling, esti
 
 ## 5. Skills in the `construction` plugin
 
-11 skills total: 3 moved (re-prefixed), 8 new.
+12 skills total: 3 moved (re-prefixed), 9 new.
 
 ### Moved (re-prefixed, behavior preserved)
 
 | New name | Was | Change |
 |----------|-----|--------|
-| `construction-change-event` | `pm-change-event` | Rename dir + frontmatter `name`. Refresh the "Procore Integration" section to point at the dedicated Procore MCP (`create_change_event`) + `construction-procore-toolbox`, replacing the stale Zapier-only guidance. |
+| `construction-change-event` | `pm-change-event` | Rename dir + frontmatter `name`. **Remove every Zapier reference** and replace the integration section with the dedicated Procore MCP (`create_change_event`, two-stage `confirm`) + a pointer to `construction-procore-toolbox`. |
 | `construction-closeout-status-dashboard` | `pm-closeout-status-dashboard` | Rename dir + frontmatter `name`. Move `assets/` + `scripts/build_dashboard.py` intact. No Procore change. |
-| `construction-rfi-writing` | `site-rfi-writing` | Rename dir + frontmatter `name`. Refresh the "Procore Integration" section to point at the dedicated Procore MCP (`create_rfi`) + `construction-procore-toolbox`, replacing the stale Zapier-only guidance. |
+| `construction-rfi-writing` | `site-rfi-writing` | Rename dir + frontmatter `name`. **Remove every Zapier reference** and replace the integration section with the dedicated Procore MCP (`create_rfi`, two-stage `confirm`) + a pointer to `construction-procore-toolbox`. |
 
-### New (8)
+> **Zapier removal is repo-wide.** No `mcp__claude_ai_Zapier__*` or "Zapier connector for Procore" text survives in any shipped skill. Every Procore write goes through the dedicated Procore MCP.
+
+### New (9)
 
 | Name | Purpose | Key Procore MCP tools |
 |------|---------|-----------------------|
 | `construction-procore-toolbox` | **Anchor.** Reference + dispatcher + hands-on mini-workflows for the whole Procore MCP surface. | all (survey) |
 | `construction-daily-log-review` | Review + grade a project's daily logs over a window; inline story + report card. *(the moved Cowork skill)* | `project_daily_log_quality`, `list_manpower_logs`, `list_call_logs` |
-| `construction-project-pulse` | 30-second project-health snapshot from the executive widgets. | `project_rfi_snapshot`, `project_submittal_snapshot`, `project_response_times` |
-| `construction-rfi-followup` | Drill overdue RFIs/submittals by ball-in-court; draft chase nudges. | `list_rfis`, `list_submittals`, `list_rfi_ball_in_court_options`, mail MCP (draft only) |
+| `construction-project-pulse` | 30-second project-health snapshot from the executive widgets; hands off to the followup skills. | `project_rfi_snapshot`, `project_submittal_snapshot`, `project_response_times` |
+| `construction-rfi-followup` | Drill overdue RFIs by ball-in-court; draft chase nudges. | `list_rfis`, `list_rfi_ball_in_court_options`, `get_rfi`, mail MCP (draft only) |
+| `construction-submittal-followup` | Drill overdue/pending submittals by ball-in-court; draft chase nudges (or suggest what to draft). | `list_submittals`, `get_submittal`, mail MCP (draft only) |
 | `construction-daily-log-entry` | Draft & post manpower / call / photo entries; scheduled-vs-actual read. | `create_manpower_log`, `create_call_log`, `create_photo`, `find_company_vendor`, `list_schedule_activities` |
 | `construction-email-to-log` | Turn important recent emails into Procore **call-log** entries on the right day. | `create_call_log`, mail MCP |
-| `construction-observations-import` | Batch-create observations from an architect/engineer field/observation report — one per item. | `create_observation`, `list_project_users`, `list_locations` |
+| `construction-observations-import` | Batch-import observations from an architect/engineer/commissioning report — reasoned type + location per item, deduped against existing. | `create_observation`, `list_observations`, `list_locations`, `list_project_users` |
 | `construction-submittal-review` | Pull submittals, check against spec requirements, flag deviations. | `list_submittals`, `get_submittal`, `find_specification`, `get_specification` |
 
 > **Note on `construction-daily-log-review`:** the source lives in a Cowork-managed folder
@@ -94,11 +97,11 @@ Net plugin count in `marketplace.json` after this PR: westland, scheduling, esti
 ## 8. Repo mechanics — files to change
 
 1. **Create** `construction/.claude-plugin/plugin.json` — name `construction`, version `0.1.0`, description < 500 chars (build.py enforces), author/repo/license/keywords matching the house pattern.
-2. **Create** `construction/skills/<skill>/SKILL.md` for all 11 skills (3 moved + 8 new); move the closeout dashboard's `assets/` + `scripts/`.
+2. **Create** `construction/skills/<skill>/SKILL.md` for all 12 skills (3 moved + 9 new); move the closeout dashboard's `assets/` + `scripts/`.
 3. **Delete** `project-management/` and `site-operations/` directories.
 4. **`.claude-plugin/marketplace.json`** — remove the `project-management` and `site-operations` entries; add a `construction` entry (`0.1.0`, description in lockstep with plugin.json). Leave `estimating` alone.
 5. **`CLAUDE.md`** — update the plugin-list parenthetical to `(westland, scheduling, estimating, construction, safety)`.
-6. **`README.md`** — replace the `### Project Management` and `### Site Operations` sections with a single `### Construction` section cataloguing the 11 skills. Leave `### Estimating` untouched (other agent owns it).
+6. **`README.md`** — replace the `### Project Management` and `### Site Operations` sections with a single `### Construction` section cataloguing the 12 skills. Leave `### Estimating` untouched (other agent owns it).
 7. **`.github/workflows/lint.yml`** — change the loop `for plugin in westland scheduling estimating project-management site-operations safety` → `for plugin in westland scheduling estimating construction safety`. (A brand-new plugin passes the gate cleanly: base version empty → monotonicity checks skip; the `+"version":` lines exist because the files are new; lockstep 0.1.0 == 0.1.0.)
 8. **`build.py`** — update `PLUGINS = [...]` to `["westland", "scheduling", "estimating", "construction", "safety"]`.
 
@@ -121,8 +124,8 @@ Each new skill is a single `SKILL.md` (add `scripts/`/`assets/` only if a skill 
 - **Output:** the inline widgets + a tight narrative. Read-only.
 
 ### 9.4 `construction-rfi-followup`
-- **Triggers:** "chase overdue RFIs", "who owes us RFI responses", "follow up on submittals", "RFI aging", "ball in court".
-- **Workflow:** resolve project → `list_rfis` (open/overdue) + `list_rfi_ball_in_court_options` (+ `list_submittals`), paginate → group by ball-in-court, sort by days overdue → present a prioritized table → optionally **draft** follow-up nudges (mail MCP). Drafts only — never send without explicit approval (external-message rule).
+- **Triggers:** "chase overdue RFIs", "who owes us RFI responses", "RFI aging", "ball in court on RFIs", "nudge on open RFIs".
+- **Workflow:** resolve project → `list_rfis` (open/overdue) + `list_rfi_ball_in_court_options`, paginate → group by ball-in-court, sort by days overdue → present a prioritized table → optionally **draft** follow-up nudges (mail MCP), or *suggest* what to draft when contacts are unknown. Drafts only — never send without explicit approval (external-message rule).
 
 ### 9.5 `construction-daily-log-entry`
 - **Triggers:** "log manpower", "add a daily log", "log a call", "post today's log", "who was on site today".
@@ -134,8 +137,15 @@ Each new skill is a single `SKILL.md` (add `scripts/`/`assets/` only if a skill 
 - **No forwarding.** The skill does not forward mail to a Procore inbox — no MCP path exists (§7). Call-log capture is the whole skill.
 
 ### 9.7 `construction-observations-import`
-- **Triggers:** "add these observations", "import the architect's/engineer's observation report", "batch add to the observations tracker", "turn this field report into observations", "log the punch/design report items".
-- **Workflow:** read the report (PDF via the pdf skill / pasted text) → extract each discrete item → map each to `type` (default `work_to_complete` or `quality`), `description`, optional `assigneeId` (`list_project_users`), `dueDate`, `priority`, `locationId` (`list_locations`) → present the full batch as a review table → dry-run each `create_observation` → on approval, `confirm:true` all → report created items with IDs/links and flag any that failed.
+- **Triggers:** "add these observations", "import the architect's/engineer's observation report", "batch add to the observations tracker", "turn this field report into observations", "log the punch/design/commissioning report items".
+- **Reasoned type (not a fixed default).** `create_observation` accepts 5 standard categories: `commissioning` | `quality` | `safety` | `warranty` | `work_to_complete`. First **discover** the project's configured observation types at runtime via the raw escape hatch (`procore_get` on the observations types endpoint); if a configured type matches the report kind (e.g. an "Architect Report"/"Design" type), use it via `procore_post`. Otherwise **reason the report kind → best-fit standard category**: architect/engineer field or design-review report → per-item `work_to_complete` (deficiency to fix) vs `quality` (workmanship); commissioning report → `commissioning`; safety walk → `safety`; warranty inspection → `warranty`. Reason **per item**, not one blanket type, when items genuinely differ.
+- **Dedupe is mandatory.** Before creating anything, `list_observations` (paginate) and compare each report item against existing observations by title/description/location similarity. Skip likely duplicates; surface them in the review table as "already exists (#id)" rather than silently creating a second copy.
+- **Reasoned locations.** `list_locations` (the level/area/room tree) and map each report item to the best-matching `locationId` by reasoning over the report's stated locations against what the project actually has. If no confident match, leave location unset and flag it — never invent a location.
+- **Workflow:** read the report (pdf skill / pasted text) → extract discrete items → discover observation types + locations + assignees (`list_project_users`) → per item assign reasoned `type`, `locationId`, `assigneeId`, `dueDate`, `priority`, `description` → run dedupe → present the full batch as a review table (item → type → location → assignee → dup? ) → dry-run each `create_observation` → on approval, `confirm:true` the non-duplicates → report created IDs/links and flag any failures.
+
+### 9.9 `construction-submittal-followup`
+- **Triggers:** "chase overdue submittals", "who's sitting on submittal approvals", "follow up on submittals", "submittal aging", "ball in court on submittals", "nudge the reviewer on submittals".
+- **Workflow:** resolve project → `list_submittals` (open/pending, not Closed) + `get_submittal` for detail, paginate → group by ball-in-court / current reviewer, sort by days overdue against required-on-site or due dates → present a prioritized table → optionally **draft** chase nudges (mail MCP), or *suggest* what to draft (subject + ask + which submittal #s) when the recipient is ambiguous. Drafts only — never send without explicit approval. Parallel to `construction-rfi-followup`; `construction-project-pulse` hands off here for the submittal side.
 
 ### 9.8 `construction-submittal-review`
 - **Triggers:** "review submittals against the specs", "check this submittal for deviations", "does this submittal comply", "submittal review".
@@ -148,7 +158,7 @@ Each new skill is a single `SKILL.md` (add `scripts/`/`assets/` only if a skill 
 
 ## 11. Acceptance criteria
 
-- `construction/` exists with 11 `SKILL.md` files (3 moved + 8 new) and the closeout dashboard's assets/scripts.
+- `construction/` exists with 12 `SKILL.md` files (3 moved + 9 new) and the closeout dashboard's assets/scripts.
 - `project-management/` and `site-operations/` are gone.
 - `marketplace.json`, `CLAUDE.md`, `README.md`, `lint.yml`, `build.py` reflect the new plugin set; `estimating` is untouched in all of them.
 - `python build.py construction` builds a zip with no description-length error.

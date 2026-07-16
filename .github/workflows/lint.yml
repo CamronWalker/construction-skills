@@ -129,7 +129,7 @@ jobs:
           }
 
           failed=0
-          for plugin in westland scheduling estimating project-management site-operations safety; do
+          for plugin in westland scheduling estimating construction safety; do
             check_plugin_bump "$plugin" || failed=1
           done
 

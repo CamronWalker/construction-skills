@@ -23,16 +23,10 @@
       "version": "0.1.0"
     },
     {
-      "name": "project-management",
-      "source": "./project-management",
-      "description": "Claude Code skills for construction project management — submittals, specs, meeting minutes, change events, and change orders.",
-      "version": "0.3.0"
-    },
-    {
-      "name": "site-operations",
-      "source": "./site-operations",
-      "description": "Claude Code skills for construction site and field operations — RFIs, daily logs, and field workflows.",
-      "version": "0.2.0"
+      "name": "construction",
+      "source": "./construction",
+      "description": "Claude Code skills for the construction phase — Procore-native workflows plus a Procore MCP toolkit. Read project dashboards, review and grade daily logs, snapshot RFI/submittal health, chase overdue responses, batch-import observations from field reports, log manpower/calls/correspondence, review submittals against specs, distribute change events, and write RFIs — all with dry-run write safety. Merges the former project-management and site-operations plugins.",
+      "version": "0.1.0"
     },
     {
       "name": "safety",

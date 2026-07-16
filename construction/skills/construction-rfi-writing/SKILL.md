@@ -1,5 +1,5 @@
 ---
-name: site-rfi-writing
+name: construction-rfi-writing
 description: >
   Guide RFI writing through an interactive Q&A process that produces clear, actionable Requests for
   Information. Use this skill whenever the user asks to "write an RFI", "draft an RFI", "submit an RFI",
@@ -11,8 +11,8 @@ description: >
   Before writing the RFI, the skill searches local project files and optionally Procore documents to
   see if the answer already exists — the best RFI is the one you don't have to send. If no answer is
   found, the skill walks through structured questions to build a complete RFI with proper spec references,
-  drawing references, suggested resolution, and impact assessment. Output as formatted markdown or push
-  directly to Procore via Zapier MCP integration (if configured).
+  drawing references, suggested resolution, and impact assessment. Output as formatted markdown or create
+  the RFI directly in Procore via the Procore MCP (dry-run preview before any write).
 ---
 
 # RFI Writing Assistant
@@ -398,53 +398,45 @@ The default output is formatted markdown that can be copied into any project man
 
 Output the final RFI using the draft format from Phase 4. This is the standard output that works with any workflow — copy it into Procore, PlanGrid, Submittal Exchange, email, or any other system.
 
-### Push to Procore (If Zapier MCP Configured)
+### Create in Procore (via the Procore MCP)
 
-If the `mcp__claude_ai_Zapier__procore_create_rfi` tool is available, offer to push directly:
-
-```
-Would you also like me to create this RFI as a draft in Procore?
-I can push it directly — you'll be able to review and send it from there.
-```
-
-**Before calling the tool, ask for:**
-- Procore project name or ID
-- Confirm saving as **draft** (default: yes)
-
-**Field mapping:**
-
-| RFI Field | Procore Parameter |
-|-----------|-------------------|
-| Subject line | `subject` |
-| Background + question | `question_body` |
-| Drawing number | `drawing_number` |
-| Spec section | `specification_section` |
-| Suggested resolution | `reference` |
-| Cost impact status | `cost_impact_status` |
-| Cost impact amount | `cost_impact_value` |
-| Schedule impact status | `schedule_impact_status` |
-| Schedule impact days | `schedule_impact_value` |
-| Assigned reviewer(s) | `assignees` |
-| Responsible contractor | `responsible_contractor` |
-| Due date | `due_date` |
-| Draft mode | `draft` (always `"true"` by default) |
-| Project | `project` |
-
-**Required Zapier fields:**
-- `instructions`: `"Create a new RFI in the specified Procore project with the provided details. Save as draft so the user can review before sending."`
-- `output_hint`: `"Return the RFI number, subject, status, and URL so the user can find it in Procore"`
-
-After the tool returns, confirm success:
+If the Procore MCP is connected, offer to create the RFI directly. See `construction-procore-toolbox` for project resolution and the two-stage write contract.
 
 ```
-Your RFI has been created as a draft in Procore:
+Want me to create this RFI in Procore? I'll show you a dry-run preview first,
+then only write it once you confirm.
+```
 
-- **RFI Number:** [from response]
-- **Subject:** [subject]
-- **Status:** Draft
+**Steps:**
+1. Resolve the project with `find_project` and confirm the match — never guess the `projectId`.
+2. Call `create_rfi` **without** `confirm` first — it returns a dry-run preview. Show it to the user. (The dry-run *is* the review gate; `create_rfi` writes a real RFI, so nothing lands until you confirm.)
+3. Only after an explicit yes, re-call with `confirm: true`.
 
-Log into Procore to review the RFI, attach any markups or photos,
-and send it when ready.
+**Field mapping (`create_rfi`):**
+
+| RFI Field | Tool arg | Notes |
+|-----------|----------|-------|
+| Project | `projectId` | From `find_project`. |
+| Subject line | `subject` | Required. Location/area + topic. |
+| Background + question + references + suggested resolution | `question` | Required. `create_rfi` has no separate drawing/spec/reference fields — fold the drawing numbers, spec sections, and suggested resolution into the question body. |
+| Assigned reviewer | `assigneeId` | User ID (look up via `list_project_users`). |
+| Ball-in-court | `ballInCourtId` | User ID. |
+| Distribution | `distributionMemberIds` | User IDs. |
+| Due date | `dueDate` | ISO `YYYY-MM-DD`. |
+| Priority | `priority` | `low` \| `normal` \| `high`. |
+| Cost impact | `costImpact` | `yes` \| `no` \| `tbd`. |
+| Schedule impact | `scheduleImpact` | `yes` \| `no` \| `tbd`. |
+| Category / cost code | `category` / `costCode` | Optional. |
+
+After the write returns, confirm success:
+
+```
+RFI created in Procore:
+- Number: [from response]
+- Subject: [subject]
+- Status: [status]
+
+In Procore: attach any markups or photos, verify the assignee/distribution, and send it.
 ```
 
 ---
@@ -487,13 +479,10 @@ and send it when ready.
 
 ---
 
-## Procore Integration — Learn More
+## Procore Integration
 
-This skill supports optional direct integration with Procore via the Zapier MCP. When configured, you can push drafted RFIs directly into Procore as drafts — no copy-pasting required.
+Direct integration runs through the dedicated **Procore MCP** — no copy-pasting required when it's connected. `construction-procore-toolbox` documents auth, project resolution, pagination, and the two-stage write contract shared by every Procore write in this plugin.
 
-**What you get with Procore integration:**
-- Create RFI drafts directly in your Procore project
-- All fields (subject, question, references, impact, assignments) are mapped automatically
-- RFIs are saved as drafts so you can review, attach markups/photos, and send from Procore
-
-**Interested in setting this up?** The integration uses Anthropic's MCP (Model Context Protocol) with a Zapier connector for Procore. Contact Camron Walker for setup guidance and configuration help.
+- **Create RFIs** directly in the project with `create_rfi`.
+- **Every write is a dry-run first** — the tool previews the RFI until you re-call with `confirm: true`, so nothing lands in Procore without your explicit go-ahead.
+- Fold drawing numbers, spec sections, and the suggested resolution into the `question` body — `create_rfi` has no separate fields for them.
