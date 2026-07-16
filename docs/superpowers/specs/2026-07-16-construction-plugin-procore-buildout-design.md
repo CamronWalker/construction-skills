@@ -87,7 +87,7 @@ Net plugin count in `marketplace.json` after this PR: westland, scheduling, esti
 ## 7. Procore MCP capability notes (verified 2026-07-16)
 
 - **Daily-log types creatable via MCP:** manpower (`create_manpower_log`), call (`create_call_log`), photos (`create_photo`). Westland uses manpower + call + photos only; notes live in the manpower `comments` field.
-- **Email into daily logs / forward-to-Procore-inbox: NOT AVAILABLE via this MCP.** Verified with `procore_describe_endpoint`: neither `GET /rest/v1.0/projects/{project_id}/daily_logs` nor `…/emails` is in the MCP's OAS index, and `manpower_logs` exposes no email-dropbox field. The per-record `procore-…@procoretech.com` dropbox seen in the Procore UI is a UI-only email-thread feature; it is not surfaced by the MCP. **Consequence:** `construction-email-to-log` captures emails as **call-log entries** (a communication logged on a date) — that is the only reliable MCP path. The skill will *not* promise inbox forwarding; if a future MCP release exposes the dropbox address, revisit.
+- **Email into daily logs / forward-to-Procore-inbox: NOT AVAILABLE via this MCP — and dropped from the design.** Verified with `procore_describe_endpoint`: neither `GET /rest/v1.0/projects/{project_id}/daily_logs` nor `…/emails` is in the MCP's OAS index, and `manpower_logs` exposes no email-dropbox field. The per-record `procore-…@procoretech.com` dropbox seen in the Procore UI is a UI-only email-thread feature; it is not surfaced by the MCP. **Consequence:** `construction-email-to-log` does email → **call-log capture only** (a communication logged on a date). There is no inbox-forwarding path in the skill — it is not designed, mentioned, or attempted. (Per review decision: if it isn't available, don't ship it.)
 - **Observations:** `create_observation` supports `name`, `type` (`commissioning` | `quality` | `safety` | `warranty` | `work_to_complete`), `description`, `assigneeId`, `dueDate`, `priority` (`low`|`medium`|`high`|`urgent`), `status`, `tradeId`, `locationId` — enough for a faithful batch import of a field/observation report.
 - **Executive widgets** (`project_rfi_snapshot`, `project_submittal_snapshot`, `project_response_times`, `project_daily_log_quality`) render inline and also return a text summary; results cache ~1h. `project-pulse` and `daily-log-review` lean on these.
 
@@ -130,7 +130,8 @@ Each new skill is a single `SKILL.md` (add `scripts/`/`assets/` only if a skill 
 
 ### 9.6 `construction-email-to-log`
 - **Triggers:** "log these emails to Procore", "put this correspondence in the daily log", "record this email on the job", "log the call/email with [party]".
-- **Workflow:** pull recent/important emails (mail MCP) or take a pasted thread → user picks which → map each to a call-log (date = email date, `subjectFrom`/`subjectTo` = parties, `description` = summary + follow-ups) → dry-run preview of the batch → `confirm:true` each. **States up front** that Procore inbox forwarding isn't available via the MCP; call-log capture is the path.
+- **Workflow:** pull recent/important emails (mail MCP) or take a pasted thread → user picks which → map each to a call-log (date = email date, `subjectFrom`/`subjectTo` = parties, `description` = summary + follow-ups) → dry-run preview of the batch → `confirm:true` each.
+- **No forwarding.** The skill does not forward mail to a Procore inbox — no MCP path exists (§7). Call-log capture is the whole skill.
 
 ### 9.7 `construction-observations-import`
 - **Triggers:** "add these observations", "import the architect's/engineer's observation report", "batch add to the observations tracker", "turn this field report into observations", "log the punch/design report items".
