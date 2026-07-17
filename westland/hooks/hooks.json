@@ -1,5 +1,5 @@
 {
-  "description": "Westland Project Files hook — three-rule policy on the Westland share: (1) modify-prompt on any existing file (auto-mode cannot auto-approve); (2) version-controlled types (.xer, ...) hard-denied for in-place changes (force -vN versioning); (3) delete hard-denied (move to _Archive / _to_delete instead). Files outside the share are not affected. The wrapper (run-hook.ps1) blocks (exit 2) if no real Python is on PATH so the safety rules never silently no-op.",
+  "description": "Westland Project Files (G drive) PreToolUse guard — three-rule policy on the Westland share: (1) modify-prompt on any existing file (auto-mode cannot auto-approve); (2) version-controlled types (.xer) hard-denied for in-place changes (force -vN versioning); (3) delete hard-denied (move to _Archive / _to_delete instead). Working artifacts (.html/.md/.json) are allowlisted. Files outside the share are not affected. Runs a single Node script (g-drive-guard.mjs) — no Python/PowerShell dependency, works on the Windows host and in the Cowork Linux sandbox, and fails closed only for share modifications (fails open otherwise). Note: a brief subprocess-window flash on the Windows desktop app is an upstream Claude Code limitation (hooks are not spawned windowless).",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CLAUDE_PLUGIN_ROOT;if($r -match '^/([a-zA-Z])/(.*)$'){$r=$matches[1].ToUpper()+':/'+$matches[2]};& \\\"$r/hooks/run-hook.ps1\\\" westland_share_guard.py;exit $LASTEXITCODE\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/g-drive-guard.mjs\""
           }
         ]
       }
