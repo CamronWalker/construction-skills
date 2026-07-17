@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -27,6 +28,16 @@ PLUGINS = ["westland", "scheduling", "preconstruction", "construction", "safety"
 # Validated for both the plugin's own plugin.json and its entry in the
 # repo-root marketplace.json before any zip is built.
 DESCRIPTION_MAX_LEN = 500
+
+# The plugin uploader ALSO validates each skill's SKILL.md frontmatter, with
+# rules distinct from the plugin manifest above (observed failing an upload
+# 2026-07). Checked locally so they surface before the zip leaves the machine:
+#   * skill `description` must be at most 1024 characters, and
+#   * skill `description` must not contain XML / angle-bracket tags such as
+#     "<date/meeting>" (fine in the SKILL.md body, rejected in the frontmatter).
+# Separately, a plugin must ship at least one skill or it uploads empty.
+SKILL_DESCRIPTION_MAX_LEN = 1024
+XML_TAG_RE = re.compile(r"<[A-Za-z/][^>]*>")
 
 EXCLUDE_DIRS = {
     "__pycache__",
@@ -96,6 +107,66 @@ def validate_descriptions(targets: list[str]) -> list[str]:
     return errors
 
 
+def _skill_description(skill_md: Path) -> str | None:
+    """Extract the frontmatter `description` from a SKILL.md, resolving YAML
+    folded/literal block scalars, without depending on PyYAML (build.py is
+    stdlib-only). Returns None if there is no frontmatter description."""
+    text = skill_md.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        return None
+    fm = lines[1:end]
+    for i, line in enumerate(fm):
+        m = re.match(r"^description:\s*(.*)$", line)
+        if not m:
+            continue
+        rest = m.group(1).strip()
+        if rest[:1] in (">", "|"):  # block scalar: gather indented continuation
+            block = [c.strip() for c in fm[i + 1:] if c.startswith((" ", "\t"))]
+            joined = " " if rest[:1] == ">" else "\n"
+            return joined.join(b for b in block if b).strip()
+        if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
+            return rest[1:-1]
+        return rest
+    return None
+
+
+def validate_skills(targets: list[str]) -> list[str]:
+    """Validate each target plugin's SKILL.md files: description length and no
+    XML tags in the description, plus that the plugin ships >=1 skill. Returns a
+    list of human-readable violation messages."""
+    errors: list[str] = []
+
+    for name in targets:
+        if name not in PLUGINS:
+            continue
+        skills_dir = ROOT / name / "skills"
+        skill_files = sorted(skills_dir.glob("*/SKILL.md")) if skills_dir.is_dir() else []
+        if not skill_files:
+            errors.append(f"{name}: ships no skills (needs at least one skills/<name>/SKILL.md)")
+            continue
+        for skill_md in skill_files:
+            label = skill_md.relative_to(ROOT).as_posix()
+            desc = _skill_description(skill_md)
+            if desc is None:
+                errors.append(f"{label}: missing frontmatter 'description'")
+                continue
+            n = len(desc)
+            if n > SKILL_DESCRIPTION_MAX_LEN:
+                errors.append(
+                    f"{label}: description is {n} chars "
+                    f"(max {SKILL_DESCRIPTION_MAX_LEN}, over by {n - SKILL_DESCRIPTION_MAX_LEN})"
+                )
+            tag = XML_TAG_RE.search(desc)
+            if tag:
+                errors.append(f"{label}: description contains an XML tag {tag.group(0)!r}")
+
+    return errors
+
+
 def read_version(plugin_dir: Path) -> str:
     manifest = plugin_dir / ".claude-plugin" / "plugin.json"
     if not manifest.exists():
@@ -138,10 +209,22 @@ def main() -> int:
 
     errors = validate_descriptions(targets)
     if errors:
-        print(f"Description length check failed (max {DESCRIPTION_MAX_LEN} chars):", file=sys.stderr)
+        print(f"Plugin description length check failed (max {DESCRIPTION_MAX_LEN} chars):", file=sys.stderr)
         for err in errors:
             print(f"  {err}", file=sys.stderr)
         print("Trim the offending descriptions before building.", file=sys.stderr)
+        return 1
+
+    skill_errors = validate_skills(targets)
+    if skill_errors:
+        print("Skill validation failed (SKILL.md frontmatter):", file=sys.stderr)
+        for err in skill_errors:
+            print(f"  {err}", file=sys.stderr)
+        print(
+            f"Fix these before building: descriptions must be <= {SKILL_DESCRIPTION_MAX_LEN} "
+            "chars with no XML tags, and every plugin needs at least one skill.",
+            file=sys.stderr,
+        )
         return 1
 
     print("Building plugin zips...")

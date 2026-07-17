@@ -5,15 +5,13 @@ description: >
   interactive workflow. Use this skill whenever the user asks to "process a change event",
   "distribute a change", "break down a PR", "break down a CCD", "analyze a change order",
   "who does this change affect", "which subs need to price this", "send this change to subs",
-  "route a bulletin", "ASI distribution", "owner change", "design change breakdown", or mentions
-  "change event", "proposal request", "contract change directive", "ASI", or "bulletin" in
-  the context of distributing scope to subcontractors. Also trigger when the user says
-  "I got a change from the owner", "the architect issued a revision", "we need to price this
-  change", "break this down by trade", "figure out who's affected by this change", or
-  "send this out for pricing". The skill reads the source document, identifies affected trades,
-  maps scope per subcontractor, and outputs a formatted change event distribution summary.
-  Output as formatted markdown or create the change event directly in Procore
-  via the Procore MCP (dry-run preview before any write).
+  "route a bulletin", "ASI distribution", "owner change", or "design change breakdown", or
+  mentions "change event", "proposal request", "contract change directive", "ASI", or
+  "bulletin" in the context of distributing scope to subcontractors. Also trigger on "I got a
+  change from the owner", "the architect issued a revision", or "break this down by trade". The
+  skill reads the source document, identifies affected trades, maps scope per subcontractor, and
+  outputs a formatted change event distribution summary as markdown, or creates it directly in
+  Procore via the Procore MCP (dry-run preview before any write).
 ---
 
 # Change Event Distribution Assistant

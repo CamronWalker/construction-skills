@@ -6,7 +6,7 @@ description: >
   "read the meeting transcript", "pull the transcript", "get the Teams
   transcript", "summarize the meeting / yesterday's call", "what did we decide
   in the meeting", "action items / follow-ups from the meeting", "meeting
-  notes from <date/meeting>", or points at a Teams/Outlook meeting and wants
+  notes from a date or meeting", or points at a Teams/Outlook meeting and wants
   what was said. General-purpose (any meeting the user has transcript access
   to), not scheduling-specific. Enforces the reliable path — calendar event →
   meetingTranscriptUrl → transcript — and hands the heavy read to a subagent so

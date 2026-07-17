@@ -1,6 +1,6 @@
 {
   "name": "construction",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Claude Code skills for the construction phase — Procore-native workflows plus a Procore MCP toolkit. Read project dashboards, review and grade daily logs, snapshot RFI/submittal health, chase overdue responses, batch-import observations from field reports, log manpower/calls/correspondence, review submittals against specs, distribute change events, and write RFIs — all with dry-run write safety. Merges the former project-management and site-operations plugins.",
   "author": {
     "name": "Camron Walker"
