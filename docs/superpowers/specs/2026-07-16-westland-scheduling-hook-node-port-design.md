@@ -91,8 +91,11 @@ Root cause confirmed empirically:
 
 ### 1. westland — port the guard to Node
 
-**New file:** `westland/hooks/guard.mjs` — a behavior-identical port of
+**New file:** `westland/hooks/g-drive-guard.mjs` — a behavior-identical port of
 `westland_share_guard.py`, written as an importable ES module plus a CLI entry.
+(Named for its everyday job — guarding the G drive. A header comment notes the
+"G drive" also covers the two UNC mirrors and the msys `/g/` form: same share,
+different access paths.)
 
 Behavior to preserve exactly (see the Python source for the reference table):
 
@@ -150,7 +153,7 @@ real on-disk paths without a `G:\` drive.
 ```json
 {
   "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
-  "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.mjs\"" }]
+  "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/g-drive-guard.mjs\"" }]
 }
 ```
 
@@ -182,7 +185,7 @@ language and note the Node runner + the known upstream Windows flash limitation.
 - One commit with both plugins' changes. CI `version-bump` gate is satisfied
   (both changed plugins bumped, strictly greater, plugin==marketplace).
   `forbid-personal-paths` is satisfied (no `C:\Users\<name>\` in code;
-  `guard.mjs` uses the same share-root constants, and tests use `os.tmpdir()`).
+  `g-drive-guard.mjs` uses the same share-root constants, and tests use `os.tmpdir()`).
 - Distribution: after merge, `git switch main && git pull --ff-only` in the
   **main checkout** (not this worktree), `python build.py westland scheduling`,
   upload the rebuilt zips. Marketplace bump covers direct-from-repo installs. No
@@ -190,7 +193,7 @@ language and note the Node runner + the known upstream Windows flash limitation.
 
 ## Testing
 
-- **westland:** `westland/hooks/guard.test.mjs`, run with `node --test westland/hooks/`.
+- **westland:** `westland/hooks/g-drive-guard.test.mjs`, run with `node --test westland/hooks/`.
   Port every case from the Python `self_test` (rules 1–3, allowlist file + delete
   cases, outside-root regressions, heredoc/string-literal false-positives, literal
   `G:\`/UNC/msys `/g/` paths, PowerShell cases, non-relevant-tool passthrough).
@@ -201,7 +204,7 @@ language and note the Node runner + the known upstream Windows flash limitation.
   share → allow. Exercise the classification helper directly so the error path
   is covered without having to force a real throw.
 - **End-to-end smoke:** pipe a sample PreToolUse envelope into
-  `node westland/hooks/guard.mjs` and confirm: a share `.xer` Edit → deny JSON on
+  `node westland/hooks/g-drive-guard.mjs` and confirm: a share `.xer` Edit → deny JSON on
   stdout, exit 0; an outside-root Edit → no stdout, exit 0; malformed stdin →
   stderr diagnostic, exit 0.
 - **scheduling:** confirm `scheduling/hooks/` is gone and the plugin loads with no
