@@ -57,7 +57,7 @@ Construction-phase skills — Procore-native workflows plus a Procore MCP toolki
 
 ### Safety
 
-- **safety-toolbox-talk** (TODO) — Generate toolbox talk documents tailored to the current work activities — topic overview, key hazards, required PPE, and discussion points.
+- **safety-toolbox-talk** — Generate toolbox talk documents tailored to the current work activities — topic overview, key hazards, required PPE, and discussion points. Prints with a crew sign-in sheet; markdown by default or a Word doc on request.
 - **safety-jsa-jha** (TODO) — Create Job Safety Analysis / Job Hazard Analysis documents — break tasks into steps, identify hazards, and define controls for each step.
 - **safety-orientation-checklist** (TODO) — Generate site-specific safety orientation checklists for new workers — covering site rules, emergency procedures, hazard areas, and required training.
 - **safety-incident-report** (TODO) — Assist with incident report writing — structured narrative, root cause analysis prompts, corrective actions, and follow-up tracking.

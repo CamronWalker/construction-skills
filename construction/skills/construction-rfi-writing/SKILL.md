@@ -1,18 +1,17 @@
 ---
 name: construction-rfi-writing
 description: >
-  Guide RFI writing through an interactive Q&A process that produces clear, actionable Requests for
-  Information. Use this skill whenever the user asks to "write an RFI", "draft an RFI", "submit an RFI",
-  "create an RFI", "I have a question for the architect", "I need clarification on the drawings",
-  "the specs are unclear", "conflicting details", "missing information on the plans", or mentions
-  "RFI" in the context of construction document clarification. Also trigger when the user says
-  "I can't figure out what the detail is showing", "the plans and specs don't match", "there's a
-  conflict between drawings", "what does the architect mean by this", or "I need a design clarification".
-  Before writing the RFI, the skill searches local project files and optionally Procore documents to
-  see if the answer already exists — the best RFI is the one you don't have to send. If no answer is
-  found, the skill walks through structured questions to build a complete RFI with proper spec references,
-  drawing references, suggested resolution, and impact assessment. Output as formatted markdown or create
-  the RFI directly in Procore via the Procore MCP (dry-run preview before any write).
+  Guide RFI writing through an interactive Q&A process that produces clear, actionable Requests
+  for Information. Use this skill whenever the user asks to "write an RFI", "draft an RFI",
+  "submit an RFI", "create an RFI", "I have a question for the architect", "I need clarification
+  on the drawings", "the specs are unclear", "conflicting details", "missing information on the
+  plans", or mentions "RFI" in the context of construction document clarification. Also trigger
+  on "the plans and specs don't match" or "there's a conflict between drawings". Before writing,
+  the skill searches local project files and optionally Procore documents to see if the answer
+  already exists (the best RFI is the one you don't have to send). If not, it walks through
+  structured questions to build a complete RFI with spec references, drawing references,
+  suggested resolution, and impact assessment. Output as markdown or create the RFI directly in
+  Procore via the Procore MCP (dry-run preview before any write).
 ---
 
 # RFI Writing Assistant

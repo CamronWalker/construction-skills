@@ -47,9 +47,19 @@ The `src/` folder is gitignored — zips are rebuilt locally after each merge an
 
 ## Adding a New Skill
 
-1. Create `skills/{skill-name}/SKILL.md` under the appropriate category
-2. Register it in `{category}/.claude-plugin/plugin.json`
-3. Follow the release convention above
+1. Create `skills/{skill-name}/SKILL.md` under the appropriate category. Skills are **auto-discovered** from the `skills/` directory — there is no skills array to register in `plugin.json`.
+2. Make the `SKILL.md` frontmatter pass the upload rules below.
+3. Follow the release convention above (a new skill is a **minor** bump).
+
+### SKILL.md frontmatter rules (upload validation)
+
+The plugin uploader validates each skill's `SKILL.md` frontmatter, and a single violation fails the **whole plugin** upload. `build.py` now checks these locally before it zips anything, so catch them before distribution:
+
+- **`description` ≤ 1024 characters.** Measured on the *resolved* value — a folded `>` block scalar collapses to one line — so count the joined text, not any single wrapped line. Trim trigger phrases; don't pad.
+- **No XML / angle-bracket tags in `description`.** e.g. `<date/meeting>` is rejected. Angle brackets are fine everywhere in the SKILL.md **body** — only the frontmatter `description` is scanned. Use plain wording or `[brackets]` for placeholders.
+- **Every plugin ships ≥ 1 skill.** An empty plugin uploads but does nothing; `build.py` fails a plugin whose `skills/` has no `*/SKILL.md`.
+
+These are separate from — and looser than — the **plugin** description limit (500 chars in `plugin.json` and the `marketplace.json` entry), which `build.py` also enforces. All three failures above were hit uploading the 2026-07 plugin set (westland, construction, safety); the guard exists so they can't recur silently.
 
 ## Continuous Improvement Loop
 
