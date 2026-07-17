@@ -44,6 +44,10 @@ These are the high-frequency rules — if your task matches one of these, apply 
 
 Every `.xer` in a Westland project folder is an immutable record. No in-place edits, no overwrites, no deletes. Every revision is a new versioned file (`-v2.xer`, `-v3.xer`, etc.). See `references/xer-files.md` for the full policy and rationale.
 
+**Office record protection:**
+
+Existing Excel / Word / PowerPoint files on the Westland share that are *settled records* — a submitted report, a signed workbook, an issued deck, anything final — are not overwritten in place. Write a new versioned copy (`{base}-v2.xlsx`, `-v3`, …) or ask the colleague first. Files you're actively iterating this week are working docs and fine to edit. The PreToolUse hook enforces this for direct edits it can see (it locks Office files untouched for more than 7 days). Office files written by scripts (openpyxl / python-docx) carry their path inside the script and are out of the hook's reach — so for those, this convention *(version over overwrite)* is the protection. When in doubt, version; don't overwrite.
+
 **Voice and tone (external):**
 
 - Professional but not stiff. Westland is competent and direct, not corporate-speak.

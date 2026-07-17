@@ -231,8 +231,7 @@ def _check_fixture_parses() -> CheckResult:
             message=f"Parsing minimal.xer raised: {exc!r}",
             fix=(
                 "Inspect the traceback below. If this fails the lib/ layer is "
-                "broken — open the worktree-with-hook-disabled workflow in the "
-                "Working on lib/ source section."
+                "broken — see the Working on lib/ source section."
             ),
             details=traceback.format_exc().splitlines(),
         )

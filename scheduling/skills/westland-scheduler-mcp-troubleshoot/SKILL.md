@@ -8,8 +8,8 @@ description: >
   registration or import error, or when the user reports that "schedule-
   toolbox isn't working". Diagnostic-only — runs four checks and prints
   copy-pasteable fixes. Does NOT walk through setup unless the user explicitly
-  asks. Also documents the worktree-with-hook-disabled workflow for the
-  curator role (editing schedule-toolbox/lib/ source).
+  asks. Also documents how to work on schedule-toolbox/lib/ source (the
+  curator role).
 ---
 
 # Westland Scheduler MCP — Troubleshoot
@@ -58,18 +58,15 @@ Restart Claude Code after editing `settings.json`. Re-run the diagnostic to conf
 
 ## Working on `schedule-toolbox/lib/` source (curator role)
 
-`schedule-toolbox/lib/*.py` is fenced by a PreToolUse hook (see `scheduling/hooks/check_lib_fence.py`). Routine Claude work — analyzing schedules, drafting emails, comparing XERs — goes through MCP tools, so the fence never gets in the way. But occasionally the lib needs improvement: a new quality check, a bug in the CPM engine, a richer compare output. That work happens in a worktree with the hook disabled.
+Routine Claude work — analyzing schedules, drafting emails, comparing XERs — goes through the Westland Scheduler Local MCP tools, which wrap the `schedule-toolbox/lib/*.py` implementation so you never load the source into context. Prefer the MCP tools for *using* the toolbox; reach into `lib/` only when you're improving the implementation itself.
 
-The pattern:
+This is a convention, not a hard gate. As of scheduling 10.1.0 there is **no PreToolUse hook fencing `lib/`** — the old `check_lib_fence.py` hook was removed (it spawned an empty console window on Windows and errored on every tool call). So editing `lib/` needs no worktree hook-disable dance:
 
-1. Create a worktree off the current branch: `git worktree add ../<feature-branch-name> -b <feature-branch-name>`.
-2. In the worktree, disable the hook by either:
-   - Removing the second `PreToolUse` matcher (the one invoking `check_lib_fence.py`) from `scheduling/hooks/hooks.json` in that worktree, OR
-   - Starting Claude Code from the worktree with `--no-hooks` (if available on your Claude Code version).
-3. Make changes to `schedule-toolbox/lib/*.py`. Run `python -m unittest discover -s scheduling/mcp-server/tests` after each substantive change — the 125+ MCP-server tests are the primary regression check on lib/ behavior.
-4. Commit, push, merge. Restore the hook in the merged result so the fence is active again on `main`.
+1. (Optional) Use a git worktree to isolate the work: `git worktree add ../<feature-branch-name> -b <feature-branch-name>`.
+2. Edit `schedule-toolbox/lib/*.py` directly. Run `python -m unittest discover -s scheduling/mcp-server/tests` after each substantive change — the 125+ MCP-server tests are the primary regression check on lib/ behavior.
+3. Commit, push, merge, and bump versions per [the release convention](../../CLAUDE.md).
 
-Do not edit hooks.json on `main` to permanently disable the fence — that defeats the seam. If the curator workflow is friction in practice, file a `westland-bug-report` describing the pain point and the fence can evolve (e.g. to a skill-context-gated rule once that surface is reliably available in Claude Code).
+If MCP-first ever needs to be re-enforced at tool time, file a `westland-bug-report` — but note the previous hook implementation is why this fence was removed, so any replacement must not reintroduce the console-window / per-call-error problems.
 
 ## When the diagnostic itself fails
 

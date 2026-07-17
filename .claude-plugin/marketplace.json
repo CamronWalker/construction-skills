@@ -8,13 +8,13 @@
       "name": "westland",
       "source": "./westland",
       "description": "Westland organizational plugin — safety hooks, house-style references, bug-report capture, and meeting-transcript reading. Install first; required dependency of domain plugins. Contains the Westland Project Files PreToolUse hook (modify-prompt on existing files; .xer in-place changes/deletes denied; .html/.md/.json allowlisted), plus the westland-house-style, westland-bug-report (Procore-gated bug capture to Supabase), and read-meeting-transcript (M365 Teams transcript reader) skills.",
-      "version": "1.7.0"
+      "version": "1.8.0"
     },
     {
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with Gantt review HTML + Copy-for-Claude loop, Tier 3 XER modification + generation, a WBS-pathed activity roster + read surface, name-based Responsibility (trade) code assignment, and the full weekly schedule update pipeline via the westland-mcps cloud editor.",
-      "version": "10.0.1"
+      "version": "10.1.0"
     },
     {
       "name": "preconstruction",
