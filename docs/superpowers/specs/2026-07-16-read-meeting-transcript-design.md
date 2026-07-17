@@ -27,9 +27,25 @@ The reliable path already exists but is buried inside the scheduling plugin's we
 - **Fetching transcripts from anywhere but the calendar event.** No OneDrive/SharePoint/file-system scavenging. If the event has no `meetingTranscriptUrl`, we say so and stop.
 - **Meeting minutes / RFI / distribution.** This skill produces a readable transcript + summary. Turning that into minutes or an email is a separate skill's job (it can consume this skill's output).
 
-## The load-bearing assumption (validate first)
+## Access requirement (added per review 2026-07-16)
 
-**Approach A depends on a subagent being able to call the M365 connector's `read_resource`.** In Claude Code, Agent-tool subagents share the session's MCP servers, and `general-purpose` / `claude` agent types carry `*` tools, so a subagent should see the connector. **Implementation step 0 is to prove this on a live transcript.** If it turns out subagents cannot reach the connector, fall back to Approach B (below) and document it.
+Microsoft only returns a meeting's transcript to the **organizer**, a
+**co-organizer**, or someone the transcript was **explicitly shared with** — and
+only if the meeting was actually recorded/transcribed. A plain attendee usually
+gets **no `meetingTranscriptUrl`** (or a 403 on the fetch). The skill must (a)
+state this up front and (b) treat "no URL / permission error" as a **clean stop
+with that explanation** — never a scavenge-and-retry spiral. This is the #1
+real-world failure mode, so it is called out prominently in SKILL.md.
+
+## The load-bearing assumption — RESOLVED (validated 2026-07-16)
+
+Approach A depends on a subagent being able to call the M365 connector's
+`read_resource`. **Validated live:** a `general-purpose` + `sonnet` subagent
+loaded the deferred tool via `ToolSearch`, called `read_resource` on a real
+occurrence-scoped `meeting-transcript:///` URI, wrote the JSON to disk, and ran
+the converter — all in the subagent's context (~87 KB of transcript read), while
+the main agent received only a ~2 KB report. Approach A is the primary path;
+Approach B is retained only as documentation of the fallback.
 
 ## Approach A — subagent owns the download (primary)
 
@@ -38,16 +54,16 @@ The reliable path already exists but is buried inside the scheduling plugin's we
 ### Main agent (small context cost)
 
 - **Step 0 — Connector check.** Confirm the M365 tools exist (`outlook_calendar_search`, `read_resource`). If missing, or `get_me` errors with not-connected / 401 → load `references/connect-m365.md`, show the connect steps, and **stop**. Never retry-loop.
-- **Step 1 — Pin the meeting.** `outlook_calendar_search(query=<title token>, afterDateTime=<window start>, beforeDateTime=<window end>, order="newest")`. Drop `isCancelled == true` and `Canceled:` / `Declined:` title prefixes. Pick the occurrence closest to (on or just before) the target date. If two plausibly match, **ask the user** — do not guess. **Hard rule: the transcript comes from the calendar event and nowhere else. Do NOT search OneDrive, the project folder, SharePoint, Documents, or the web.**
-- **Step 2 — Get the URL.** `read_resource(<event's calendar:///events/{id} uri>)`, read the `meetingTranscriptUrl` field. If absent/empty → tell the user the meeting has no transcript and stop. This is all the main agent pulls.
-- **Step 3 — Dispatch the subagent.** Hand it: the transcript URL (verbatim), the output `.md` path, and the script path. **Smart default:** run **synchronous** when reading the transcript *is* the task (relay the summary immediately); run **background** when other work is in flight so the main agent keeps going and picks up the summary on the completion notification.
+- **Step 1 — Pin the meeting.** `outlook_calendar_search(query=<title token>, afterDateTime=<window start>, beforeDateTime=<window end>, order="newest")`. Drop `isCancelled == true` and `Canceled:` / `Declined:` title prefixes. Pick the occurrence closest to (on or just before) the target date. Recurring occurrences share a title and each carries `recurrence: null` — match by title + date. If two plausibly match, **ask the user** — do not guess. **Hard rule: the transcript comes from the calendar event and nowhere else. Do NOT search OneDrive, the project folder, SharePoint, Documents, mail, or the web.** The main agent ends with just the chosen event's `calendar:///events/{id}` URI.
+- **Step 2 — Dispatch the subagent.** Hand it: the event URI, the output `.md` path, the temp `.json` path, the converter script path, and the occurrence date + meeting label. **Smart default:** run **synchronous** when reading the transcript *is* the task (relay the summary immediately); run **background** when other work is in flight so the main agent keeps going and picks up the summary on the completion notification. The main agent does **not** read the event body or the transcript — both reads happen in the subagent, keeping even the verbose event HTML out of the main context.
 
-### Subagent (Sonnet; holds the 66 KB in its own context)
+### Subagent (Sonnet; holds the transcript in its own context)
 
-1. `read_resource(<transcriptUrl>)` → JSON `{ meeting: {...}, transcripts: [...] }`. May carry more than one transcript for a recurring series; pick the one whose timing matches this occurrence (the URI carries start/end scoping).
-2. Write the raw JSON to a temp file (provenance) and run `scripts/transcript_json_to_md.py <json> <out.md>` to produce the readable speaker-turn markdown.
-3. Read its own markdown output, compose the summary, and **prepend the YAML frontmatter block** (schema below).
-4. Return to the main agent **only**: the markdown file path + the summary / decisions / follow-ups. **Not** the transcript body.
+1. `read_resource(<event URI>)` → read the `meetingTranscriptUrl` field. If absent/empty → return `NO_TRANSCRIPT` with the access-requirement explanation and stop.
+2. `read_resource(<meetingTranscriptUrl verbatim — keep the ?start/&end occurrence scoping>)` → JSON `{ meeting: {...}, transcripts: [...] }`. On a permission/403/404 error → return `NO_ACCESS` and stop. May carry more than one transcript for a recurring series; the converter loops all of them.
+3. Write the raw JSON to a temp file (provenance) and run `scripts/transcript_json_to_md.py <json> <out.md>` to produce the readable speaker-turn markdown.
+4. Read its own markdown output, compose the summary, and **prepend the YAML frontmatter block** (schema below).
+5. Return to the main agent **only**: the markdown file path + the summary / decisions / follow-ups / participants. **Not** the transcript body.
 
 ### Frontmatter schema (what the subagent writes; greppable)
 
@@ -103,8 +119,19 @@ westland/skills/read-meeting-transcript/
 
 Standard convention (repo `CLAUDE.md`): bump `westland/.claude-plugin/plugin.json` (minor — new skill), match `.claude-plugin/marketplace.json`, register the skill, one commit, PR to `main`, then build/distribute from the main checkout.
 
-## Open validation items (implementation step 0)
+## Validation results (resolved 2026-07-16)
 
-1. Confirm subagents can call the M365 connector's `read_resource` (decides A vs. B).
-2. Confirm the exact `read_resource` transcript JSON shape (`meeting` / `transcripts[]` nesting, where speaker turns live, VTT vs. structured) against a real recent meeting — drives the parser.
-3. Confirm the M365 connector's display name and connect path for `references/connect-m365.md`.
+All three step-0 items were validated live against a real Westland Teams meeting
+(the recurring "Wellington Internal Coordination", organizer = signed-in user):
+
+1. **Subagents can call `read_resource`.** ✅ Approach A confirmed (see above).
+2. **Transcript JSON shape.** ✅ `{ meeting, transcripts[] }`; each transcript's
+   `content` is a **single WebVTT string** (not structured turns). Speaker names
+   are inline VTT voice tags `<v Name>text</v>`; `\r\n` line endings; cues can
+   overlap/cross-talk (preserve array order, never sort by timestamp);
+   `transcripts` may hold >1 segment (loop); `meeting.*DateTime` is the *series*
+   definition, so use the transcript's own `createdDateTime` for occurrence
+   labeling. The parser (`transcript_json_to_md.py`) was written to this shape and
+   rendered a real 29 KB transcript into 170 clean speaker turns.
+3. **Connector.** ✅ The Microsoft 365 connector (`get_me`, `outlook_calendar_search`,
+   `read_resource`); connect path documented in `references/connect-m365.md`.
