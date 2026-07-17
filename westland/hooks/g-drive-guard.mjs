@@ -47,6 +47,21 @@ const VERSIONED_EXTENSIONS = new Set(['.xer']);
 // (HTML reports, markdown notes, JSON configs), not audit-trail records.
 const ALLOWED_EXTENSIONS = new Set(['.html', '.md', '.json']);
 
+// Microsoft Office documents — age-locked on the share. A settled record (not
+// modified in >7 days) is DENIED for in-place overwrite; a recently-modified
+// one (a live working doc) prompts; a brand-new file is allowed. This only
+// catches writes the hook can see a path for (direct Edit/Write tool calls);
+// binary Office files written by scripts (openpyxl / python-docx via Bash)
+// carry their path inside the script and are out of the hook's reach — those
+// are covered by the standing "don't overwrite Office records" instruction, not
+// here. See officeAgeDecision.
+const OFFICE_EXTENSIONS = new Set([
+  '.xlsx', '.xlsm', '.xlsb', '.xls',
+  '.docx', '.docm', '.doc', '.dotx',
+  '.pptx', '.pptm', '.ppt',
+]);
+const OFFICE_LOCK_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 // Westland Project Files roots — the protected zone. Covers the mapped drive,
 // the two UNC mirrors, and the MSYS drive form.
 const WESTLAND_ROOTS = [
@@ -89,6 +104,25 @@ function isVersioned(p) {
 
 function isAllowedExt(p) {
   return ALLOWED_EXTENSIONS.has(suffix(p));
+}
+
+function isOffice(p) {
+  return OFFICE_EXTENSIONS.has(suffix(p));
+}
+
+// Decide an Office file's fate by last-modified age. new (ENOENT) -> allow;
+// modified within the lock window -> ask (live working doc); older -> deny
+// (settled record). Any stat failure other than "absent" -> deny (fail closed —
+// don't let an unreadable record slip through as editable).
+function officeAgeDecision(filePath) {
+  let st;
+  try {
+    st = fs.statSync(normalizeFsPath(filePath));
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return 'allow';
+    return 'deny';
+  }
+  return Date.now() - st.mtimeMs > OFFICE_LOCK_AGE_MS ? 'deny' : 'ask';
 }
 
 // Map MSYS/UNC path forms to the native Windows form so fs.existsSync resolves
@@ -194,6 +228,22 @@ const askModify = ({ name, path: p }) =>
 
 Files in this share are project records. Auto-mode cannot auto-approve modifications here; please confirm you intend to overwrite this file. If you meant to write a new file alongside the original (a -v2 / -vN copy), cancel and rename the target.`;
 
+const denyOfficeLocked = ({ name, stem: s, ext, path: p }) =>
+`⚠️ Westland record lock: '${name}' is an Office file on the Westland share that hasn't changed in over 7 days, so it's treated as a settled project record and can't be overwritten in place.
+
+Path: ${p}
+
+To change it, either:
+  • Open and save it manually first — that resets its clock, and this drops to a confirmation prompt instead of a block, OR
+  • Write your changes to a new versioned copy: "${s}-v2${ext}" (then -v3, etc.).
+
+If you didn't mean to overwrite a settled record, stop and ask the colleague.`;
+
+const askOfficeRecent = ({ name, path: p }) =>
+`Overwriting a recently-modified Office file on the Westland share — '${name}' at ${p}.
+
+This file changed within the last 7 days, so it's treated as a live working document rather than a settled record. Confirm you intend to overwrite it (or write a new -v2 copy alongside instead).`;
+
 const GUARD_ERROR_MESSAGE =
 `⚠️ Westland guard error: this Westland Project Files modification was blocked for safety.
 
@@ -226,6 +276,20 @@ function checkFileTool(toolName, toolInput) {
       }
       return ['allow', '']; // new -vN.xer is the intended revision path
     }
+  }
+
+  // Office documents: age-lock. Settled records (>7 days) are denied; recent
+  // working docs prompt; new files are allowed. Only fires on direct Edit/Write
+  // tool calls (script writes carry their path internally and aren't seen here).
+  if (isOffice(filePath)) {
+    const decision = officeAgeDecision(filePath);
+    if (decision === 'deny') {
+      return ['deny', denyOfficeLocked({ name: basename(filePath), stem: stem(filePath), ext, path: filePath })];
+    }
+    if (decision === 'ask') {
+      return ['ask', askOfficeRecent({ name: basename(filePath), path: filePath })];
+    }
+    return ['allow', ''];
   }
 
   // Rule 1: any other existing file in the share requires confirmation.

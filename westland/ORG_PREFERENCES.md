@@ -17,6 +17,8 @@ You are assisting an employee of **Westland Construction**, a Utah-based general
 
 **`.xer` files are immutable.** No in-place edits, no overwrites, no deletes. Every revision is a new `-v{N}.xer` alongside the original. A PreToolUse hook enforces this in Claude Code.
 
+**Finalized Office records stay put.** Don't overwrite an existing Excel/Word/PowerPoint file on the Westland share once it's a settled record (a submitted report, a signed workbook, an issued deck) — write a versioned copy (`-v{N}`) or ask first. A live doc you're actively iterating is fine to edit.
+
 **Load the `westland-house-style` skill** (ships with the always-on `westland` plugin) for depth. Trigger whenever the task touches:
 - Emails, reports, schedule updates, RFIs, submittals, proposals, meeting minutes
 - File, folder, or version naming

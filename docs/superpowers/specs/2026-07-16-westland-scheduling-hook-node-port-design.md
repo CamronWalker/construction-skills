@@ -1,7 +1,7 @@
 # Westland + scheduling PreToolUse hooks — Node port / cleanup
 
 **Date:** 2026-07-16
-**Plugins:** `westland` (1.6.4 → 1.6.5), `scheduling` (10.0.1 → 10.1.0)
+**Plugins:** `westland` (1.6.4 → 1.7.0), `scheduling` (10.0.1 → 10.1.0)
 **Branch:** `claude/westland-plugin-hook-fix-f303cf`
 
 ## Problem
@@ -162,6 +162,57 @@ language and note the Node runner + the known upstream Windows flash limitation.
 
 **Delete:** `westland/hooks/run-hook.ps1`, `westland/hooks/westland_share_guard.py`.
 
+### 1b. Office file age-lock (added during review; westland → 1.7.0)
+
+Microsoft Office files (`.xlsx/.xlsm/.xlsb/.xls/.docx/.docm/.doc/.dotx/.pptx/.pptm/.ppt`)
+split into two populations: live working docs (edit freely) and settled project
+records (should never change once final). Use **last-modified age** as the proxy,
+gated wherever the hook can see the path:
+
+- **new file (ENOENT)** → allow
+- **exists, modified within 7 days** → **ask** (live working doc — confirm the overwrite)
+- **exists, not modified in >7 days** → **deny** (settled record — locked). To unlock,
+  open/save it manually (bumps mtime into the 7-day window → drops back to "ask"),
+  or write a versioned copy. This is the user's "make a manual change first" mechanic.
+- **can't stat for any reason other than ENOENT** → **deny** (fail closed — record protection).
+
+Age is `Date.now() - stat.mtimeMs` (both available in a normal Node process); the
+path is normalized (`/g/`→`G:\`, `//server`→`\\server`) before `statSync`.
+
+**Coverage — the hook sees the extension only when a path is present:**
+
+- **Row 1 — file tools (`Edit/Write/MultiEdit/NotebookEdit`):** path is in the
+  envelope → always age-gated. (Rarely fires in practice: binary Office files are
+  written by scripts, not the text Write tool — so no workflow friction.)
+- **Row 3 — Bash/PowerShell with a path on the command line:** *Considered and
+  declined.* A write-intent sniff (`>`/`cp`/`Copy-Item`/`Out-File`…) could gate
+  Office paths that appear literally on the command line, but the yield is thin
+  (the common write path is row 2, not command-line copies) and the heuristic
+  adds false-positive surface (read-with-redirect, cp-source, the `_Archive`
+  exception). Not built; the standing instruction below covers it instead.
+- **Row 2 — path baked inside a script (`python make_report.py`):** NOT reachable
+  by the hook — it receives no path/extension. This is the KPI-workbook /
+  monthly-report write path.
+
+**Row 2/3 cover — standing instruction (soft, universal, zero friction).** Since
+the hook can't see script writes, the row-2/3 protection is documentation, the
+idiomatic "don't edit this" mechanism (Claude reads it and follows by
+convention):
+- one line in `westland/ORG_PREFERENCES.md` (the claude.ai Organization
+  Preferences — read on every response for all Westland users; must be pasted
+  live into claude.ai to take effect), next to the existing `.xer` rule;
+- depth in the `westland-house-style` skill (what counts as "settled," the
+  version-over-overwrite convention, and the explicit note that script-written
+  Office files are the hook's blind spot so the convention is their protection).
+
+If a record must be *truly* unclobberable (hard + universal), the only options
+are filesystem read-only/deny-write ACLs or version-history/backup recoverability
+— out of scope here, noted for the user.
+
+"Created by *this session*" is not detectable from a stateless PreToolUse process,
+so recent-modification (<7 days) is the proxy — and recent still resolves to
+**ask**, not a free auto-allow, so even a fresh record isn't silently overwritten.
+
 ### 2. scheduling — remove both hooks
 
 - Delete `scheduling/hooks/` entirely: `hooks.json`, `run-hook.ps1`,
@@ -177,9 +228,11 @@ language and note the Node runner + the known upstream Windows flash limitation.
 
 ### 3. Rollout (release convention)
 
-- **westland** `plugin.json` 1.6.4 → **1.6.5**; matching `marketplace.json` entry
-  to 1.6.5 (lockstep). Update the westland `plugin.json` description if the hook
-  wording needs it (still a PreToolUse safety hook — now Node).
+- **westland** `plugin.json` 1.6.4 → **1.7.0** (minor: adds the Office record
+  age-lock + the standing Office-record instruction); matching `marketplace.json`
+  entry to 1.7.0 (lockstep). **Manual step:** paste the updated
+  `ORG_PREFERENCES.md` body into claude.ai → Settings → Organization preferences
+  for the standing Office-record rule to take effect for everyone.
 - **scheduling** `plugin.json` 10.0.1 → **10.1.0**; matching `marketplace.json`
   entry to 10.1.0 (lockstep). Minor: removing a hook is a behavior change.
 - One commit with both plugins' changes. CI `version-bump` gate is satisfied

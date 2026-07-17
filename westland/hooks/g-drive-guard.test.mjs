@@ -44,6 +44,18 @@ for (const f of [record, existing_v2, existing_txt, existing_pdf, outside_xer,
   fs.writeFileSync(f, 'X', 'utf8');
 }
 
+// Office fixtures for the age-lock: two stale (backdated 8 days), one fresh, one absent.
+const office_old = path.join(tmp, 'Budget.xlsx');
+const office_old_ppt = path.join(tmp, 'Deck.pptx');
+const office_recent = path.join(tmp, 'Report.docx');
+const office_new = path.join(tmp, 'BrandNew.xlsx'); // not created
+fs.writeFileSync(office_old, 'X', 'utf8');
+fs.writeFileSync(office_old_ppt, 'X', 'utf8');
+fs.writeFileSync(office_recent, 'X', 'utf8');
+const EIGHT_DAYS_AGO = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+fs.utimesSync(office_old, EIGHT_DAYS_AGO, EIGHT_DAYS_AGO);
+fs.utimesSync(office_old_ppt, EIGHT_DAYS_AGO, EIGHT_DAYS_AGO);
+
 addTestRoot(tmp);
 
 after(() => {
@@ -74,6 +86,16 @@ const cases = [
   ['allow Write brand-new .txt', 'Write', { file_path: path.join(tmp, 'new.txt') }, 'allow'],
   ['allow Write brand-new .pdf', 'Write', { file_path: path.join(tmp, 'new.pdf') }, 'allow'],
   ['allow Edit with no file_path', 'Edit', {}, 'allow'],
+
+  // Office file age-lock (records >7 days -> locked; recent -> ask; new -> allow)
+  ['deny Edit on Office .xlsx older than 7d (locked record)', 'Edit', { file_path: office_old }, 'deny'],
+  ['deny MultiEdit on Office .pptx older than 7d', 'MultiEdit', { file_path: office_old_ppt }, 'deny'],
+  ['deny Write overwriting Office .xlsx older than 7d', 'Write', { file_path: office_old }, 'deny'],
+  ['ask on Edit Office .docx modified within 7d', 'Edit', { file_path: office_recent }, 'ask'],
+  ['ask on Write overwriting recent Office .docx', 'Write', { file_path: office_recent }, 'ask'],
+  ['allow Write brand-new Office .xlsx', 'Write', { file_path: office_new }, 'allow'],
+  ['allow Edit on Office .xlsx OUTSIDE share (age irrelevant)', 'Edit',
+    { file_path: path.join(parent, 'outside-book.xlsx') }, 'allow'],
 
   // Allowlist — file tools on .html/.md/.json inside root
   ['allow Edit on existing .html', 'Edit', { file_path: existing_html }, 'allow'],
