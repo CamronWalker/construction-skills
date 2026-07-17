@@ -1,7 +1,7 @@
 # Westland + scheduling PreToolUse hooks — Node port / cleanup
 
 **Date:** 2026-07-16
-**Plugins:** `westland` (1.6.4 → 1.7.0), `scheduling` (10.0.1 → 10.1.0)
+**Plugins:** `westland` (1.6.4 → 1.8.0), `scheduling` (10.0.1 → 10.1.0)
 **Branch:** `claude/westland-plugin-hook-fix-f303cf`
 
 ## Problem
@@ -162,7 +162,7 @@ language and note the Node runner + the known upstream Windows flash limitation.
 
 **Delete:** `westland/hooks/run-hook.ps1`, `westland/hooks/westland_share_guard.py`.
 
-### 1b. Office file age-lock (added during review; westland → 1.7.0)
+### 1b. Office file age-lock (added during review; westland → 1.8.0)
 
 Microsoft Office files (`.xlsx/.xlsm/.xlsb/.xls/.docx/.docm/.doc/.dotx/.pptx/.pptm/.ppt`)
 split into two populations: live working docs (edit freely) and settled project
@@ -228,9 +228,10 @@ so recent-modification (<7 days) is the proxy — and recent still resolves to
 
 ### 3. Rollout (release convention)
 
-- **westland** `plugin.json` 1.6.4 → **1.7.0** (minor: adds the Office record
+- **westland** `plugin.json` 1.6.4 → **1.8.0** (main reached 1.7.0 via #54 after
+  this branched, so this lands at 1.8.0; minor: adds the Office record
   age-lock + the standing Office-record instruction); matching `marketplace.json`
-  entry to 1.7.0 (lockstep). **Manual step:** paste the updated
+  entry to 1.8.0 (lockstep). **Manual step:** paste the updated
   `ORG_PREFERENCES.md` body into claude.ai → Settings → Organization preferences
   for the standing Office-record rule to take effect for everyone.
 - **scheduling** `plugin.json` 10.0.1 → **10.1.0**; matching `marketplace.json`
