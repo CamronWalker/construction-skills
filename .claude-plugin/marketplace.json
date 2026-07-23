@@ -14,7 +14,7 @@
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with Gantt review HTML + Copy-for-Claude loop, Tier 3 XER modification + generation, a WBS-pathed activity roster + read surface, name-based Responsibility (trade) code assignment, and the full weekly schedule update pipeline via the westland-mcps cloud editor.",
-      "version": "10.1.1"
+      "version": "10.1.2"
     },
     {
       "name": "preconstruction",

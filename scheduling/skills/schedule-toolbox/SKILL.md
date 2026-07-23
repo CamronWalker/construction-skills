@@ -63,6 +63,7 @@ These live in `references/*.md` and describe the underlying concepts the MCP too
 | XER modification rules — `apply_xer_changes` change-type catalog | `references/xer-modify.md` |
 | XER generation — `create_xer_from_template` and skeleton flow | `references/xer-generation.md` |
 | XER table / field definitions | `references/xer-tables.md` (grep by table name) |
+| P6 XER data map — field maps, data types, import-failure debugging | `references/p6-xer-data-map.md` |
 | Quality check semantics | `references/quality-checks.md` |
 | Update review semantics | `references/update-review.md` |
 | CPM usage and the Gantt review HTML output | `references/cpm-usage.md` |
