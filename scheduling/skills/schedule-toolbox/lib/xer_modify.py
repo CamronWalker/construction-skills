@@ -931,6 +931,35 @@ def _validate_activity_spec(
         )
 
 
+# P6-required NOT-NULL scalar columns for a new, not-started activity.  These
+# must never be empty or P6 access-violates on import (AVAA0-1866-2).  Values
+# match real Westland exports and the skeleton's milestone rows.  Per-activity
+# fields (task_id/code/name/type, durations, clndr_id, wbs_id, proj_id) are
+# overridden by the caller after this map is applied.
+_NEW_TASK_REQUIRED_DEFAULTS = {
+    "phys_complete_pct": "0",
+    "rev_fdbk_flag": "N",
+    "est_wt": "1",
+    "lock_plan_flag": "N",
+    "auto_compute_act_flag": "N",
+    "complete_pct_type": "CP_Drtn",
+    "duration_type": "DT_FixedDUR2",
+    "status_code": "TK_NotStart",
+    "total_float_hr_cnt": "0",
+    "free_float_hr_cnt": "0",
+    "act_work_qty": "0",
+    "remain_work_qty": "0",
+    "target_work_qty": "0",
+    "target_equip_qty": "0",
+    "act_equip_qty": "0",
+    "remain_equip_qty": "0",
+    "priority_type": "PT_Normal",
+    "driving_path_flag": "N",
+    "act_this_per_work_qty": "0",
+    "act_this_per_equip_qty": "0",
+}
+
+
 def _append_new_task(task, spec: dict, state: ChangeState) -> str:
     """Append a new TASK row from a validated spec dict; update state; return new task_id.
 
@@ -947,7 +976,14 @@ def _append_new_task(task, spec: dict, state: ChangeState) -> str:
     new_task_id = str(max((int(r["task_id"]) for r in task.rows), default=0) + 1)
     hours_str = str(int(duration_days * 8))
 
+    # Start from a blank field map, then stamp the FULL set of P6-required
+    # NOT-NULL scalar columns before the per-activity overrides.  Emitting a
+    # partial row (as the original code did) left bit-flags, the priority enum
+    # and the work/equip quantity decimals empty on every generated activity,
+    # which crashes Primavera P6 on import (Event Code AVAA0-1866-2).  Defaults
+    # mirror a real Westland export (BTLP.xer) and the skeleton's milestone rows.
     new_row = {f: "" for f in task.field_order}
+    new_row.update(_NEW_TASK_REQUIRED_DEFAULTS)
     new_row["task_id"] = new_task_id
     new_row["task_code"] = code
     new_row["task_name"] = name
@@ -957,10 +993,6 @@ def _append_new_task(task, spec: dict, state: ChangeState) -> str:
     new_row["clndr_id"] = calendar_id
     new_row["wbs_id"] = wbs_id
     new_row["proj_id"] = task.rows[0]["proj_id"] if task.rows else ""
-    new_row["status_code"] = "TK_NotStart"
-    new_row["duration_type"] = "DT_FixedDUR2"
-    new_row["complete_pct_type"] = "CP_Drtn"
-    new_row["phys_complete_pct"] = "0"
 
     task.append_row(new_row)
 
@@ -1554,15 +1586,39 @@ def _handle_add_wbs(doc, change: dict, state: ChangeState) -> dict:
         max((int(r["wbs_id"]) for r in projwbs.rows), default=0) + 1
     )
 
-    # Build the new row — blank all fields from field_order, then populate
+    # Build the new row.  Blank the field map, then stamp the P6-required
+    # NOT-NULL columns (OBS pointer, node-type flags, EV settings, weight,
+    # sequence) BEFORE the per-node overrides.  Leaving these empty crashes P6
+    # on import (AVAA0-1866-2).  OBS/EV/weight are inherited from an existing
+    # node so the OBS pointer references a row present in THIS file; the
+    # node-type flags are forced (a newly-added node is never the project root).
+    def _first_nonempty(field, fallback):
+        for r in projwbs.rows:
+            v = str(r.get(field, "")).strip()
+            if v:
+                return v
+        return fallback
+
+    seqs = [
+        int(r["seq_num"]) for r in projwbs.rows
+        if str(r.get("seq_num", "")).strip().lstrip("-").isdigit()
+    ]
+
     new_row = {f: "" for f in projwbs.field_order}
+    new_row["obs_id"] = _first_nonempty("obs_id", "")
+    new_row["seq_num"] = str((max(seqs) if seqs else 0) + 100)
+    new_row["est_wt"] = _first_nonempty("est_wt", "1")
+    new_row["proj_node_flag"] = "N"
+    new_row["sum_data_flag"] = "N"
+    new_row["ev_compute_type"] = _first_nonempty("ev_compute_type", "EC_Cmp_pct")
+    new_row["ev_etc_compute_type"] = _first_nonempty("ev_etc_compute_type", "EE_PF_cpi")
+    new_row["status_code"] = "WS_Open"
     new_row["wbs_id"] = new_wbs_id
     new_row["wbs_code"] = wbs_code
     new_row["wbs_name"] = wbs_name
     new_row["wbs_short_name"] = short_name
     new_row["parent_wbs_id"] = parent_wbs_id
     new_row["proj_id"] = projwbs.rows[0]["proj_id"] if projwbs.rows else ""
-    new_row["status_code"] = "WS_Open"
 
     projwbs.append_row(new_row)
 
@@ -2301,20 +2357,46 @@ def create_from_template(template_path: str, metadata: dict):
     # Parse the template — propagate file/format errors to the caller.
     doc = parse_for_writing(template_path)
 
-    # Normalize planned_start: append " 08:00" if only a date (10 chars).
-    planned_start = metadata.get("planned_start")
-    if planned_start is not None and len(planned_start) == 10:
-        planned_start = planned_start + " 08:00"
+    # P6 datetime fields require "YYYY-MM-DD HH:MM".  A bare "YYYY-MM-DD" is an
+    # unsupported datetime format that crashes Primavera P6 on import (Event
+    # Code AVAA0-1866-2) and is rejected by SmartPM ("Unsupported datetime
+    # format").  Normalize every date the template stamps — historically only
+    # planned_start was normalized, so planned_data_date shipped bare into
+    # PROJECT.last_recalc_date and broke both importers.
+    def _normalize_xer_datetime(value):
+        if value is not None and len(value.strip()) == 10:
+            return value.strip() + " 08:00"
+        return value
 
-    planned_data_date = metadata.get("planned_data_date")
+    planned_start = _normalize_xer_datetime(metadata.get("planned_start"))
+    planned_data_date = _normalize_xer_datetime(metadata.get("planned_data_date"))
     task_code_prefix = metadata.get("task_code_prefix")
+
+    # P6's proj_id is the INTEGER primary key of the PROJECT table (P6 reassigns
+    # it on import).  The human-readable project code (e.g. "HHRETAIL") is P6's
+    # "Project ID" and belongs in proj_short_name; the long project name belongs
+    # on the root WBS node's wbs_name.  Putting a non-numeric code into proj_id
+    # crashes Primavera P6 on import (AVAA0-1866-2) and is rejected by SmartPM
+    # ("For input string: ..." -> Java parseLong failure), because both parse
+    # proj_id as an integer.  Confirmed against 204 real Westland exports: every
+    # proj_id is numeric; proj_short_name carries the code; root wbs_name the
+    # long name.  Mirror that mapping here.
+    code = str(project_id).strip()
+    if code.lstrip("-").isdigit():
+        numeric_proj_id = code
+    else:
+        import hashlib  # noqa: PLC0415
+        # Deterministic 6-digit surrogate key so regenerating the same project
+        # yields a stable proj_id (P6 reassigns it on import regardless).
+        digest = hashlib.md5(code.encode("utf-8")).hexdigest()
+        numeric_proj_id = str(int(digest[:6], 16) % 900000 + 100000)
 
     # Stamp the PROJECT row.
     project_section = doc.section("PROJECT")
     if project_section is not None and project_section.rows:
         proj_row = project_section.rows[0]
-        proj_row["proj_short_name"] = project_name
-        proj_row["proj_id"] = project_id
+        proj_row["proj_id"] = numeric_proj_id
+        proj_row["proj_short_name"] = code
         if planned_start is not None:
             proj_row["plan_start_date"] = planned_start
         if planned_data_date is not None:
@@ -2323,16 +2405,27 @@ def create_from_template(template_path: str, metadata: dict):
             proj_row["task_code_prefix"] = task_code_prefix
         project_section.mark_dirty(0)
 
-    # Propagate proj_id to every row in every section that carries the field.
-    # Also propagate pred_proj_id in TASKPRED.
+    # Put the long project name on the root WBS node (P6 shows it as the project
+    # name); the short code on its wbs_short_name, mirroring real exports.
+    projwbs_section = doc.section("PROJWBS")
+    if projwbs_section is not None:
+        for i, row in enumerate(projwbs_section.rows):
+            if row.get("proj_node_flag") == "Y":
+                row["wbs_name"] = project_name
+                row["wbs_short_name"] = code
+                projwbs_section.mark_dirty(i)
+                break
+
+    # Propagate the NUMERIC proj_id to every row in every section that carries
+    # the field (referential consistency).  Also propagate pred_proj_id.
     for section in doc.sections:
         for i, row in enumerate(section.rows):
             mutated = False
             if "proj_id" in row:
-                row["proj_id"] = project_id
+                row["proj_id"] = numeric_proj_id
                 mutated = True
             if "pred_proj_id" in row:
-                row["pred_proj_id"] = project_id
+                row["pred_proj_id"] = numeric_proj_id
                 mutated = True
             if mutated:
                 section.mark_dirty(i)

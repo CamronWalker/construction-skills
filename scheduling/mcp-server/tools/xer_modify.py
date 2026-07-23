@@ -197,6 +197,19 @@ def create_xer_from_template_impl(
             "Pass a different output_path or remove the existing file."
         )
 
+    # Validate BEFORE writing and refuse to persist a file that would fail
+    # P6/SmartPM import — matches the apply_xer_changes Pass-3 gate, so neither
+    # entry point can ever emit a malformed .xer to disk.
+    report = xer_validate.validate(doc)
+    if not report.import_ready:
+        errors = [i for i in report.issues if i.severity == "error"]
+        detail = "; ".join(f"{i.code}: {i.message}" for i in errors[:10])
+        raise ValueError(
+            f"create_xer_from_template: generated schedule failed import validation "
+            f"({len(errors)} error-severity issue(s)); refusing to write {output_path}. "
+            f"{detail}"
+        )
+
     write(doc, output_path)
     cache.put_doc(output_path, doc)
 
@@ -211,8 +224,6 @@ def create_xer_from_template_impl(
                 ntp_milestone = {"task_id": row["task_id"], "task_code": code}
             elif code == "MILESTONE-SC":
                 sc_milestone = {"task_id": row["task_id"], "task_code": code}
-
-    report = xer_validate.validate(doc)
 
     return {
         "output_path": output_path,

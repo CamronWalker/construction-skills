@@ -17,6 +17,51 @@ from typing import Literal
 Severity = Literal["error", "warning", "info"]
 
 
+# P6-required NOT-NULL scalar columns that must be populated on every TASK /
+# PROJWBS row.  Leaving any of these empty crashes Primavera P6 on import
+# (Event Code AVAA0-1866-2) when it dereferences the empty bit-flag / enum /
+# quantity decimal / OBS pointer.  Verified against a real, P6-importable
+# Westland export (BTLP.xer): every one of these is populated on all 43 tasks
+# and all 9 WBS nodes.  Deliberately EXCLUDES scheduler-output fields
+# (total_float_hr_cnt, dates, driving_path_flag) which are legitimately empty
+# on never-scheduled planning files.
+REQUIRED_TASK_COLUMNS = (
+    "phys_complete_pct",
+    "rev_fdbk_flag",
+    "est_wt",
+    "lock_plan_flag",
+    "auto_compute_act_flag",
+    "complete_pct_type",
+    "task_type",
+    "duration_type",
+    "status_code",
+    "priority_type",
+    "act_work_qty",
+    "remain_work_qty",
+    "target_work_qty",
+    "act_equip_qty",
+    "remain_equip_qty",
+    "target_equip_qty",
+    "act_this_per_work_qty",
+    "act_this_per_equip_qty",
+)
+
+REQUIRED_WBS_COLUMNS = (
+    "obs_id",
+    "seq_num",
+    "est_wt",
+    "proj_node_flag",
+    "sum_data_flag",
+    "status_code",
+)
+# NOTE: ev_compute_type / ev_etc_compute_type are intentionally NOT required.
+# An audit of 204 real, P6-importable Westland exports found 91 of them leave
+# these two empty on some WBS nodes while populating others — i.e. P6 tolerates
+# an empty EV-compute type, so requiring it would false-flag genuine exports.
+# The add_wbs handler still stamps them for internal consistency, but their
+# absence is not a crash trigger.
+
+
 @dataclass(frozen=True)
 class ValidationIssue:
     """One row in a ValidationReport.
@@ -345,6 +390,7 @@ _DATE_FIELDS = (
     "expect_end_date",
     "cstr_date", "cstr_date2",
     "suspend_date", "resume_date",
+    "create_date", "update_date",
 )
 
 
@@ -386,6 +432,120 @@ def _check_invalid_dates(doc) -> list[ValidationIssue]:
                     message=f"Task {tid!r} has unparseable {field}={val!r}",
                     affected=[tid],
                 ))
+    return issues
+
+
+_PROJECT_DATE_FIELDS = (
+    "plan_start_date", "plan_end_date", "scd_end_date",
+    "last_recalc_date", "last_schedule_date", "fcst_start_date",
+    "last_tasksum_date", "add_date", "sum_refresh_date",
+)
+
+
+def _check_bare_datetimes(doc) -> list[ValidationIssue]:
+    """Flag datetime fields that carry a bare 'YYYY-MM-DD' with no time.
+
+    P6 datetime columns require 'YYYY-MM-DD HH:MM'.  A bare date is an
+    unsupported datetime format: Primavera P6 access-violates on import
+    (Event Code AVAA0-1866-2) and SmartPM rejects the file outright
+    ("Unknown exception parsing file [Unsupported datetime format: ...]").
+    Audited against 204 real Westland exports — zero use a bare date — so this
+    never false-flags a genuine export.  This is separate from _check_invalid_dates,
+    which accepts the bare form; here a bare datetime is explicitly an error.
+    """
+    import re as _re
+    bare = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    issues: list[ValidationIssue] = []
+
+    proj = doc.section("PROJECT")
+    if proj is not None:
+        for r in proj.rows:
+            for field in _PROJECT_DATE_FIELDS:
+                val = (r.get(field, "") or "").strip()
+                if val and bare.match(val):
+                    issues.append(ValidationIssue(
+                        severity="error",
+                        category="Data",
+                        code="MALFORMED_DATETIME",
+                        message=(
+                            f"PROJECT.{field}={val!r} is a bare date with no time; "
+                            f"P6/SmartPM require 'YYYY-MM-DD HH:MM'"
+                        ),
+                        affected=[r.get("proj_id", "")],
+                    ))
+
+    task = doc.section("TASK")
+    if task is not None:
+        for r in task.rows:
+            tid = r.get("task_id", "")
+            for field in _DATE_FIELDS:
+                val = (r.get(field, "") or "").strip()
+                if val and bare.match(val):
+                    issues.append(ValidationIssue(
+                        severity="error",
+                        category="Data",
+                        code="MALFORMED_DATETIME",
+                        message=(
+                            f"Task {tid!r} {field}={val!r} is a bare date with no time; "
+                            f"P6/SmartPM require 'YYYY-MM-DD HH:MM'"
+                        ),
+                        affected=[tid],
+                    ))
+    return issues
+
+
+# Integer key / foreign-key columns per table.  P6 (and SmartPM's Java parser)
+# read these as integers; a non-numeric value crashes P6 on import
+# (AVAA0-1866-2) and makes SmartPM throw NumberFormatException ("For input
+# string: ..."). Audited against 204 real Westland exports: every one of these
+# is numeric wherever it is non-empty.  Optional FKs (parent_wbs_id on the root,
+# base_clndr_id on a base calendar, proj_id on a global activity-code type) are
+# legitimately empty — only NON-EMPTY values are checked.
+_INTEGER_ID_COLUMNS = {
+    "PROJECT": ("proj_id",),
+    "PROJWBS": ("wbs_id", "parent_wbs_id", "obs_id", "proj_id"),
+    "TASK": ("task_id", "wbs_id", "clndr_id", "proj_id"),
+    "CALENDAR": ("clndr_id", "base_clndr_id", "proj_id"),
+    "TASKPRED": ("task_pred_id", "task_id", "pred_task_id", "proj_id", "pred_proj_id"),
+    "OBS": ("obs_id",),
+    "SCHEDOPTIONS": ("proj_id",),
+    "ACTVTYPE": ("actv_code_type_id", "proj_id"),
+    "ACTVCODE": ("actv_code_id", "actv_code_type_id"),
+    "TASKACTV": ("task_id", "actv_code_type_id", "actv_code_id", "proj_id"),
+}
+
+
+def _check_non_numeric_ids(doc) -> list[ValidationIssue]:
+    """Flag integer key/FK columns that carry a non-numeric value.
+
+    P6's proj_id / wbs_id / task_id / clndr_id / obs_id are integer primary and
+    foreign keys.  A non-numeric value (e.g. proj_id='HHRETAIL') crashes
+    Primavera P6 on import (AVAA0-1866-2, a null-deref after the integer key
+    fails to bind) and makes SmartPM reject the file with a Java
+    NumberFormatException.  Verified against 204 real exports — every value in
+    these columns is numeric where present.
+    """
+    import re as _re
+    numeric = _re.compile(r"^-?\d+$")
+    issues: list[ValidationIssue] = []
+    for sec_name, cols in _INTEGER_ID_COLUMNS.items():
+        sec = doc.section(sec_name)
+        if sec is None:
+            continue
+        for r in sec.rows:
+            for col in cols:
+                val = (r.get(col, "") or "").strip()
+                if val and not numeric.match(val):
+                    issues.append(ValidationIssue(
+                        severity="error",
+                        category="Data",
+                        code="NON_NUMERIC_ID",
+                        message=(
+                            f"{sec_name}.{col}={val!r} must be an integer; P6/SmartPM "
+                            f"parse this as a numeric key (non-numeric crashes import)"
+                        ),
+                        affected=[val],
+                    ))
     return issues
 
 
@@ -612,6 +772,57 @@ def _check_actual_after_data_date(doc) -> list[ValidationIssue]:
     return issues
 
 
+_INCOMPLETE_ROW_SPECS = (
+    ("TASK", REQUIRED_TASK_COLUMNS, "task_id", "task_code", "INCOMPLETE_TASK_ROW"),
+    ("PROJWBS", REQUIRED_WBS_COLUMNS, "wbs_id", "wbs_short_name", "INCOMPLETE_WBS_ROW"),
+)
+
+
+def _check_incomplete_required_columns(doc) -> list[ValidationIssue]:
+    """Flag TASK / PROJWBS rows that leave P6-required NOT-NULL columns empty.
+
+    Root cause of the AVAA0-1866-2 import crash: the proposal-schedule
+    add-handlers emitted rows with only a subset of columns populated, leaving
+    bit-flags / enums / quantity decimals / the OBS pointer / EV settings blank.
+    P6 access-violates on import when it dereferences these.  A genuine P6
+    export populates them on every row.
+
+    To avoid false positives on legitimately sparse exports, a column is treated
+    as required only when at least one row in the same section DOES populate it —
+    i.e. the file is internally inconsistent ("half-built"), which is the
+    signature of the generator bug and does not occur in a real P6 export.
+    """
+    issues: list[ValidationIssue] = []
+    for sec_name, req_cols, id_field, label_field, code in _INCOMPLETE_ROW_SPECS:
+        sec = doc.section(sec_name)
+        if sec is None or not sec.rows:
+            continue
+        present = set(sec.field_order)
+        # Only require a column that exists AND that some row actually fills.
+        expected = [
+            c for c in req_cols
+            if c in present and any(str(r.get(c, "")).strip() for r in sec.rows)
+        ]
+        if not expected:
+            continue
+        for r in sec.rows:
+            empties = [c for c in expected if not str(r.get(c, "")).strip()]
+            if empties:
+                rid = r.get(id_field, "")
+                issues.append(ValidationIssue(
+                    severity="error",
+                    category="Data",
+                    code=code,
+                    message=(
+                        f"{sec_name} row {rid!r} ({r.get(label_field, '')}) is missing "
+                        f"P6-required column(s) that sibling rows populate: "
+                        f"{', '.join(empties)}"
+                    ),
+                    affected=[rid],
+                ))
+    return issues
+
+
 def validate(doc) -> ValidationReport:
     """Run all file-integrity checks. Returns a ValidationReport with
     all detected issues. import_ready = no error-severity issues.
@@ -631,6 +842,8 @@ def validate(doc) -> ValidationReport:
     # Data
     issues.extend(_check_negative_durations(doc))
     issues.extend(_check_invalid_dates(doc))
+    issues.extend(_check_bare_datetimes(doc))
+    issues.extend(_check_non_numeric_ids(doc))
     issues.extend(_check_invalid_relationship_types(doc))
     issues.extend(_check_invalid_status_codes(doc))
     # Network / Structure
@@ -640,4 +853,6 @@ def validate(doc) -> ValidationReport:
     # Status
     issues.extend(_check_status_date_mismatch(doc))
     issues.extend(_check_actual_after_data_date(doc))
+    # Completeness — empty P6-required columns crash P6 on import (AVAA0-1866-2)
+    issues.extend(_check_incomplete_required_columns(doc))
     return ValidationReport(issues=issues)

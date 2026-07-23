@@ -64,8 +64,9 @@ class TestCreateXerFromTemplateHappyPath(unittest.TestCase):
         )
         self.assertEqual(result["project_name"], _METADATA["project_name"])
 
-    def test_proj_short_name_propagated(self):
-        """Re-parse the output and confirm proj_short_name matches project_name."""
+    def test_project_code_and_name_mapped_like_a_real_export(self):
+        """The human project code goes in proj_short_name; the long name on the
+        root WBS node — mirroring real P6 exports (proj_id is a numeric key)."""
         result = create_xer_from_template_impl(
             SKELETON_NAME, _METADATA, output_path=self.output_path, cache=self.cache
         )
@@ -73,18 +74,30 @@ class TestCreateXerFromTemplateHappyPath(unittest.TestCase):
         proj_section = doc.section("PROJECT")
         self.assertIsNotNone(proj_section)
         self.assertGreater(len(proj_section.rows), 0)
-        self.assertEqual(
-            proj_section.rows[0]["proj_short_name"], _METADATA["project_name"]
-        )
+        # Code (metadata project_id) -> proj_short_name (P6's "Project ID").
+        self.assertEqual(proj_section.rows[0]["proj_short_name"], _METADATA["project_id"])
+        # Long name -> root WBS node's wbs_name.
+        root = [r for r in doc.section("PROJWBS").rows if r.get("proj_node_flag") == "Y"]
+        self.assertEqual(len(root), 1)
+        self.assertEqual(root[0]["wbs_name"], _METADATA["project_name"])
 
-    def test_proj_id_propagated(self):
-        """Re-parse the output and confirm proj_id matches metadata."""
+    def test_proj_id_is_numeric(self):
+        """proj_id must be an integer key (a non-numeric proj_id crashes P6
+        import and is rejected by SmartPM's numeric parser)."""
         result = create_xer_from_template_impl(
             SKELETON_NAME, _METADATA, output_path=self.output_path, cache=self.cache
         )
         doc = parse_for_writing(result["output_path"])
-        proj_section = doc.section("PROJECT")
-        self.assertEqual(proj_section.rows[0]["proj_id"], _METADATA["project_id"])
+        proj_id = doc.section("PROJECT").rows[0]["proj_id"]
+        self.assertTrue(proj_id.isdigit(), f"proj_id must be numeric, got {proj_id!r}")
+        # It must be propagated (numerically) to every proj_id-bearing table.
+        for sec in ("PROJWBS", "TASK", "TASKPRED", "CALENDAR"):
+            s = doc.section(sec)
+            if s is None:
+                continue
+            for r in s.rows:
+                if r.get("proj_id", ""):
+                    self.assertTrue(r["proj_id"].isdigit(), f"{sec}.proj_id not numeric: {r['proj_id']!r}")
 
 
 class TestCreateXerFromTemplateMilestones(unittest.TestCase):

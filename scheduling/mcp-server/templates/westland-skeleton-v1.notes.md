@@ -1,21 +1,50 @@
 # westland-skeleton-v1.xer — Curation Notes
 
-## PENDING MANUAL VALIDATION
+## AVAA0-1866-2 IMPORT CRASH — root cause found (fixed in scheduling 10.1.1)
+
+Every proposal schedule generated from this skeleton crashed Primavera P6
+Professional v24 on import with Event Code AVAA0-1866-2, and was rejected by
+SmartPM. The root cause was **not** in this skeleton file — its own 21 WBS nodes
+and 2 milestones are fully populated and structurally sound. There were **three
+independent data-shape bugs** in the generator (`lib/xer_modify.py`), all latent
+since 9.0.0, each of which alone crashes P6:
+
+1. **Empty required columns** — `_append_new_task` / `_handle_add_wbs` created every
+   downstream-added TASK/PROJWBS row with P6-required NOT-NULL columns left empty
+   (task bit-flags, `priority_type`, work/equip quantity decimals; WBS `obs_id`,
+   `proj_node_flag`, `sum_data_flag`, `est_wt`, `seq_num`).
+2. **Bare datetime** — `create_from_template` normalized `planned_start` but not
+   `planned_data_date`, shipping a bare `YYYY-MM-DD` data date; P6/SmartPM require
+   `YYYY-MM-DD HH:MM`.
+3. **Non-numeric proj_id** — the human project code was written into `proj_id`,
+   which P6/SmartPM parse as an integer key. Per Oracle's XER data map, `proj_id`
+   is the numeric "Unique ID"; the code belongs in `proj_short_name` and the long
+   name on the root WBS node's `wbs_name`.
+
+10.1.1 fixes all three and adds `INCOMPLETE_TASK_ROW`/`INCOMPLETE_WBS_ROW`,
+`MALFORMED_DATETIME`, and `NON_NUMERIC_ID` checks to `xer_validate` (calibrated
+against 204 real exports, zero false positives) so none can be reported
+`import_ready` again; the create path now validates before writing.
+
+## PENDING MANUAL VALIDATION (STILL NOT CLEARED — do this before claiming P6-ready)
 
 This skeleton passed round-trip byte-identity and `xer_validate` (import_ready=True,
-zero errors) but has **NOT yet been import-tested in Primavera P6 or Procore**.
-That gate is required before scheduling 9.0.0 is distributed. Until then, treat
-the skeleton as a validated artifact pending final acceptance, not a production-ready
-template.
+zero errors) but has **NOT yet been import-tested in Primavera P6 or Procore** — this
+gate, required since 9.0.0, was never performed, which is how a non-importable
+generation path shipped undetected. The 10.1.1 fix is verified structurally (unit
+tests + a 204-file real-export audit) but **not** by an actual P6 import, because the
+build environment has no P6. Clearing this gate remains required.
 
 Manual validation steps remaining:
-1. Import `westland-skeleton-v1.xer` into a Primavera P6 test environment and confirm
-   the project appears with the correct WBS tree, two milestones, and the NTP->SC FS edge.
+1. Instantiate a schedule via `create_xer_from_template` **and apply a realistic
+   change set** (add_wbs + add_activity + add_logic), then import the result into a
+   Primavera P6 Professional v24 test environment and confirm it imports without
+   AVAA0-1866-2, with the correct WBS tree, activities, milestones, and logic.
 2. Confirm the calendar "Standard" (clndr_id 18261) loads correctly with its work-week
    definition intact.
 3. Import the same file into Procore (Schedule module) and confirm the project can be
    created and activities are visible.
-4. Only after both imports succeed: remove this section and distribute 9.0.0.
+4. Only after both imports succeed: remove this section.
 
 ---
 
