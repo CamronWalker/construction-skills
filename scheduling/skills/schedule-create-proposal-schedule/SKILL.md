@@ -25,9 +25,9 @@ This skill operationalizes the Westland Scheduling Department Procedural Outline
 3. **Present Recommendations** -- Propose complete schedule structure based on findings
 4. **Ask 2-3 Targeted Questions** -- Only what the documents don't answer
 5. **Generate XER (v1)** -- Via `create_xer_from_template` + `apply_xer_changes`
-6. **Iterate via Gantt Review HTML** -- Camron pastes back changes; agent runs `proposal_iterate.py`; loop until approved
+6. **Iterate via the online review link** -- Claude publishes the review link; Camron (or a reviewer) leaves comments there; agent pulls + reconciles them and runs `proposal_iterate.py`; loop until approved
 7. **Score & Iterate** -- Quality (DCMA / Westland rubric) iteration via the toolbox until target letter grade is reached
-8. **On Final Approval** -- Write the AI postmortem, then generate the Westland-branded Plan PDF (the PDF reflects the *final* schedule, not the v1 draft)
+8. **On Final Approval** -- Write the AI postmortem, generate the Westland-branded Plan PDF, then run the final XER-validation gate (the PDF reflects the *final* schedule, not the v1 draft)
 
 The Plan PDF is the last step, not Phase 5. Generating it before iteration produces a document that contradicts the XER it ships with.
 
@@ -38,7 +38,7 @@ This SKILL.md is a dispatcher. Load the relevant phase file for what you're actu
 | Situation | Load |
 |-----------|------|
 | Starting a new proposal from bid docs and sample XERs (workflow steps 1-6) | `phases/01-draft.md` |
-| Camron pasted a Copy-for-Claude payload from `schedule-review.html` (workflow step 7, the high-frequency loop) | `phases/02-iterate.md` -- and ONLY this file |
+| Camron left comments on the online review link (workflow step 7, the high-frequency loop) | `phases/02-iterate.md` -- and ONLY this file |
 | Scoring schedule quality / fixing dangling, missing logic, soft constraints (workflow step 8) | `phases/03-score.md` |
 | Bootstrapping anchors on a project with legacy hard-constraints | `phases/02-iterate.md` -- see the `anchors_from_constraints.py` section |
 
@@ -51,7 +51,8 @@ All operations route through one CLI: **`python scheduling/tools/propsched.py <v
 | Verb | Use |
 |------|-----|
 | `propsched init "<path>"` | Create a new project folder with the v4.0.0 layout |
-| `propsched iterate --project "<p>" --paste paste.json` | Apply a paste-back: CPM, anchor check, write next XER + JSON + HTML, archive paste-back. Exit 2 on anchor slip with cut suggestions |
+| `propsched iterate --project "<p>" --paste paste.json` | Apply a paste-back: CPM, anchor check, write next XER + JSON, archive paste-back. Exit 2 on anchor slip with cut suggestions |
+| `propsched feedback pull "<p>" --file online-comments.json` | Reconcile comments pulled from the online review link (`get_proposal_review_comments`) onto the current schedule, drift-aware |
 | `propsched paths "<p>"` | Print critical / driving / near-critical paths (no CPM, no XER parse) |
 | `propsched anchors "<p>"` | Print anchor status / drift |
 | `propsched bootstrap-anchors "<p>"` | One-shot: lift hard-constraint anchors into `proposal-anchors.json` |
@@ -68,7 +69,6 @@ All operations route through one CLI: **`python scheduling/tools/propsched.py <v
   Sample Schedules/
   <Project>.xer                         <- current/working XER
   schedule-activities.json
-  schedule-review.html
   Schedule Plan.pdf                     <- final plan (post-approval)
   proposal-anchors.json
   Old Iterations/
@@ -80,6 +80,7 @@ All operations route through one CLI: **`python scheduling/tools/propsched.py <v
 ```
 
 Legacy projects (Proposal Schedule/ subfolder) auto-detected and supported.
+The review surface itself is hosted, not a local artifact -- `generate_proposal_review_link` serves it from the westland-mcps cloud MCP, so there is no `schedule-review.html` (or any other review file) in this tree to generate, version, or clean up.
 
 ## After the Project: Lessons Learned Loop
 

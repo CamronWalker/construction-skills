@@ -4,7 +4,7 @@ Load this file when starting a new proposal from bid documents and sample
 XERs. Covers gather inputs, parse + analyze, recommend structure, ask
 targeted questions, generate the plan PDF, and generate the v1 XER.
 
-For iteration on a draft (paste-back from the Gantt review HTML), load
+For iteration on a draft (comments pulled from the online review link), load
 `phases/02-iterate.md` instead -- not this file.
 
 ---
@@ -264,4 +264,4 @@ Call `validate_xer_structure(output_path)` and confirm `import_ready: true`. If 
 
 The plan PDF is **NOT** generated yet. The PDF gets built at the end (after iteration + scoring + approval) so it reflects the final schedule, not the v1 draft. See `phases/02-iterate.md` § "Generate the Plan PDF (post-approval)" for the trigger.
 
-After v1 is written, render the Gantt review HTML and start iterating -- load `phases/02-iterate.md` from that point on.
+After v1 is written, publish the review link (`generate_proposal_review_link`) and start iterating -- load `phases/02-iterate.md` from that point on.

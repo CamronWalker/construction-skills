@@ -1,29 +1,56 @@
 # Phase 6.5+: Iteration Loop
 
 Load this file when iterating on a draft proposal -- after v1 has been
-generated and Camron is using the Gantt review HTML to send paste-backs.
-This is the high-frequency loop; it should be the only phase file an
-agent loads during iteration.
+generated and published to the online review link, and Camron (or a
+reviewer) is leaving comments there for Claude to pull. This is the
+high-frequency loop; it should be the only phase file an agent loads
+during iteration.
 
 For drafting from bid docs, see `phases/01-draft.md`.
 For score & quality iteration, see `phases/03-score.md`.
 
 ---
 
-## Phase 6.5: Gantt Review HTML
+## Phase 6.5: Publish the Online Review Link
 
-After the XER is generated, emit `schedule-activities.json` and render `schedule-review.html` next to it. This is the comprehension layer for both Camron and Claude -- not a deliverable, a working document overwritten each iteration.
+There is no local review file anymore. After the XER is generated (v1, and
+again after each iteration), Claude publishes the current
+`schedule-activities.json` to a hosted review link -- that link is the
+review surface for both solo iteration and a distributed review round,
+and it's the only comprehension layer between Camron and Claude for this
+phase.
 
 > **Don't read source files. Call them.**
-> The proposal-iteration loop runs through four CLI tools in `scheduling/tools/`. These are the canonical entry points -- do not Read `cpm_engine.py`, `gantt-review.html`, `frappe-gantt.umd.js`, the full `schedule-activities.json`, or any `.xer` file during iteration.
+> The proposal-iteration loop runs through the CLI tools in `scheduling/tools/`. These are the canonical entry points -- do not Read `cpm_engine.py`, the full `schedule-activities.json`, or any `.xer` file during iteration.
 > - DO NOT write your own pipeline. Use `tools/proposal_iterate.py`.
 > - DO NOT load the full activities JSON for context. Use `tools/show_paths.py` and `tools/show_anchors.py`.
 > - DO NOT read `cpm_engine.py` to understand helpers -- the CLIs already call them.
 > - If a CLI lacks a flag you need, ask before refactoring. Worked Python is in `examples/iterate.py` for advanced custom flows; copy-and-adapt only when the CLI cannot do the job.
 
-The first proposal-iteration call generates the JSON and HTML automatically (see § "Iteration loop" below). On a brand-new project, you can render the HTML directly from the existing activities JSON via `python scheduling/tools/build_gantt_html.py <project>/Proposal Schedule/schedule-activities.json`.
+### Publish
 
-Output: `<project-folder>/Proposal Schedule/schedule-review.html` (self-contained, no CDN). Camron opens it in Chrome. The HTML shows top-level WBS bars by default with carets to expand into trade-level activities. Critical path is red, near-critical amber, summary navy. The right-side panel lists the critical path, every driving path (to SC, to project end, to each FNLT-constrained task), near-critical chains, and parallel branches.
+Read the project's `schedule-activities.json` and call:
+
+```
+generate_proposal_review_link({
+  job_number:      "<job number -- from the project's Supabase record via get_project>",
+  project_name:    "<Project Name>",
+  activities_json: <contents of schedule-activities.json>,
+  new_version:     false   # omit/false during solo iteration; true to open a fresh review round
+})
+```
+
+Returns `{ review_url, expires_at, version_label, mode }`. Hand `review_url`
+to Camron -- that is the entire hand-off, there is no file to send or open.
+
+- **Solo iteration (no `new_version`, or `new_version: false`):** re-publishing
+  updates the *current* version in place and preserves existing comments.
+  Camron refreshes the same link after every regeneration.
+- **After a review round (`new_version: true`):** cuts a fresh version with a
+  clean comment slate, so resolved or stale comments from the prior round
+  don't clutter the next one. Publish with `new_version: true` right after
+  you've pulled and applied a round of comments (see below).
+- Optionally log the publish: `append_project_log(category="schedule_published")`.
 
 ### Read the paths section first (mandatory before any edit)
 
@@ -33,43 +60,62 @@ Example (good): *"This shortens A220 by 3 days. A220 is on the critical path -> 
 
 Example (bad): *"Reducing A220 from 10d to 7d."* (No path awareness, no second-order analysis.)
 
-### Iteration loop
+### Pull & reconcile comments
 
-The HTML is the input surface. Camron edits durations inline, leaves notes on activity-ID chips, and clicks **Copy for Claude** -- that copies a structured JSON payload to his clipboard. He pastes it into the agent terminal. Claude consumes the payload, regenerates the XER + JSON + HTML, Camron refreshes.
+Comments accumulate on the hosted link -- there is no clipboard payload to
+paste anymore. Pull them down when Camron says he's left comments, or on
+your own cadence during a review round:
 
-**Paste-back payload schema** (what Camron pastes into chat):
+1. Call `get_proposal_review_comments({ job_number })`.
+2. Write the result to `<project>/Old Iterations/online-comments-<date>.json`.
+3. Reconcile against the current schedule:
+   ```bash
+   python scheduling/tools/propsched.py feedback pull "<project>" --file "<project>/Old Iterations/online-comments-<date>.json"
+   ```
+   This maps the online comments onto the same `westland-reviewer-feedback`
+   shape `feedback ingest` uses (grouped by reviewer + version reviewed),
+   runs the same drift detection, and parks each mapped payload under
+   `Old Iterations/reviewer-feedback/`. Resolved comments are excluded by
+   default -- pass `--include-resolved` to pull them anyway.
+4. Read the parked feedback (`propsched feedback show "<project>" <reviewer>`)
+   and decide what to apply. Anything the drift report flags -- a task
+   renamed, moved, or changed duration since the comment was left -- needs a
+   judgment call; ask Camron rather than silently applying or dropping it.
+
+**The `get_proposal_review_comments` result shape** (what gets written to
+`online-comments-<date>.json`):
 
 ```json
 {
-  "project": "Murray City Apex Center",
-  "data_date": "2026-04-29",
-  "generated_at": "2026-04-30T17:24:00Z",
-  "change_count": 2,
-  "comment_count": 3,
-  "activities": [
+  "job_number": "W1234",
+  "current_version": "v3",
+  "versions": ["v1", "v2", "v3"],
+  "comments": [
     {
-      "id": "12345",                            // XER task_id
-      "task_code": "APEX0040",                  // human-readable code
-      "name": "50% CD Estimate Update Complete",
-      "duration_change": {"from_days": 5, "to_days": 7},   // optional
-      "comment": "Add LLI lead time"                       // optional
+      "id": "c1",
+      "version_label": "v2",
+      "task_code": "APEX0040",
+      "task_name_snapshot": "50% CD Estimate Update Complete",
+      "orig_duration_snapshot": 5,
+      "reviewer_id": "r1",
+      "reviewer_name": "Steve Westover",
+      "body": "Add LLI lead time",
+      "suggested_duration_days": 7,
+      "resolved": false,
+      "created_at": "2026-04-29T17:24:00Z"
     }
-  ],
-  "default_view": {                             // optional, present when "Default view" checkbox was on
-    "px_per_day": 4,
-    "display_unit": "Quarter",
-    "scroll_left": 1240,
-    "scroll_top": 0,
-    "expanded_ids": ["WBS01", "WBS02"],
-    "table_width_px": 540
-  }
+  ]
 }
 ```
 
+`feedback pull` groups comments by `(reviewer_name, version_label)` into one
+`westland-reviewer-feedback` payload per group -- the same shape `feedback
+ingest` and the postmortem's drift-detection code already expect.
+
 **Claude's iteration steps:**
 
-1. **Orient with `show_paths.py`.** Before touching anything, run `python scheduling/tools/propsched.py paths "<project>"` to see which activities the proposed `activities[*].id` lie on (critical path, driving path to SC, near-critical, parallel branches). State the second-order effect of every change before applying.
-2. **Save Camron's paste-back to `paste.json`** in the project folder (or wherever you like; the path is just a CLI argument).
+1. **Orient with `show_paths.py`.** Before touching anything, run `python scheduling/tools/propsched.py paths "<project>"` to see which activities the reconciled comments' `task_code`/`id` lie on (critical path, driving path to SC, near-critical, parallel branches). State the second-order effect of every change before applying.
+2. **Build `paste.json`** from the comments you're accepting this round -- same schema `propsched iterate` has always taken: a `project`/`data_date` header plus an `activities` list keyed by `id`/`task_code`, each with an optional `duration_change` and/or `comment`. Source the list from the parked reviewer-feedback JSON (or directly from `online-comments-<date>.json` when you're applying comments without a formal review round).
 3. **Apply each `comment`** that needs a sequence change, constraint addition, parent move, or new activity. Comments are free-form; for simple ones edit directly via the XER write-back pattern, for ambiguous ones reply with a clarifying question before editing.
 4. **Run the iterate CLI:**
     ```bash
@@ -78,14 +124,14 @@ The HTML is the input surface. Camron edits durations inline, leaves notes on ac
    Behavior:
    - Loads the latest `-v{N}.xer`, applies in-memory `duration_change` from `paste.json`, runs what-if CPM (cached by hash of the modified task graph; `--no-cache` to force).
    - Calls `check_anchor_dates`. If any anchor (NTP, 100% CDs, SC, GMP, etc.) slips later than its bid-given date, prints the slips + top-5 cut candidates per slip and exits with code 2. **Nothing is written.**
-   - If anchors hold, writes `-v{N+1}.xer`, regenerates `schedule-activities.json` (preserving `default_view` from the paste-back so zoom/scroll/expand state survive), regenerates `schedule-review.html`, archives the paste-back to `iterations/paste-{N+1}.json`, and prints a 5-line summary.
+   - If anchors hold, writes `-v{N+1}.xer`, regenerates `schedule-activities.json` (preserving `default_view` from the paste-back so zoom/scroll/expand state survive), archives the paste-back to `iterations/paste-{N+1}.json`, and prints a 5-line summary.
 5. **If the CLI reported slips**, formulate an absorption plan WITH Camron (cut candidates from the CLI output + any logic changes), save the plan as `absorption.json` (same schema as paste -- list of `activities` with `duration_change`), then re-run:
     ```bash
     python scheduling/tools/propsched.py iterate --project "<project>" --paste paste.json --apply absorption.json
     ```
-6. **Camron refreshes** the HTML and verifies. Loop.
+6. **Re-publish the review link** (`generate_proposal_review_link`, see § "Publish" above) so Camron can see the update -- omit `new_version` if you're still mid-round on the same batch of comments, or pass `new_version: true` if this iteration closed out a review round. Camron refreshes the online link and verifies. Loop.
 7. **On approval ("this is good, generate the XER")**, write the AI self-postmortem BEFORE producing the final XER. See § "Postmortem on final approval" below.
-8. **The latest `-v{N}.xer` is the final.** The HTML and `schedule-activities.json` are transient working documents -- overwritten each iteration, never versioned. The per-iteration paste-backs in `iterations/paste-*.json` are durable; the postmortem reads them.
+8. **The latest `-v{N}.xer` is the final.** `schedule-activities.json` and the hosted review link are transient working state -- overwritten or updated each iteration, never versioned. The per-iteration paste-backs in `iterations/paste-*.json` are durable; the postmortem reads them.
 
 ### Anchor milestones -- confirm before regenerating
 
@@ -228,10 +274,12 @@ Per substantive correction, write three lines:
 - **Hypothesis I am extracting** -- first-person, scoped to this project type, NOT crowned a rule
 
 ## Reviewer feedback received
-Summarize external-reviewer JSONs in this folder's reviewer-feedback/. For each
-material insight kept, cite reviewer + date and note whether the feedback was
-on the version that shipped or an earlier one (drift report from
-`propsched feedback ingest` already showed you).
+Summarize external-reviewer JSONs in this folder's reviewer-feedback/. Feedback
+now arrives via `propsched feedback pull` (attributed comments pulled off the
+published online review link) or, for out-of-band JSON, `propsched feedback
+ingest`. For each material insight kept, cite reviewer + date and note whether
+the feedback was on the version that shipped or an earlier one (the drift
+report from whichever verb parked it already showed you).
 
 ## Themes within this project
 Patterns that recurred across multiple corrections in this single cycle. Caveat: still hypotheses, not rules.
