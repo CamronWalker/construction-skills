@@ -18,7 +18,6 @@ examples for every verb).
   Sample Schedules/
   <Project>.xer                         <- current/working XER (no -vN suffix)
   schedule-activities.json
-  schedule-review.html
   Schedule Plan.pdf                     <- final plan (post-approval)
   proposal-anchors.json
   Old Iterations/
@@ -48,8 +47,6 @@ tools/
   score_with_sidecar.py         # score verb
   postmortem_aggregate.py       # aggregate-postmortems verb
   init_project.py               # init verb
-
-  build_gantt_html.py           # called internally by iterate
 
   _xer_io.py                    # shared XER parse/write helpers
   _cpm_loader.py                # locates cpm_engine.py

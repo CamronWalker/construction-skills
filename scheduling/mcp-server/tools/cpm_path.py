@@ -277,7 +277,7 @@ def run_cpm_impl(
 def get_gantt_json_impl(
     xer_path: str, project_name: Optional[str], cache
 ) -> dict:
-    """Return the structured chart payload that ``build_gantt_html`` consumes:
+    """Return the structured chart payload for the Gantt/paths view:
     project metadata + WBS+activity rows + the ``paths`` analytics block."""
     parsed = cache.get_parsed(xer_path)
     results, metadata = cache.get_cpm(xer_path)

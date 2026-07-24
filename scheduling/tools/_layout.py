@@ -6,7 +6,6 @@ LEGACY (pre-v4.0.0):
     <project>/Proposal Schedule/
         Murray Apex Center -v1.xer ... -v{N}.xer       <- all versions live here
         schedule-activities.json                        <- current
-        schedule-review.html                            <- current
         proposal-anchors.json
         Schedule Plan - <Project>.pdf
         iterations/paste-*.json
@@ -17,7 +16,6 @@ NEW (v4.0.0+):
     <project>/
         <Project Name>.xer                              <- current/final XER, no version suffix
         schedule-activities.json                        <- current
-        schedule-review.html                            <- current
         Schedule Plan.pdf                               <- final plan (post-approval)
         proposal-anchors.json                           <- anchors metadata
         Old Iterations/
@@ -137,10 +135,6 @@ def anchors_path(project, layout=None):
 
 def activities_json_path(project, layout=None):
     return proposal_dir(project, layout) / 'schedule-activities.json'
-
-
-def html_path(project, layout=None):
-    return proposal_dir(project, layout) / 'schedule-review.html'
 
 
 def debug_log_path(project, layout=None):

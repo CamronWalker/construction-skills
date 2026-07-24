@@ -1576,7 +1576,9 @@ def extract_paths(results, metadata, preds):
 
 
 # ---------------------------------------------------------------------------
-# Activities JSON export (consumed by build_gantt_html.py)
+# Activities JSON export (consumed by the proposal-schedule review flow --
+# published to the online review link, and read by get_gantt_json_impl /
+# render_gantt_html_impl in the MCP server)
 # ---------------------------------------------------------------------------
 
 def _wbs_lookup(wbs_rows):
@@ -1613,7 +1615,8 @@ def build_activities_json(results, metadata, preds, project_name=None,
                            data_date=None, wbs_rows=None, default_view=None,
                            version=None):
     """
-    Build the schedule-activities.json structure consumed by build_gantt_html.py.
+    Build the schedule-activities.json structure that drives the
+    proposal-schedule review surface (the online review link).
 
     Includes the activity list with WBS hierarchy + the `paths` analytics
     section (critical, near-critical, driving paths, parallel branches).
