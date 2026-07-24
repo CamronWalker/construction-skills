@@ -340,6 +340,6 @@ See `references/plan-document-template.md` for the original markdown template st
 
 Generation already refuses to write a malformed .xer, but confirm it explicitly on the final file:
 
-1. Call `validate_xer_structure` on the latest `-v{N}.xer` (the deliverable).
+1. Call `validate_xer_structure` on the deliverable XER — in the v4.0.0+ layout that is the unsuffixed `<Project>.xer` at the project root (the `-v{N}.xer` files in `Old Iterations/` are archived predecessors); on a legacy-layout project it is the highest `-v{N}.xer` in place.
 2. If `import_ready` is true -> print: **"Import-ready ✓ — 0 errors, {W} warnings"** and proceed.
-3. If false -> print each error-severity issue as `[error] {category}: {message} ({row})`, state **"NOT import-ready — do not deliver"**, and return to the iterate loop to regenerate. Never edit the .xer by hand (immutable).
+3. If false -> print each error-severity issue as `[error] {category}: {message} (affected: {affected})` (the issue objects carry `severity`/`category`/`code`/`message`/`affected` — there is no `row` field), state **"NOT import-ready — do not deliver"**, and return to the iterate loop to regenerate. Never edit the .xer by hand (immutable).

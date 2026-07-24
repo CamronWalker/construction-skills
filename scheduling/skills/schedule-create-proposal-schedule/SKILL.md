@@ -80,7 +80,7 @@ All operations route through one CLI: **`python scheduling/tools/propsched.py <v
 ```
 
 Legacy projects (Proposal Schedule/ subfolder) auto-detected and supported.
-The review surface itself is hosted, not a local artifact -- `generate_proposal_review_link` serves it from the westland-mcps cloud MCP, so there is no `schedule-review.html` (or any other review file) in this tree to generate, version, or clean up.
+The review surface itself is hosted, not a local artifact -- `generate_proposal_review_link` serves it from the westland-mcps cloud MCP (the tools live on the **Westland connector**, `/westland/mcp` -- if the tool isn't found, that's the connector to attach), so there is no `schedule-review.html` (or any other review file) in this tree to generate, version, or clean up.
 
 ## After the Project: Lessons Learned Loop
 
