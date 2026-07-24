@@ -740,9 +740,13 @@ def _handle_remove_logic(doc, change: dict, state: ChangeState) -> dict:
 
     i = matching_indices[0]
 
-    # Remove the row from rows (and raw_lines if present), then re-index _dirty
+    # Remove the row from rows (and raw_lines if present), then re-index _dirty.
+    # raw_lines is a prefix of rows: rows appended in this same edit session
+    # (e.g. via add_logic) have no raw_lines entry, so a popped index can sit
+    # beyond len(raw_lines). Guard the raw_lines.pop on bounds, not just None,
+    # or removing a freshly-added edge raises IndexError.
     taskpred.rows.pop(i)
-    if taskpred.raw_lines is not None:
+    if taskpred.raw_lines is not None and i < len(taskpred.raw_lines):
         taskpred.raw_lines.pop(i)
 
     # Re-index _dirty: entries at index > i shift down by 1; entry i itself is gone
@@ -1055,7 +1059,7 @@ def _handle_remove_activity(doc, change: dict, state: ChangeState) -> dict:
 
     # Step 1: remove the TASK row
     task.rows.pop(task_row_index)
-    if task.raw_lines is not None:
+    if task.raw_lines is not None and task_row_index < len(task.raw_lines):
         task.raw_lines.pop(task_row_index)
     # Re-index _dirty for TASK: entries at index > task_row_index shift down by 1;
     # entry task_row_index itself is gone
@@ -1081,7 +1085,7 @@ def _handle_remove_activity(doc, change: dict, state: ChangeState) -> dict:
         # Remove in reverse order so earlier pops don't shift later indices
         for i in sorted(taskpred_indices_to_remove, reverse=True):
             taskpred.rows.pop(i)
-            if taskpred.raw_lines is not None:
+            if taskpred.raw_lines is not None and i < len(taskpred.raw_lines):
                 taskpred.raw_lines.pop(i)
 
         # Re-index _dirty for TASKPRED: subtract the count of removed indices
@@ -1260,7 +1264,7 @@ def _handle_dissolve_activity(doc, change: dict, state: ChangeState) -> dict:
 
     # Remove TASK row
     task.rows.pop(task_row_index)
-    if task.raw_lines is not None:
+    if task.raw_lines is not None and task_row_index < len(task.raw_lines):
         task.raw_lines.pop(task_row_index)
     task._dirty = {
         d - 1 if d > task_row_index else d
@@ -1279,7 +1283,7 @@ def _handle_dissolve_activity(doc, change: dict, state: ChangeState) -> dict:
 
         for i in sorted(taskpred_indices_to_remove, reverse=True):
             taskpred.rows.pop(i)
-            if taskpred.raw_lines is not None:
+            if taskpred.raw_lines is not None and i < len(taskpred.raw_lines):
                 taskpred.raw_lines.pop(i)
 
         removed_set = set(taskpred_indices_to_remove)
@@ -1434,7 +1438,7 @@ def _handle_pop_activity(doc, change: dict, state: ChangeState) -> dict:
 
     # --- Remove the original A→B edge -----------------------------------------
     taskpred.rows.pop(target_idx)
-    if taskpred.raw_lines is not None:
+    if taskpred.raw_lines is not None and target_idx < len(taskpred.raw_lines):
         taskpred.raw_lines.pop(target_idx)
     # Re-index _dirty
     taskpred._dirty = {
@@ -1744,7 +1748,7 @@ def _handle_remove_wbs(doc, change: dict, state: ChangeState) -> dict:
 
     # Remove the PROJWBS row (single-row removal pattern from D5)
     projwbs.rows.pop(wbs_row_index)
-    if projwbs.raw_lines is not None:
+    if projwbs.raw_lines is not None and wbs_row_index < len(projwbs.raw_lines):
         projwbs.raw_lines.pop(wbs_row_index)
     # Re-index _dirty: entries at index > wbs_row_index shift down by 1;
     # entry wbs_row_index itself is gone.
@@ -2767,7 +2771,7 @@ def _fix_merge_consolidate(
         # Remove dropped edges in reverse order
         for i in sorted(drop_set, reverse=True):
             taskpred.rows.pop(i)
-            if taskpred.raw_lines is not None:
+            if taskpred.raw_lines is not None and i < len(taskpred.raw_lines):
                 taskpred.raw_lines.pop(i)
 
         # Re-index _dirty for TASKPRED
@@ -2783,7 +2787,7 @@ def _fix_merge_consolidate(
     # --- Remove deleted TASK rows in reverse order ----------------------------
     for idx in sorted(task_indices_to_delete, reverse=True):
         task_section.rows.pop(idx)
-        if task_section.raw_lines is not None:
+        if task_section.raw_lines is not None and idx < len(task_section.raw_lines):
             task_section.raw_lines.pop(idx)
 
     # Re-index _dirty for TASK
