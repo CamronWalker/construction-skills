@@ -32,7 +32,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 COMMANDS = {
     'iterate': (
         'proposal_iterate.py',
-        'Apply a paste-back; run CPM; write next XER + JSON + HTML',
+        'Apply a paste-back; run CPM; write next XER + JSON',
     ),
     'paths': (
         'show_paths.py',

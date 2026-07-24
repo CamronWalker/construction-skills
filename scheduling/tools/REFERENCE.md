@@ -105,8 +105,9 @@ Exit codes: 0 (created), 1 (path exists as a file).
 
 ### `propsched iterate`
 
-Apply a Copy-for-Claude paste-back. Single entry point for the iteration
-loop.
+Apply a paste-back (duration/logic edits assembled from comments pulled off
+the online review link, or handed over directly). Single entry point for
+the iteration loop.
 
 ```bash
 propsched iterate --project "<project>" --paste paste.json

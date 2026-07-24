@@ -5,7 +5,8 @@ activities JSON, or the raw XER.
 
 Usage (typical agent flow):
 
-    # 1. Camron pastes the Copy-for-Claude payload from the Gantt HTML.
+    # 1. Claude pulls comments off the published online review link (or
+    #    Camron hands over a paste.json directly) and builds paste.json.
     python proposal_iterate.py --project "<project>" --paste paste.json
 
     # 2. If the script reports anchor slips, the agent forms an absorption
@@ -226,7 +227,7 @@ def main():
     ap.add_argument('--project', required=True,
                     help='Path to the proposal-schedule project folder')
     ap.add_argument('--paste', required=True,
-                    help='Path to the Copy-for-Claude paste-back JSON')
+                    help='Path to the paste-back JSON (built from pulled review comments, or handed over directly)')
     ap.add_argument('--apply', default=None,
                     help='Path to absorption.json (additional duration cuts)')
     ap.add_argument('--data-date', default=None,

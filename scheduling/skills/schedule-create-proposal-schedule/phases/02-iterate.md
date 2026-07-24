@@ -196,7 +196,7 @@ Reply pattern:
 >
 > Total absorbed: 20d. After re-CPM, SC lands on 2027-07-14 because of the logic, not because anything is constrained. Want me to do it a different way?"
 
-Wait for Camron's reply. Apply what he confirms (his version may differ) by writing `absorption.json` with the agreed `duration_change` items, then re-run `proposal_iterate.py --paste paste.json --apply absorption.json`. The CLI re-checks anchors and only writes the new XER + JSON + HTML when they hold.
+Wait for Camron's reply. Apply what he confirms (his version may differ) by writing `absorption.json` with the agreed `duration_change` items, then re-run `proposal_iterate.py --paste paste.json --apply absorption.json`. The CLI re-checks anchors and only writes the new XER + JSON when they hold.
 
 **If a previous version of the XER carries hard constraints on anchor tasks**, that's a Phase 1 hygiene issue: run `python scheduling/tools/propsched.py bootstrap-anchors "<project>"` once to lift CS_MSO / CS_FNLT / CS_MANDSTART / CS_MANDFIN / CS_MEOB / CS_MFO into `proposal-anchors.json` and emit a sibling `-v{N+1}.xer` with the constraint fields cleared. Westland's anchor-via-logic rule -- the new XER carries no anchor constraints; the bid dates live in `proposal-anchors.json` and are enforced by `proposal_iterate.py` on every iteration. Note the cleanup in the iteration log.
 

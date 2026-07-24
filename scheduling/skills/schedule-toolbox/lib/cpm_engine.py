@@ -1630,9 +1630,9 @@ def build_activities_json(results, metadata, preds, project_name=None,
         wbs_rows: optional PROJWBS rows for hierarchy
         default_view: optional dict with px_per_day / display_unit /
             scroll_left / scroll_top / expanded_ids / table_width_px.
-            When the user clicks "Copy for Claude" with the Default-view
-            checkbox on, the pasted payload includes a `default_view`
-            block; pass it through here so the next HTML render restores
+            Comes through as part of the paste-back payload when the
+            reviewer's saved view state should carry forward; pass it
+            through here so the republished online review link restores
             the same zoom, units, scroll, expand state, and splitter width.
 
     Returns: dict ready to serialize as JSON

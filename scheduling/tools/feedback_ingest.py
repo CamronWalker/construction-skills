@@ -1,7 +1,9 @@
 """feedback_ingest.py -- park a reviewer-feedback JSON and report drift
 against the current XER.
 
-The HTML schedule-review download exports a JSON like:
+The `westland-reviewer-feedback` JSON looks like this, whether it arrives
+hand-authored/emailed (`ingest`) or is mapped from pulled online review
+comments (`pull`, via `map_online_comments`):
 
     {
       "schema": "westland-reviewer-feedback",
@@ -399,7 +401,8 @@ def cmd_pull(args):
     rf_dir = _layout.reviewer_feedback_dir(project, layout)
     rf_dir.mkdir(parents=True, exist_ok=True)
 
-    worst = 0
+    has_error = False
+    has_warn = False
     for p in payloads:
         rv = p.get('version_reviewed')
         rv_str = f'v{rv}' if rv is not None else 'unknown'
@@ -416,10 +419,10 @@ def cmd_pull(args):
         print(_format_drift(drift))
         print()
         if any(s == 'error' for s, _ in drift):
-            worst = max(worst, 1)
+            has_error = True
         elif any(s == 'warn' for s, _ in drift):
-            worst = max(worst, 2)
-    return worst
+            has_warn = True
+    return 1 if has_error else (2 if has_warn else 0)
 
 
 # -------------------------------------------------------------------------
