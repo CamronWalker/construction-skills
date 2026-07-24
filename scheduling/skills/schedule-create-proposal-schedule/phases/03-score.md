@@ -71,4 +71,4 @@ After TWO iterations of real-logic fixes, if still below the lower-bound target:
 2. Produce a narrative note documenting remaining deductions as structural to the schedule approach (e.g., *"SS% is 19% because this is a compressed fast-track; defensible in narrative"*).
 3. Deliver the current schedule + the note for the proposal package.
 
-Letter grade is a floor, not a target to maximize. Present the final quality report, the narrative note (if any), and XER file location when complete.
+Letter grade is a floor, not a target to maximize. Present the final quality report, the narrative note (if any), and XER file location when complete. Then run the final XER-validation gate (see `02-iterate.md`) -- import-readiness is a hard gate on the deliverable.

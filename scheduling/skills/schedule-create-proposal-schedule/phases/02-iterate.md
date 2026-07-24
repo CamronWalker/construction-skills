@@ -314,7 +314,8 @@ Sequence at final approval:
 1. Camron says "this is good, generate the XER".
 2. Write the AI self-postmortem (above).
 3. Generate the plan PDF.
-4. Confirm the latest `-v{N}.xer` is the deliverable.
+4. Run the final XER-validation gate (`validate_xer_structure`) and report pass/fail -- see § "Final XER validation gate" below.
+5. Confirm the latest `-v{N}.xer` is the deliverable.
 
 Use `references/generate_proposal_schedule_pdf.py`:
 
@@ -334,3 +335,11 @@ The PDF includes: cover page with logo + project overview, schedule basis with r
 **Key sections for procurement:** The PDF auto-generates procurement qualification language stating that lead time estimates are professional assessments, and that any exceedance constitutes a justified basis for a TIA and potential change order. Procurement status is tracked monthly.
 
 See `references/plan-document-template.md` for the original markdown template structure (still valid as a content reference).
+
+### Final XER validation gate (before declaring the deliverable)
+
+Generation already refuses to write a malformed .xer, but confirm it explicitly on the final file:
+
+1. Call `validate_xer_structure` on the latest `-v{N}.xer` (the deliverable).
+2. If `import_ready` is true -> print: **"Import-ready ✓ — 0 errors, {W} warnings"** and proceed.
+3. If false -> print each error-severity issue as `[error] {category}: {message} ({row})`, state **"NOT import-ready — do not deliver"**, and return to the iterate loop to regenerate. Never edit the .xer by hand (immutable).
