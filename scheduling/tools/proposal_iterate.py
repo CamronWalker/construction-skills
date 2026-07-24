@@ -16,7 +16,6 @@ Folder layout (v4.0.0+, "new" layout):
     <project>/
         <Project Name>.xer                <- current XER (no -vN suffix)
         schedule-activities.json
-        schedule-review.html
         proposal-anchors.json
         Old Iterations/
             <Project Name> -v1.xer ... -v{N-1}.xer
@@ -28,7 +27,7 @@ Legacy layout (Proposal Schedule/) is auto-detected and continues to work
 with the original write-back semantics (-v{N+1}.xer in place).
 
 Exit codes:
-    0  -- changes applied, new XER + JSON + HTML written
+    0  -- changes applied, new XER + JSON written
     1  -- error
     2  -- anchor slips reported; nothing written
 """
@@ -36,13 +35,12 @@ Exit codes:
 import argparse
 import json
 import shutil
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from _xer_io import parse_xer, next_xer_path, write_xer_with_updates
-from _cpm_loader import load_cpm, plugin_root, reference_dir
+from _cpm_loader import load_cpm, reference_dir
 import _cpm_cache
 import _layout
 import _impact
@@ -356,7 +354,6 @@ def main():
         print('[dry-run] would write:')
         print(f'  XER:    {next_label}')
         print(f'  JSON:   {_layout.activities_json_path(project, layout).name}')
-        print(f'  HTML:   {_layout.html_path(project, layout).name}')
         print(f'  paste:  {paste_archive.relative_to(project)}')
         if layout == _layout.LAYOUT_NEW and archived_path:
             print(f'  archive: {archived_path.name}')
@@ -417,36 +414,10 @@ def main():
         encoding='utf-8',
     )
 
-    # ===== Parallel block: HTML render || score the new state =====
-    # HTML build is a separate process (Popen, no shared state). Score is
-    # pure Python compute on `results`. They run concurrently while we also
-    # compute the impact summary in this thread.
-    html_path = _layout.html_path(project, layout)
-    builder = plugin_root() / 'tools' / 'build_gantt_html.py'
-    html_proc = subprocess.Popen(
-        ['python', str(builder), str(activities_json),
-         '-o', str(html_path), '--project', project_name],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-
-    # Compute impact (cheap pure-Python; runs while HTML subprocess churns)
+    # Compute impact + score the new state. (HTML rendering retired — the
+    # review surface is now the online link; publish via generate_proposal_review_link.)
     impact = _impact.compute_impact(old_snap, results, anchors)
-
-    # Score the new state (the heavy compute runs on this thread; subprocess
-    # is doing HTML in parallel)
     score_data = _score_results(results, preds, data_date)
-
-    # Wait for HTML and check status
-    html_stdout, html_stderr = html_proc.communicate()
-    if html_proc.returncode != 0:
-        if args.verbose:
-            log = _layout.debug_log_path(project, layout)
-            log.parent.mkdir(parents=True, exist_ok=True)
-            log.write_text(
-                (html_stdout or '') + '\n---STDERR---\n' + (html_stderr or ''),
-                encoding='utf-8',
-            )
-        return _err(f'build_gantt_html.py failed: {(html_stderr or "").strip()[:200]}')
 
     # ===== Score sidecar handoff =====
     # new_version is computed above (new layout: archive_version + 1; legacy:
@@ -464,7 +435,7 @@ def main():
     print(f'Wrote XER:   {new_root_path.name}')
     if layout == _layout.LAYOUT_NEW and archived_path:
         print(f'Archived:    Old Iterations/{archived_path.name}')
-    print(f'Wrote JSON + HTML.')
+    print(f'Wrote JSON.')
     print(f'Anchors check passed ({len(anchors)} anchors, {n_changed} duration changes applied).')
     print('')
     for line in _impact.render_impact(impact, prior_score_data, score_data):
