@@ -1683,6 +1683,12 @@ def build_activities_json(results, metadata, preds, project_name=None,
         lf = _parse_date(t.get('late_end_date', ''))
         tf_hr = _safe_float(t.get('total_float_hr_cnt', 0))
         ff_hr = _safe_float(t.get('free_float_hr_cnt', 0))
+        # Planned work-day duration (8 hr/day, same convention as the float
+        # fields). The review app snapshots this into orig_duration_snapshot
+        # and feedback_ingest._detect_drift compares it against the current
+        # schedule — without it the duration-drift warning can never fire.
+        dur_hr = _safe_float(t.get('target_drtn_hr_cnt',
+                             t.get('remain_drtn_hr_cnt', 0)))
         wbs_id = t.get('wbs_id', '') or None
         wbs_level = wbs_by_id.get(wbs_id, {}).get('level', 0) + 1 if wbs_id else 1
 
@@ -1711,6 +1717,7 @@ def build_activities_json(results, metadata, preds, project_name=None,
             'early_end': _format_date(ef) if ef else '',
             'late_start': _format_date(ls) if ls else '',
             'late_end': _format_date(lf) if lf else '',
+            'duration_days': round(dur_hr / 8, 1),
             'total_float_days': round(tf_hr / 8, 1),
             'free_float_days': round(ff_hr / 8, 1),
             'driving_path': t.get('driving_path_flag', '') == 'Y',

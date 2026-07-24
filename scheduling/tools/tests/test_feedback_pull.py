@@ -51,5 +51,24 @@ class TestMapOnlineComments(unittest.TestCase):
         self.assertEqual(names, ["Jane PM", "Steve Westover"])
 
 
+class TestDetectDriftDuration(unittest.TestCase):
+    def test_duration_drift_warns_when_current_duration_changed(self):
+        # activities rows now carry duration_days (build_activities_json);
+        # a snapshot taken at 5d against a current 15d row must warn.
+        payload = fi.map_online_comments(ONLINE)[0]
+        by_code = {
+            "A0010": {"id": "A0010", "task_code": "A0010", "name": "Mobilize",
+                      "duration_days": 15},
+            "A0020": {"id": "A0020", "task_code": "A0020", "name": "Excavate",
+                      "duration_days": 10},
+        }
+        drift = fi._detect_drift(payload, "3", {}, by_code)
+        dur_warns = [m for sev, m in drift
+                     if sev == "warn" and "duration changed since review" in m]
+        self.assertEqual(len(dur_warns), 1)
+        self.assertIn("A0010", dur_warns[0])
+        self.assertIn("5d -> 15d", dur_warns[0])
+
+
 if __name__ == "__main__":
     unittest.main()
