@@ -32,7 +32,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 COMMANDS = {
     'iterate': (
         'proposal_iterate.py',
-        'Apply a paste-back; run CPM; write next XER + JSON + HTML',
+        'Apply a paste-back; run CPM; write next XER + JSON',
     ),
     'paths': (
         'show_paths.py',
@@ -68,7 +68,7 @@ COMMANDS = {
     ),
     'feedback': (
         'feedback_ingest.py',
-        'Park reviewer-feedback JSONs (ingest/list/show) with drift detection',
+        'Reconcile reviewer feedback (pull/ingest/list/show) with drift detection',
     ),
     'metadata': (
         'metadata_cli.py',

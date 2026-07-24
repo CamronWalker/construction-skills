@@ -1576,7 +1576,9 @@ def extract_paths(results, metadata, preds):
 
 
 # ---------------------------------------------------------------------------
-# Activities JSON export (consumed by build_gantt_html.py)
+# Activities JSON export (consumed by the proposal-schedule review flow --
+# published to the online review link, and read by get_gantt_json_impl /
+# render_gantt_html_impl in the MCP server)
 # ---------------------------------------------------------------------------
 
 def _wbs_lookup(wbs_rows):
@@ -1613,7 +1615,8 @@ def build_activities_json(results, metadata, preds, project_name=None,
                            data_date=None, wbs_rows=None, default_view=None,
                            version=None):
     """
-    Build the schedule-activities.json structure consumed by build_gantt_html.py.
+    Build the schedule-activities.json structure that drives the
+    proposal-schedule review surface (the online review link).
 
     Includes the activity list with WBS hierarchy + the `paths` analytics
     section (critical, near-critical, driving paths, parallel branches).
@@ -1627,9 +1630,9 @@ def build_activities_json(results, metadata, preds, project_name=None,
         wbs_rows: optional PROJWBS rows for hierarchy
         default_view: optional dict with px_per_day / display_unit /
             scroll_left / scroll_top / expanded_ids / table_width_px.
-            When the user clicks "Copy for Claude" with the Default-view
-            checkbox on, the pasted payload includes a `default_view`
-            block; pass it through here so the next HTML render restores
+            Comes through as part of the paste-back payload when the
+            reviewer's saved view state should carry forward; pass it
+            through here so the republished online review link restores
             the same zoom, units, scroll, expand state, and splitter width.
 
     Returns: dict ready to serialize as JSON
@@ -1680,6 +1683,12 @@ def build_activities_json(results, metadata, preds, project_name=None,
         lf = _parse_date(t.get('late_end_date', ''))
         tf_hr = _safe_float(t.get('total_float_hr_cnt', 0))
         ff_hr = _safe_float(t.get('free_float_hr_cnt', 0))
+        # Planned work-day duration (8 hr/day, same convention as the float
+        # fields). The review app snapshots this into orig_duration_snapshot
+        # and feedback_ingest._detect_drift compares it against the current
+        # schedule — without it the duration-drift warning can never fire.
+        dur_hr = _safe_float(t.get('target_drtn_hr_cnt',
+                             t.get('remain_drtn_hr_cnt', 0)))
         wbs_id = t.get('wbs_id', '') or None
         wbs_level = wbs_by_id.get(wbs_id, {}).get('level', 0) + 1 if wbs_id else 1
 
@@ -1708,6 +1717,7 @@ def build_activities_json(results, metadata, preds, project_name=None,
             'early_end': _format_date(ef) if ef else '',
             'late_start': _format_date(ls) if ls else '',
             'late_end': _format_date(lf) if lf else '',
+            'duration_days': round(dur_hr / 8, 1),
             'total_float_days': round(tf_hr / 8, 1),
             'free_float_days': round(ff_hr / 8, 1),
             'driving_path': t.get('driving_path_flag', '') == 'Y',

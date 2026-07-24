@@ -17,7 +17,6 @@ read them directly.
   Sample Schedules/                     <- reference XERs
   <Project>.xer                         <- current/working XER (no -vN suffix)
   schedule-activities.json              <- current
-  schedule-review.html                  <- current (now version-aware in topbar)
   Schedule Plan.pdf                     <- final plan (post-approval)
   proposal-anchors.json                 <- anchor metadata
   project-metadata.json                 <- v5: project context (type, sf, region, systems, ...)
@@ -61,6 +60,9 @@ propsched iterate --project "<project>" --paste paste.json
 # If it reports anchor slips, form absorption.json, then:
 propsched iterate --project "<project>" --paste paste.json --apply absorption.json
 
+# Reviewer left comments on the published online review link
+propsched feedback pull "<project>" --file online-comments.json
+
 # External reviewer (boss / consultant) emails their feedback JSON back
 propsched feedback ingest "<project>" --file steve-feedback.json
 propsched feedback list "<project>"            # see all parked feedback + staleness
@@ -103,8 +105,9 @@ Exit codes: 0 (created), 1 (path exists as a file).
 
 ### `propsched iterate`
 
-Apply a Copy-for-Claude paste-back. Single entry point for the iteration
-loop.
+Apply a paste-back (duration/logic edits assembled from comments pulled off
+the online review link, or handed over directly). Single entry point for
+the iteration loop.
 
 ```bash
 propsched iterate --project "<project>" --paste paste.json
@@ -123,7 +126,7 @@ Behavior:
    - New layout: archives the existing root XER to `Old Iterations/<Project> -v{N}.xer`, writes new XER content to root.
    - Legacy: writes `-v{N+1}.xer` in place.
    - Regenerates `schedule-activities.json` (preserves `default_view` from paste).
-   - **Parallel:** renders `schedule-review.html` (subprocess) while scoring the new state.
+   - Computes the impact summary and scores the new state.
    - Archives the paste-back to `Old Iterations/paste-{N+1}.json`.
    - Writes a score sidecar to `Old Iterations/scores/v{N+1}.json`.
    - Prints the file-write confirmation, then an **Impact** block (only sections with non-zero changes) + **Score** block.
@@ -287,23 +290,33 @@ Exit codes: 0 (printed), 1 (no root found).
 
 ### `propsched feedback`
 
-Park reviewer-feedback JSONs (downloaded from `schedule-review.html` by
-external reviewers) and report drift vs the current XER. Feedback can
-arrive days or weeks after the reviewer looked at the schedule -- this
-verb does NOT auto-apply changes; it parks the JSON for the scheduler
+Park reviewer feedback and report drift vs the current XER. Feedback can
+arrive days or weeks after a reviewer looked at the schedule -- these
+verbs do NOT auto-apply changes; they park the JSON for the scheduler
 to read with full context (version reviewed, tasks renamed since,
-durations changed since, tasks dropped).
+durations changed since, tasks dropped). Two arrival paths:
+
+- **`pull`** -- reviewers leave attributed comments on the published
+  online review link; pull the `get_proposal_review_comments` result
+  (saved to disk) and it's mapped into one parked JSON per
+  (reviewer, version reviewed).
+- **`ingest`** -- a hand-authored or emailed `westland-reviewer-feedback`
+  JSON is parked directly.
 
 ```bash
+propsched feedback pull "<project>" --file online-comments.json
+propsched feedback pull "<project>" --file online-comments.json --include-resolved
+
 propsched feedback ingest "<project>" --file steve-feedback.json
 propsched feedback ingest "<project>" --file steve-feedback.json --force
+
 propsched feedback list "<project>"
 propsched feedback show "<project>" steve                 # prefix match
 ```
 
-Storage: `Old Iterations/reviewer-feedback/{reviewer-slug}-{date}-v{N}.json`.
+Storage: `Old Iterations/reviewer-feedback/{reviewer-slug}-{date}-v{N}.json` (both verbs park into the same folder; `show`/`list` work the same regardless of arrival path).
 
-Drift report flags:
+Drift report flags (both verbs, reused from `_detect_drift`):
 - `[error]` reviewer claims a future version (file probably wrong project)
 - `[warn]`  reviewer is N versions behind / task no longer exists / duration changed
 - `[info]`  task renamed since review / no version_reviewed in JSON
@@ -435,6 +448,17 @@ propsched iterate --project "<project>" --paste paste.json
    the final schedule).
 5. Final XER is the `<Project>.xer` at the project root.
 
+### "Camron left comments on the online review link -- pull them"
+
+```bash
+propsched feedback pull "<project>" --file online-comments.json
+# Drift report tells you whether each reviewer's comments were left
+# against the current version or one that has since changed.
+
+propsched feedback list "<project>"     # what's parked
+propsched feedback show "<project>" steve   # one reviewer in detail
+```
+
 ### "An external reviewer emailed back their feedback JSON"
 
 ```bash
@@ -446,10 +470,11 @@ propsched feedback list "<project>"     # what's parked
 propsched feedback show "<project>" steve   # one reviewer in detail
 ```
 
-The verb only PARKS the JSON. To act on a reviewer's duration suggestions
-or comments: read `feedback show`, decide which to keep, then either feed
-specific items back through the regular `iterate` paste-back flow or
-just adjust the XER directly via the existing iteration loop.
+Neither verb auto-applies changes -- both only PARK the JSON. To act on a
+reviewer's duration suggestions or comments: read `feedback show`, decide
+which to keep, then either feed specific items back through the regular
+`iterate` paste-back flow or just adjust the XER directly via the existing
+iteration loop.
 
 ### "Starting a new proposal -- what should I learn from prior cycles?"
 

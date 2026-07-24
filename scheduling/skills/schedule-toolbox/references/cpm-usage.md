@@ -41,16 +41,19 @@ results, metadata = cpm_mod.schedule_forward_backward(
 cpm_mod.render_schedule_html(results, 'Project Name', data_date, metadata, 'schedule.html')
 ```
 
-## Gantt Review HTML (for proposal-schedule iteration)
+## Activities JSON (for proposal-schedule iteration)
 
-After CPM, emit a JSON activity list and render the self-contained Gantt review HTML. The HTML is the iteration surface for the proposal-schedule loop -- Camron edits durations inline, leaves comments on activity-ID chips, clicks **Copy for Claude** to copy a structured JSON payload to his clipboard, pastes it into chat. Claude applies the changes and regenerates everything.
+After CPM, emit a JSON activity list. This JSON is the payload published to
+the online proposal-review link (the iteration surface for the
+proposal-schedule loop) -- see `scheduling:schedule-create-proposal-schedule`
+§ "Iteration loop" for the publish/pull flow.
 
 ```python
-import json, subprocess
+import json
 
-# 1. Build the activities + paths JSON (consumed by build_gantt_html.py).
-#    If Camron's paste-back included a `default_view` block, pass it through
-#    so the next render restores the same zoom / units / scroll / expand state.
+# Build the activities + paths JSON.
+# If Camron's paste-back included a `default_view` block, pass it through
+# so the next render restores the same zoom / units / scroll / expand state.
 default_view = paste_back_payload.get('default_view') if paste_back_payload else None
 
 data = cpm_mod.build_activities_json(
@@ -65,18 +68,11 @@ data = cpm_mod.build_activities_json(
 json_path = '<project_folder>/schedule-activities.json'
 with open(json_path, 'w', encoding='utf-8') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
-
-# 2. Render the self-contained HTML next to the JSON
-subprocess.run(
-    ['python', 'scheduling/tools/build_gantt_html.py', json_path],
-    check=True,
-)
-# -> writes schedule-review.html in the same folder; opens directly from disk.
 ```
 
-`build_activities_json()` includes the analytics layer (`paths`) the proposal-schedule skill must read **before** proposing any edit -- see `scheduling:schedule-create-proposal-schedule` § "Read the paths section first." Same JSON drives the Gantt HTML and the comprehension layer for Claude.
+`build_activities_json()` includes the analytics layer (`paths`) the proposal-schedule skill must read **before** proposing any edit -- see `scheduling:schedule-create-proposal-schedule` § "Read the paths section first." Same JSON drives the online review link and the comprehension layer for Claude.
 
-For the **paste-back payload schema** (what Camron pastes when he clicks Copy for Claude) and the step-by-step flow for applying it -- duration changes to the XER, comment handling, default_view round-trip -- see `scheduling:schedule-create-proposal-schedule` § "Iteration loop."
+For the **paste-back payload schema** and the step-by-step flow for applying it -- duration changes to the XER, comment handling, default_view round-trip -- see `scheduling:schedule-create-proposal-schedule` § "Iteration loop."
 
 ### Anchor-date check (project metadata, NOT XER constraints)
 
@@ -104,7 +100,7 @@ for slip in slips:
 
 Surface the ranked candidates plus any logic changes (FS -> SS, parallelize) as an absorption plan to the scheduler -- see `scheduling:schedule-create-proposal-schedule` § "Anchor milestones -- confirm before regenerating." Apply the scheduler-confirmed plan via logic and duration changes; re-run the check; only write the new XER when the check returns `[]`.
 
-The HTML and `schedule-activities.json` are overwritten each iteration. XER versioning still follows the `-v{N}.xer` immutability rule -- only the JSON and HTML are transient.
+`schedule-activities.json` is overwritten each iteration. XER versioning still follows the `-v{N}.xer` immutability rule -- only the JSON is transient.
 
 ## Engine Handles
 

@@ -17,7 +17,6 @@ treat it as a starting point.
 import json
 import os
 import importlib.util
-import subprocess
 
 # Update these to match your environment
 REF = r'<plugin>/scheduling/skills/schedule-toolbox/lib'
@@ -102,12 +101,6 @@ def main(paste_text):
     json_path = f'{PROJECT_FOLDER}/Proposal Schedule/schedule-activities.json'
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-
-    # 5. Re-render HTML (overwrites)
-    subprocess.run(
-        ['python', f'{REF}/../../../tools/build_gantt_html.py', json_path],
-        check=True,
-    )
 
 
 if __name__ == '__main__':

@@ -42,7 +42,7 @@ EXCEPTION: Explicit user instruction to generate or modify a specific file.
 | Write a Responsibility (trade) code onto activities | `apply_xer_changes` with `set_responsibility` changes — see `references/xer-modify.md` |
 | SC / milestone path coverage | `get_milestone_path_coverage(milestone_id=?)` |
 | Delay impact analysis | `get_delay_impacts(milestone_id=?)` |
-| Gantt review HTML for proposal iteration | `render_gantt_html` (writes HTML, returns path); or `get_gantt_json` for structured chart data |
+| Ad-hoc Gantt chart (not the proposal-iteration review surface -- that's the online review link) | `render_gantt_html` (writes HTML, returns path); or `get_gantt_json` for structured chart data |
 | Week-over-week compare (activities, dates, milestones) | `compare_activity_changes`, `compare_date_slips`, `compare_milestone_slip(milestone_id=?)`, `compare_missed_dates` |
 | Weekly update review (composition) | `weekly_update_review` — bundles compare + activity lists + DCMA delta |
 | Proposal schedule health (composition) | `proposal_schedule_health` — bundles score + missing logic + high float + anchor conflicts |
@@ -66,7 +66,7 @@ These live in `references/*.md` and describe the underlying concepts the MCP too
 | P6 XER data map — field maps, data types, import-failure debugging | `references/p6-xer-data-map.md` |
 | Quality check semantics | `references/quality-checks.md` |
 | Update review semantics | `references/update-review.md` |
-| CPM usage and the Gantt review HTML output | `references/cpm-usage.md` |
+| CPM usage and the proposal-iteration activities JSON | `references/cpm-usage.md` |
 | SC coverage and delay impact methodology | `references/analysis-tools.md` |
 | DCMA 14-point detail | `references/dcma-14-point-detail.md` |
 | Westland scheduling standards | `references/westland-standards.md` |

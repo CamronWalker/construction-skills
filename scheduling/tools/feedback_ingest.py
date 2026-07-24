@@ -1,7 +1,9 @@
 """feedback_ingest.py -- park a reviewer-feedback JSON and report drift
 against the current XER.
 
-The HTML schedule-review download exports a JSON like:
+The `westland-reviewer-feedback` JSON looks like this, whether it arrives
+hand-authored/emailed (`ingest`) or is mapped from pulled online review
+comments (`pull`, via `map_online_comments`):
 
     {
       "schema": "westland-reviewer-feedback",
@@ -40,6 +42,12 @@ Subcommands:
     ingest "<project>" --file feedback.json     park JSON + report drift
     list   "<project>"                          enumerate parked JSONs
     show   "<project>" <filename>               re-print drift for one file
+    pull   "<project>" --file online.json       map + park online review
+                                                 comments (get_proposal_review_
+                                                 comments result), one parked
+                                                 file per (reviewer, version);
+                                                 resolved comments are skipped
+                                                 unless --include-resolved
 
 Storage:
     new layout:    <project>/Old Iterations/reviewer-feedback/
@@ -77,6 +85,11 @@ def _read_json(path):
 def _err(msg):
     print(f'ERROR: {msg}', file=sys.stderr)
     return 1
+
+
+def _version_int(label):
+    m = re.match(r'^v(\d+)$', str(label or ''))
+    return int(m.group(1)) if m else None
 
 
 def _activities_index(project, layout):
@@ -167,6 +180,59 @@ def _format_drift(drift):
         prefix = {'error': '  [error]', 'warn': '  [warn] ', 'info': '  [info] '}.get(sev, '  ')
         lines.append(f'{prefix} {msg}')
     return '\n'.join(lines)
+
+
+def map_online_comments(online, include_resolved=False):
+    """Map a get_proposal_review_comments result into a list of
+    westland-reviewer-feedback payloads, grouped by (reviewer, version).
+
+    This does NOT reimplement drift detection -- the caller (cmd_pull)
+    runs each returned payload through the existing _activities_index /
+    _detect_drift pair, same as the ingest subcommand.
+    """
+    project = online.get('job_number') or online.get('project') or ''
+    groups = {}  # (reviewer_name, version_label) -> {created: [...], activities: [...]}
+    for c in online.get('comments', []) or []:
+        if c.get('resolved') and not include_resolved:
+            continue
+        rn = (c.get('reviewer_name') or '').strip()
+        vl = c.get('version_label')
+        if not rn:
+            continue
+        key = (rn, vl)
+        g = groups.setdefault(key, {'created': [], 'activities': []})
+        g['created'].append(c.get('created_at') or '')
+        item = {
+            'id': c.get('task_code'),
+            'task_code': c.get('task_code'),
+            'name': c.get('task_name_snapshot') or '',
+        }
+        if c.get('body'):
+            item['comment'] = c['body']
+        sug = c.get('suggested_duration_days')
+        orig = c.get('orig_duration_snapshot')
+        if sug is not None:
+            item['duration_change'] = {'from_days': orig, 'to_days': sug}
+        item['task_snapshot'] = {
+            'name': c.get('task_name_snapshot') or '',
+            'duration_days': orig,
+        }
+        g['activities'].append(item)
+    payloads = []
+    for (rn, vl), g in groups.items():
+        review_date = max(g['created'])[:10] if g['created'] else 'unknown-date'
+        payloads.append({
+            'schema': 'westland-reviewer-feedback',
+            'schema_version': 1,
+            'reviewer': {'name': rn, 'email': ''},
+            'review_date': review_date,
+            'project': project,
+            'version_reviewed': _version_int(vl),
+            'activities': g['activities'],
+            'comment_count': sum(1 for a in g['activities'] if a.get('comment')),
+            'change_count': sum(1 for a in g['activities'] if a.get('duration_change')),
+        })
+    return payloads
 
 
 # -------------------------------------------------------------------------
@@ -315,6 +381,50 @@ def cmd_show(args):
     return 0
 
 
+def cmd_pull(args):
+    project = Path(args.project).resolve()
+    layout = _layout.detect_layout(project)
+    src = Path(args.file)
+    if not src.exists():
+        return _err(f'online-comments file not found: {src}')
+    try:
+        online = _read_json(src)
+    except (OSError, json.JSONDecodeError) as e:
+        return _err(f'unreadable JSON: {e}')
+
+    payloads = map_online_comments(online, include_resolved=args.include_resolved)
+    if not payloads:
+        print('No unresolved online comments to pull.')
+        return 0
+
+    cur_version, by_id, by_code = _activities_index(project, layout)
+    rf_dir = _layout.reviewer_feedback_dir(project, layout)
+    rf_dir.mkdir(parents=True, exist_ok=True)
+
+    has_error = False
+    has_warn = False
+    for p in payloads:
+        rv = p.get('version_reviewed')
+        rv_str = f'v{rv}' if rv is not None else 'unknown'
+        fname = f"{_slugify(p['reviewer']['name'])}-{p['review_date']}-{rv_str}.json"
+        dest = rf_dir / fname
+        dest.write_text(json.dumps(p, ensure_ascii=False, indent=2), encoding='utf-8')
+        drift = _detect_drift(p, cur_version, by_id, by_code)
+        print(f"Ingested: {dest.relative_to(project)}")
+        print(f"  Reviewer:        {p['reviewer']['name']}")
+        print(f"  Version reviewed:{rv_str}"
+              + (f'   Current: v{cur_version}' if cur_version is not None else ''))
+        print(f"  Comments + edits: {len(p['activities'])}")
+        print('  Drift report:')
+        print(_format_drift(drift))
+        print()
+        if any(s == 'error' for s, _ in drift):
+            has_error = True
+        elif any(s == 'warn' for s, _ in drift):
+            has_warn = True
+    return 1 if has_error else (2 if has_warn else 0)
+
+
 # -------------------------------------------------------------------------
 # Main
 # -------------------------------------------------------------------------
@@ -339,6 +449,12 @@ def main():
     p_show.add_argument('filename',
                         help='Filename inside reviewer-feedback/ (or a prefix)')
 
+    p_pull = sub.add_parser('pull', help='Reconcile online review comments (from get_proposal_review_comments)')
+    p_pull.add_argument('project', help='Path to the project folder')
+    p_pull.add_argument('--file', required=True, help='Path to the get_proposal_review_comments JSON')
+    p_pull.add_argument('--include-resolved', action='store_true',
+                        help='Also ingest comments already marked resolved')
+
     args = ap.parse_args()
     if args.subcommand == 'ingest':
         return cmd_ingest(args)
@@ -346,6 +462,8 @@ def main():
         return cmd_list(args)
     if args.subcommand == 'show':
         return cmd_show(args)
+    if args.subcommand == 'pull':
+        return cmd_pull(args)
     ap.error(f'unknown subcommand: {args.subcommand}')
 
 
