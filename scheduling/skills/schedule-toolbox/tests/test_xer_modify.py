@@ -798,6 +798,62 @@ class TestRemoveLogic(unittest.TestCase):
         self.assertIn("A1010", err)
         self.assertIn("A1020", err)
 
+    # ---- Test 9: remove an edge added earlier in the same apply_changes call -
+
+    def test_remove_freshly_added_edge_does_not_crash(self):
+        """Regression: removing a TASKPRED edge that was add_logic'd earlier in
+        the same call must not raise IndexError.
+
+        add_logic appends to rows but never to raw_lines (appended rows carry no
+        raw_line and are always dirty), so the new edge sits at an index >=
+        len(raw_lines). remove_logic's raw_lines.pop(i) was guarded only by
+        `is not None`, not by bounds, so it blew up with 'pop index out of
+        range'. The starting FS edge (which HAS a raw_line) makes the added SS
+        edge land at index 1 while raw_lines has length 1.
+        """
+        doc = self._two_activity_doc(taskpred_rows=[self._fs_row()])
+        result = apply_changes(
+            doc,
+            [
+                {"type": "add_logic", "predecessor_id": "A1010",
+                 "successor_id": "A1020", "relationship": "SS", "lag_days": 0},
+                {"type": "remove_logic", "predecessor_id": "A1010",
+                 "successor_id": "A1020", "relationship": "SS"},
+            ],
+            strict=False,
+            dry_run=False,
+        )
+        # Net effect: SS added then removed; the original FS edge survives.
+        self.assertEqual(result.changes_applied, 2)
+        self.assertIsNotNone(result.doc)
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual([r["pred_type"] for r in tp.rows], ["PR_FS"])
+        # The untouched FS prefix stays aligned with its raw_line.
+        self.assertEqual(len(tp.raw_lines), 1)
+
+    def test_remove_only_added_edge_from_empty_taskpred_does_not_crash(self):
+        """Same desync, empty-TASKPRED variant: add the only edge, then remove
+        it. raw_lines starts empty, so the unguarded pop raised 'pop from empty
+        list'. After the fix the round-trip is a clean no-op.
+        """
+        doc = self._two_activity_doc(taskpred_rows=[])
+        result = apply_changes(
+            doc,
+            [
+                {"type": "add_logic", "predecessor_id": "A1010",
+                 "successor_id": "A1020", "relationship": "FS", "lag_days": 0},
+                {"type": "remove_logic", "predecessor_id": "A1010",
+                 "successor_id": "A1020", "relationship": "FS"},
+            ],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 2)
+        self.assertIsNotNone(result.doc)
+        tp = result.doc.section("TASKPRED")
+        self.assertEqual(len(tp.rows), 0)
+        self.assertEqual(len(tp.raw_lines), 0)
+
 
 class TestSetCalendar(unittest.TestCase):
     def test_happy_path_updates_clndr_id_and_marks_dirty(self):
@@ -1583,6 +1639,31 @@ class TestRemoveActivity(unittest.TestCase):
         state = ChangeState()
         _HANDLERS["remove_activity"](doc2, _remove_activity_change("A1010"), state)
         self.assertIn("A1010", state.removed_activity_ids)
+
+    # ---- Test 1b: remove an activity added earlier in the same call ----------
+
+    def test_remove_freshly_added_activity_does_not_crash(self):
+        """Regression (same rows/raw_lines desync as remove_logic): add_activity
+        appends a TASK row with no raw_lines entry, so removing it in the same
+        apply_changes call popped raw_lines out of range. Guard must be on
+        bounds, not just None.
+        """
+        doc = _make_doc_with_task_wbs_calendar()  # 1 task (A1010), no TASKPRED
+        result = apply_changes(
+            doc,
+            [
+                _add_activity_change(code="A2010"),
+                _remove_activity_change("A2010"),
+            ],
+            strict=False,
+            dry_run=False,
+        )
+        self.assertEqual(result.changes_applied, 2)
+        self.assertIsNotNone(result.doc)
+        task = result.doc.section("TASK")
+        # Net no-op: A2010 added then removed; the original A1010 survives.
+        self.assertEqual([r["task_code"] for r in task.rows], ["A1010"])
+        self.assertEqual(len(task.raw_lines), 1)
 
     # ---- Test 2: activity not found → ValidationFailure ----------------------
 
