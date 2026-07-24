@@ -68,7 +68,7 @@ def iterations_dir(project, layout=None):
 
 
 def proposal_dir(project, layout=None):
-    """Where the current/working schedule files live (XER, JSON, HTML, anchors).
+    """Where the current/working schedule files live (XER, JSON, anchors).
 
     For new layout this is the project root itself; for legacy it's the
     Proposal Schedule subfolder. CLIs that need to read or write the

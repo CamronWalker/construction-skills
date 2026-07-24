@@ -68,7 +68,7 @@ COMMANDS = {
     ),
     'feedback': (
         'feedback_ingest.py',
-        'Park reviewer-feedback JSONs (ingest/list/show) with drift detection',
+        'Reconcile reviewer feedback (pull/ingest/list/show) with drift detection',
     ),
     'metadata': (
         'metadata_cli.py',
