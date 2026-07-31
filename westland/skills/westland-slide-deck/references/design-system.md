@@ -189,6 +189,11 @@ Author sizes as `clamp(min, Nvw, max)`; the build pins each to its `max`. The
 clamp documents intent and survives as the fallback if the mobile layer is
 dropped, but the deck ships at fixed desktop sizes because the canvas scales.
 
+That scale factor is computed in `_mobile.html`, which is guarded against ever
+writing a non-positive value — `scale(0)` renders the whole deck invisible and
+does not recover on its own. Read *What not to break* in `SKILL.md` before
+changing the scaler.
+
 The type is deliberately large. These decks get read on phones and projected in
 rooms where someone is at the back. If a slide needs small type to fit, it has
 too much on it — split it.

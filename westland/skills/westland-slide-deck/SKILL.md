@@ -153,12 +153,21 @@ a superseded deck is a record of what was shown, and someone will ask.
 
 ## What not to break
 
-Four things in the template are load-bearing. Each cost real debugging to get
+Five things in the template are load-bearing. Each cost real debugging to get
 right, so change them deliberately:
 
 - **The fixed canvas.** Slides render at 1600x980 and the whole deck is scaled
   to fit. Nothing reflows, so what you approved on a monitor is exactly what
   arrives on a phone. Don't add width media queries to `.slide`.
+- **The scale guard in `_mobile.html`.** `fitDeck()` refuses to write a
+  `--deck-scale` of `0`. A viewport dimension can measure 0 when the deck is
+  parsed in a background or offscreen tab, or mid-rotation on iOS — and
+  `scale(0)` doesn't degrade, it renders the entire deck invisible and stays
+  that way, because `resize` may never fire afterward. Keep all three parts: the
+  `if(s>0)` bail that preserves the last good value, the **timer** ladder retry
+  (`requestAnimationFrame` never fires in a tab that isn't compositing), and the
+  `ResizeObserver` backstop, which catches real layout changes that raise no
+  `resize` event. Don't collapse it back to a one-line `setProperty`.
 - **Pinned type.** The build rewrites every `clamp(min, Nvw, max)` to its
   desktop max. Author with clamps anyway — they document intent, and they're the
   fallback if the mobile layer is ever dropped.

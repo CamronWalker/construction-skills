@@ -1,6 +1,6 @@
 {
   "name": "westland",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "Westland organizational plugin — safety hook, house-style, bug-report capture, meeting-transcript reading, a report catalog, shareable deck artifacts, and MCP connector setup. Install first; required dependency of domain plugins. Contains the Westland Project Files PreToolUse hook (.xer edits/deletes denied; .html/.md/.json allowlisted) plus the westland-house-style, westland-bug-report, read-meeting-transcript, westland-analytics, westland-connectors, and westland-slide-deck skills.",
   "author": {
     "name": "Camron Walker"
