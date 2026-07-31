@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{DECK_TITLE}}</title>
+<!--
+  Westland deck — design system.
+  Everything below is the shared component vocabulary; per-deck content lives in
+  slides/*.html. Full class reference: references/design-system.md.
+
+  Two rules that are easy to break and expensive to debug:
+  1. Author sizes as clamp(min, Nvw, max). The build pins every clamp to its
+     THIRD argument (the desktop max) so the fixed-canvas scaler shrinks the
+     deck as one piece instead of letting text reflow at small widths.
+  2. Slide geometry is set by _mobile.html to a fixed 1600x980 canvas. Don't
+     add width/height media queries to .slide — scale, never reflow.
+-->
+<style>
+  :root{
+    /* Westland brand tokens — mirrored in references/design-system.md */
+    --navy:#1B2A38; --navy2:#24384a; --steel:#6E9BB4; --steel-lt:#a9c4d4;
+    --teal:#17546B; --teal2:#1c6a85; --ink:#16202b; --slate:#46566b; --muted:#8a97a7;
+    --line:#e4e9ef; --panel:#f3f7fa; --paper:#ffffff; --you:#b3402f; --ask:#2e7d32;
+    --gold:#c9a24a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{font-family:"Calibri","Segoe UI",system-ui,-apple-system,"Roboto",sans-serif;color:var(--slate);background:#0b1219}
+  .deck{position:fixed;inset:0;overflow:hidden;background:#0b1219}
+  /* Base 16:9 geometry. _mobile.html overrides this to the fixed 1600x980
+     canvas; this rule is the fallback if the deck is ever built without it. */
+  .slide{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    width:min(100vw,calc(100vh*16/9));height:min(100vh,calc(100vw*9/16));
+    display:none;flex-direction:column;overflow:hidden;background:var(--paper);
+    padding:clamp(20px,2.9vw,46px) clamp(26px,3.8vw,60px)}
+  .slide.active{display:flex;animation:fd .35s ease}
+  @keyframes fd{from{opacity:0;transform:translate(-50%,-48%)}to{opacity:1;transform:translate(-50%,-50%)}}
+
+  /* ---- standard slide chrome: header / rule / body / footer ---- */
+  .chead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+  .eyebrow{color:var(--teal);font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:clamp(11px,1vw,15px);margin-bottom:6px}
+  .clogo{height:clamp(34px,3.9vw,58px);width:auto;flex:none;margin-top:2px}
+  .crule{height:3px;width:100%;background:linear-gradient(90deg,var(--teal),var(--steel) 70%,transparent);border-radius:2px;margin:9px 0 5px}
+  .cbody{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+  /* .nav is anchored to the viewport, not the deck canvas, so its buttons stay
+     finger-sized on a phone instead of shrinking with the scale. The cost is
+     that it floats over the bottom-right of the slide — hence the right pad,
+     which keeps footer text out from under it at every scale. */
+  .cfoot{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding:7px 150px 0 0;margin-top:8px;letter-spacing:.02em;gap:16px}
+  .cfoot a{color:var(--teal)}
+  h1{color:#fff;font-size:clamp(32px,4.6vw,74px);line-height:1.02;font-weight:700;letter-spacing:-.02em}
+  h2{color:var(--ink);font-size:clamp(22px,2.9vw,46px);line-height:1.06;font-weight:700;letter-spacing:-.01em}
+  p{font-size:clamp(14px,1.2vw,22px);line-height:1.5}
+  .kpi{color:var(--you);font-weight:700}.tealb{color:var(--teal);font-weight:700}
+  a{color:var(--teal);text-decoration:none;border-bottom:1px dotted var(--teal)}
+
+  /* ---- title slide: the Westland cover template ----
+     cover.jpg already carries the WESTLAND CONSTRUCTION wordmark (top-left)
+     and the chevron mark (top-right). .tcover starts at 37% down so deck
+     titling never collides with that baked-in header. Don't move it up. */
+  .title-slide{background:#12202b;color:#fff;padding:0;overflow:hidden}
+  .tcover-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;z-index:0}
+  .tcover{position:absolute;left:7.5%;top:37%;right:8%;z-index:2;max-width:62%}
+  .tc-kicker{color:#d3e2ec;font-weight:700;letter-spacing:.18em;text-transform:uppercase;font-size:clamp(11px,1.05vw,17px);margin-bottom:12px;text-shadow:0 1px 8px rgba(0,0,0,.55)}
+  .tc-h1{color:#fff;font-size:clamp(30px,4.6vw,74px);line-height:1.02;font-weight:800;letter-spacing:-.02em;text-shadow:0 2px 16px rgba(0,0,0,.6)}
+  .tc-sub{color:#eaf1f5;font-size:clamp(14px,1.5vw,26px);line-height:1.3;margin-top:16px;font-weight:600;text-shadow:0 1px 12px rgba(0,0,0,.6);max-width:24em}
+  .tc-meta{color:#c9d6df;font-size:clamp(11px,1.05vw,17px);margin-top:16px;text-shadow:0 1px 8px rgba(0,0,0,.55)}
+
+  /* ---- cards / columns ---- */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--teal);border-radius:12px;padding:clamp(15px,1.6vw,22px)}
+  .card h3{color:var(--navy);font-size:clamp(16px,1.45vw,25px);font-weight:700;margin-bottom:3px}
+  .card .tag{font-size:clamp(11px,1vw,13px);text-transform:uppercase;letter-spacing:.09em;color:var(--teal);font-weight:700;margin-bottom:9px}
+  .card ul{margin:5px 0 0;padding-left:18px}.card li{font-size:clamp(13px,1.1vw,19px);line-height:1.45;margin:4px 0}
+
+  /* ---- big punchy bullets (the default body treatment) ---- */
+  ul.big{list-style:none;margin-top:8px}
+  ul.big li{font-size:clamp(15px,1.5vw,27px);line-height:1.32;margin:clamp(8px,1.1vw,16px) 0;position:relative;padding-left:34px;color:var(--ink);font-weight:600}
+  ul.big li:before{content:"";position:absolute;left:0;top:.42em;width:15px;height:15px;background:var(--teal);clip-path:polygon(0 0,100% 50%,0 100%,25% 50%)}
+  ul.big li small{display:block;font-size:.72em;font-weight:400;color:var(--slate);margin-top:3px;line-height:1.35}
+
+  /* ---- stat pills ---- */
+  .askrow{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;flex:1;min-width:150px;border-bottom:3px solid var(--teal)}
+  .pill .n{font-size:clamp(18px,1.9vw,28px);font-weight:800;color:var(--navy);letter-spacing:-.01em;line-height:1.1}
+  .pill .l{font-size:clamp(12px,1.25vw,17px);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin-top:4px}
+
+  /* ---- callout notes ---- */
+  .note{background:#eef4f7;border:1px solid #cfe0e8;border-left:4px solid var(--teal);border-radius:8px;padding:11px 15px;font-size:clamp(13px,1.15vw,20px);color:#28414d;margin-top:12px;line-height:1.45}
+  .swan{background:#fbf4ee;border-color:#e7d4bf;border-left-color:#b5762b;color:#5c421f}
+
+  /* ---- charts ---- */
+  .chartwrap{width:100%;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;margin-top:4px}
+  svg{max-width:100%;max-height:100%;height:auto}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:clamp(12px,1.05vw,15px);color:var(--slate);margin-top:4px}
+  .legend span{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+  .sw{width:18px;height:3px;border-radius:2px;display:inline-block}.swb{width:14px;height:14px;border-radius:3px;display:inline-block}
+  .leadin{font-size:clamp(16px,1.7vw,28px);line-height:1.3;color:var(--ink);font-weight:600;margin:2px 0 4px}
+  .leadin b{color:var(--teal)}
+
+  /* ---- three-up feature cards ---- */
+  .tri{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:16px;flex:1;min-height:0}
+  .tri .card{display:flex;flex-direction:column;border-top-width:4px}
+  .card.hot{border-top-color:var(--teal);background:#eaf3f7;box-shadow:0 3px 16px rgba(23,84,107,.12)}
+  .card .fn{font-size:clamp(11px,1vw,14px);text-transform:uppercase;letter-spacing:.11em;color:var(--muted);font-weight:800;margin-bottom:6px}
+  .card.hot .fn{color:var(--teal)}
+  .card .verb{font-size:clamp(20px,2.3vw,34px);font-weight:800;color:var(--navy);letter-spacing:-.01em;line-height:1.03;margin-bottom:10px}
+  .card .desc{font-size:clamp(13px,1.2vw,19px);line-height:1.4;color:var(--slate)}
+  .card .when{margin-top:auto;padding-top:12px;font-size:clamp(12px,1.2vw,16px);font-weight:800;letter-spacing:.03em;color:var(--muted);text-transform:uppercase}
+  .card.hot .when{color:var(--teal)}
+
+  /* ---- screenshot frame + placeholder for a screenshot not taken yet ---- */
+  .shot{flex:1;min-height:0;margin-top:12px;display:flex;align-items:center;justify-content:center;background:#eef2f6;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .shot img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+  .dash{flex:1;min-height:0;margin-top:12px;border:2.5px dashed var(--steel-lt);border-radius:16px;
+    background:repeating-linear-gradient(45deg,#f6f9fb,#f6f9fb 16px,#f0f5f8 16px,#f0f5f8 32px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;color:var(--muted)}
+  .dash svg{width:clamp(40px,4vw,64px);height:auto;opacity:.55}
+  .dash .lbl{font-size:clamp(17px,1.9vw,26px);font-weight:800;color:var(--slate)}
+  .dash .hint{font-size:clamp(13px,1.25vw,18px);color:var(--muted);max-width:40em;padding:0 20px}
+  .dashcap{margin-top:12px;font-size:clamp(14px,1.35vw,21px);line-height:1.35;color:var(--ink)}
+  .dashcap b{color:var(--teal)}
+
+  /* ---- big-number hero tiles (ROI, results, targets) ---- */
+  .roihero{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:16px}
+  .roitile{background:var(--panel);border:1px solid var(--line);border-radius:14px;border-bottom:5px solid var(--ask);padding:clamp(16px,1.9vw,28px);display:flex;flex-direction:column;gap:8px}
+  .roitile .big{font-size:clamp(30px,4.2vw,60px);font-weight:800;color:var(--ask);letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+  .roitile .cap{font-size:clamp(14px,1.3vw,21px);font-weight:700;color:var(--navy);line-height:1.22}
+  .roitile .sub{font-size:clamp(12px,1.35vw,19px);color:var(--slate);line-height:1.35}
+  .roitile.trivial{border-bottom-color:var(--teal)}
+  .roitile.trivial .big{color:var(--teal);font-size:clamp(22px,2.7vw,40px)}
+
+  /* ---- iceberg / waterline: visible above, hidden mass below ---- */
+  .berg{flex:1;min-height:0;display:flex;flex-direction:column;margin-top:12px;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+  .berg .above{background:#f7fbfd;padding:14px 20px}
+  .berg .wline{height:3px;background:repeating-linear-gradient(90deg,#5f97b4,#5f97b4 10px,#93bace 10px,#93bace 20px)}
+  .berg .below{flex:1;min-height:0;background:linear-gradient(180deg,#d8e9f2,#bcd8e7 60%,#a3cadd);padding:16px 20px}
+  .berg .zlabel{font-size:clamp(12px,1.2vw,17px);text-transform:uppercase;letter-spacing:.08em;font-weight:800;margin-bottom:10px}
+  .berg .above .zlabel{color:var(--teal)}
+  .berg .below .zlabel{color:#134a64}
+  .berg .below .zsub{font-size:clamp(12px,1.2vw,17px);color:#245975;font-weight:600;line-height:1.35;margin:-2px 0 12px}
+  .chips{display:flex;gap:12px;flex-wrap:wrap}
+  .chip{background:#fff;border:1px solid var(--line);border-bottom:3px solid var(--teal);border-radius:9px;padding:9px 15px;font-size:clamp(14px,1.3vw,20px);font-weight:800;color:var(--navy)}
+  .mass{display:grid;grid-template-columns:1fr 1fr;gap:10px 28px;margin-top:2px}
+  .mass span{font-size:clamp(14px,1.35vw,20px);font-weight:600;color:#0f3a52;position:relative;padding-left:20px;line-height:1.3}
+  .mass span:before{content:"";position:absolute;left:0;top:.5em;width:9px;height:9px;border-radius:2px;background:#2f6f8f}
+
+  /* ---- two-column commitment list (close slide) ---- */
+  .commit{margin-top:14px}
+  .commit .clabel{font-size:clamp(11px,1.05vw,14px);text-transform:uppercase;letter-spacing:.09em;font-weight:800;color:var(--teal);margin-bottom:7px}
+  .commit ul{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 26px}
+  .commit li{font-size:clamp(12px,1.1vw,15px);line-height:1.32;color:var(--slate);position:relative;padding-left:17px}
+  .commit li:before{content:"";position:absolute;left:0;top:.5em;width:7px;height:7px;border-radius:2px;background:var(--ask)}
+  .commit li b{color:var(--navy);font-weight:800;white-space:nowrap}
+
+  /* ---- navigation chrome ---- */
+  .nav{position:absolute;bottom:14px;right:20px;display:flex;align-items:center;gap:10px;font-size:15px;color:var(--muted);z-index:40}
+  .nav button{border:1px solid var(--line);background:#fff;color:var(--teal);border-radius:8px;width:40px;height:36px;font-size:20px;cursor:pointer;line-height:1}
+  .nav button:hover{background:var(--panel)}
+  .dots{position:absolute;bottom:18px;left:20px;display:flex;gap:6px;z-index:40}
+  .dot{width:8px;height:8px;border-radius:50%;background:#cdd6e0;cursor:pointer}.dot.on{background:var(--teal)}
+  /* Draft stamp — delete the .badge div from _99_tail.html before publishing. */
+  .badge{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--you);color:#fff;font-size:12px;font-weight:800;letter-spacing:.12em;padding:3px 10px;border-radius:5px;z-index:50}
+  @media (max-width:820px){.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
