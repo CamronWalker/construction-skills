@@ -8,31 +8,31 @@
       "name": "westland",
       "source": "./westland",
       "description": "Westland organizational plugin — safety hook, house-style, bug-report capture, meeting-transcript reading, a report catalog, shareable deck artifacts, and MCP connector setup. Install first; required dependency of domain plugins. Contains the Westland Project Files PreToolUse hook (.xer edits/deletes denied; .html/.md/.json allowlisted) plus the westland-house-style, westland-bug-report, read-meeting-transcript, westland-analytics, westland-connectors, and westland-slide-deck skills.",
-      "version": "1.10.0"
+      "version": "1.10.1"
     },
     {
       "name": "scheduling",
       "source": "./scheduling",
       "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations, proposal schedules with an online review link (attributed task comments) + final XER-import validation gate, Tier 3 XER modification + generation, a WBS-pathed activity roster + read surface, name-based Responsibility (trade) code assignment, and the full weekly schedule update pipeline via the westland-mcps cloud editor.",
-      "version": "10.2.1"
+      "version": "10.2.2"
     },
     {
       "name": "preconstruction",
       "source": "./preconstruction",
       "description": "Claude Code skills for construction preconstruction — business development, estimating, and proposals. Includes buildr-toolbox, a companion/usage skill for the remote Buildr MCP connector: win/loss reporting, workforce availability, pipeline/pursuit snapshots, and account 360 lookups across Buildr's CRM, projects, financials, and workforce data. Future estimating skills (bid-docs review, scope-gap analysis, bid leveling, spec assignments) land here too.",
-      "version": "0.2.0"
+      "version": "0.2.1"
     },
     {
       "name": "construction",
       "source": "./construction",
       "description": "Claude Code skills for the construction phase — Procore-native workflows plus a Procore MCP toolkit. Read project dashboards, review and grade daily logs, snapshot RFI/submittal health, chase overdue responses, batch-import observations from field reports, log manpower/calls/correspondence, review submittals against specs, distribute change events, and write RFIs — all with dry-run write safety. Merges the former project-management and site-operations plugins.",
-      "version": "0.1.1"
+      "version": "0.1.2"
     },
     {
       "name": "safety",
       "source": "./safety",
       "description": "Claude Code skills for construction safety — toolbox talks, JSAs, orientations, and incident reports.",
-      "version": "0.2.0"
+      "version": "0.2.1"
     }
   ]
 }

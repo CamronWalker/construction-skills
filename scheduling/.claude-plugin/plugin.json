@@ -1,11 +1,11 @@
 {
   "name": "scheduling",
-  "version": "10.2.1",
+  "version": "10.2.2",
   "description": "Claude Code skills for construction scheduling — Westland standards, P6 XER operations (parsing, 31 quality checks, CPM, path analysis, weekly_update_review), Tier 3 XER modification + generation, a WBS-pathed activity roster + adjacency read surface, name-based Responsibility (trade) code assignment, proposal schedules with an online review link (attributed task comments) + final XER-import validation gate, and the full weekly schedule update pipeline via the westland-mcps cloud editor.",
   "author": {
     "name": "Camron Walker"
   },
-  "repository": "https://github.com/CamronWalker/construction-skills",
+  "repository": "https://github.com/westland-construction/construction-skills",
   "license": "MIT",
   "keywords": [
     "construction",

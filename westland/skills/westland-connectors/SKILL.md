@@ -35,7 +35,7 @@ From Claude Code, add the marketplace once, then install the plugins. **Install 
 first** — it's the required base every domain plugin depends on.
 
 ```
-/plugin marketplace add CamronWalker/construction-skills
+/plugin marketplace add westland-construction/construction-skills
 /plugin install westland@construction-skills
 /plugin install scheduling@construction-skills
 /plugin install preconstruction@construction-skills
