@@ -7,7 +7,7 @@ Claude Code skills for construction workflows.
 Browse available plugins and install the ones you need:
 
 ```
-/plugin marketplace add CamronWalker/construction-skills
+/plugin marketplace add westland-construction/construction-skills
 /plugin install scheduling@construction-skills
 /plugin install preconstruction@construction-skills
 /plugin install construction@construction-skills
