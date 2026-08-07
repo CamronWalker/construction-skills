@@ -89,13 +89,28 @@
     if(!vp){vp=document.createElement('meta');vp.setAttribute('name','viewport');(document.head||document.documentElement).appendChild(vp);}
     vp.setAttribute('content','width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes');
 
+    /* Never write a non-positive scale. A viewport dimension can read 0 while
+       the deck is parsed in a background/offscreen tab or mid-rotation on iOS,
+       and scale(0) doesn't just look wrong — it renders the whole deck invisible
+       (0x0 rects on #deck and every slide) and STAYS that way, because 'resize'
+       and 'orientationchange' are the only recompute paths and neither is
+       guaranteed to fire afterward. A reader would have to reload. So bail
+       instead of writing, keeping the last good value, and retry on a short
+       timer ladder: requestAnimationFrame never fires in a tab that isn't
+       compositing, but timers do. */
     function fitDeck(){
-      deck.style.setProperty('--deck-scale', Math.min(window.innerWidth/CW, window.innerHeight/CH));
+      var w=window.innerWidth||document.documentElement.clientWidth||0;
+      var h=window.innerHeight||document.documentElement.clientHeight||0;
+      var s=Math.min(w/CW, h/CH);
+      if(s>0) deck.style.setProperty('--deck-scale', String(s));
+      return s>0;
     }
-    fitDeck();
+    if(!fitDeck()){ [0,50,200,600].forEach(function(d){ setTimeout(fitDeck,d); }); }
     window.addEventListener('resize', fitDeck, {passive:true});
     /* iOS reports stale dimensions during the rotation animation — wait it out. */
     window.addEventListener('orientationchange', function(){ setTimeout(fitDeck,60); });
+    /* Backstop: fires on real layout changes, not just window 'resize' events. */
+    if(window.ResizeObserver){ new ResizeObserver(fitDeck).observe(document.documentElement); }
 
     if(typeof go!=='function'||typeof slides==='undefined') return;
 
